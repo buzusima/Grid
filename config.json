@@ -1,0 +1,27 @@
+{
+    "target_survivability": 20000,
+    "safety_ratio": 0.6,
+    "emergency_stop_percentage": 50,
+    "daily_loss_limit_percentage": 10,
+    "hedge_triggers": [
+        0.15,
+        0.3,
+        0.45,
+        0.6
+    ],
+    "hedge_multipliers": [
+        0.5,
+        1.0,
+        1.5,
+        2.0
+    ],
+    "log_level": "INFO",
+    "auto_connect_mt5": true,
+    "gold_symbols": [
+        "XAUUSD",
+        "GOLD",
+        "XAU/USD",
+        "XAUUSD.cmd",
+        "GOLD#"
+    ]
+}
