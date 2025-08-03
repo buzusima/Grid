@@ -26,10 +26,10 @@ class SurvivabilityEngine:
         self.volatility_buffer = 1.15  # 15% buffer for volatility
         self.emergency_reserve = 0.2   # 20% emergency reserve
         
-    def calculate_for_balance(self, account_balance: float) -> Dict:
+    def calculate_for_balance(self, account_balance: float, min_lot: float = 0.01) -> Dict:
         """
         Main calculation function for survivability based on account balance
-        Guarantees 20,000+ points survivability
+        Now includes realistic lot size limitations and actual survivability calculation
         """
         try:
             # Input validation
@@ -40,37 +40,53 @@ class SurvivabilityEngine:
                 raise ValueError("Minimum account balance required: $100")
                 
             print(f"🧮 AI Calculating survivability for ${account_balance:,.2f}...")
+            print(f"📏 Broker minimum lot: {min_lot}")
             
             # Calculate usable capital with safety margins
             usable_capital = self.calculate_usable_capital(account_balance)
             
             # AI-powered parameter optimization
-            base_lot = self.calculate_optimal_base_lot(usable_capital, account_balance)
-            grid_spacing = self.calculate_optimal_grid_spacing(usable_capital, base_lot)
-            max_levels = self.calculate_max_grid_levels(usable_capital, base_lot, grid_spacing)
+            ideal_base_lot = self.calculate_optimal_base_lot(usable_capital, account_balance)
             
-            # Calculate actual survivability
-            calculated_survivability = max_levels * grid_spacing
+            # Apply broker minimum lot constraint
+            actual_base_lot = max(ideal_base_lot, min_lot)
             
-            # Ensure we meet the 20,000+ target
-            if calculated_survivability < self.target_survivability:
-                # Adjust parameters to meet target
+            # Check if we had to adjust lot size
+            lot_adjusted = actual_base_lot > ideal_base_lot
+            
+            if lot_adjusted:
+                print(f"⚠️ Lot size adjusted: {ideal_base_lot:.3f} → {actual_base_lot:.3f} (broker minimum)")
+            
+            # Calculate parameters with actual lot size
+            grid_spacing = self.calculate_optimal_grid_spacing(usable_capital, actual_base_lot)
+            max_levels = self.calculate_max_grid_levels_realistic(usable_capital, actual_base_lot, grid_spacing)
+            
+            # Calculate ACTUAL survivability with real lot sizes
+            actual_survivability = max_levels * grid_spacing
+            
+            # If still below target and we haven't hit minimum lot, try adjustment
+            if actual_survivability < self.target_survivability and not lot_adjusted:
                 adjusted_params = self.adjust_for_target_survivability(
-                    usable_capital, account_balance
+                    usable_capital, account_balance, min_lot
                 )
-                base_lot = adjusted_params['base_lot']
+                actual_base_lot = adjusted_params['base_lot']
                 grid_spacing = adjusted_params['grid_spacing']
                 max_levels = adjusted_params['max_levels']
-                calculated_survivability = adjusted_params['survivability']
+                actual_survivability = adjusted_params['survivability']
                 
             # Final safety checks
             safety_margin = account_balance - usable_capital
             margin_percentage = (safety_margin / account_balance) * 100
             
-            # Calculate additional metrics
-            total_exposure = self.calculate_total_exposure(base_lot, max_levels)
-            max_drawdown_value = self.calculate_max_drawdown_value(
-                base_lot, max_levels, grid_spacing
+            # Calculate additional metrics with REAL lot sizes
+            total_exposure = self.calculate_total_exposure(actual_base_lot, max_levels)
+            max_drawdown_value = self.calculate_max_drawdown_value_realistic(
+                actual_base_lot, max_levels, grid_spacing
+            )
+            
+            # Calculate REALISTIC survivability metrics
+            survivability_metrics = self.calculate_realistic_survivability_metrics(
+                actual_base_lot, grid_spacing, usable_capital, max_levels
             )
             
             # Compile results
@@ -79,27 +95,39 @@ class SurvivabilityEngine:
                 'usable_capital': usable_capital,
                 'safety_margin': safety_margin,
                 'safety_margin_percentage': margin_percentage,
-                'base_lot': base_lot,
+                'ideal_base_lot': ideal_base_lot,
+                'base_lot': actual_base_lot,
+                'lot_size_adjusted': lot_adjusted,
                 'grid_spacing': grid_spacing,
                 'max_levels': max_levels,
-                'survivability': calculated_survivability,
-                'target_met': calculated_survivability >= self.target_survivability,
+                'survivability': actual_survivability,
+                'realistic_survivability': survivability_metrics['realistic_points'],
+                'actual_cost_per_level': survivability_metrics['cost_per_level'],
+                'max_affordable_levels': survivability_metrics['max_affordable_levels'],
+                'target_met': actual_survivability >= self.target_survivability,
                 'total_exposure': total_exposure,
                 'max_drawdown_value': max_drawdown_value,
-                'efficiency_rating': self.calculate_efficiency_rating(calculated_survivability),
+                'efficiency_rating': self.calculate_efficiency_rating(actual_survivability),
                 'risk_level': self.assess_risk_level(account_balance, max_drawdown_value),
-                'calculation_timestamp': datetime.now().isoformat()
+                'capital_utilization': survivability_metrics['capital_utilization'],
+                'calculation_timestamp': datetime.now().isoformat(),
+                'warnings': survivability_metrics['warnings']
             }
             
             # Add detailed breakdown
             results['detailed_breakdown'] = self.create_detailed_breakdown(results)
             
             print(f"✅ AI Calculation completed:")
-            print(f"   🎯 Base Lot: {base_lot:.3f}")
+            print(f"   🎯 Actual Lot: {actual_base_lot:.3f} (Ideal: {ideal_base_lot:.3f})")
             print(f"   📏 Grid Spacing: {grid_spacing} points")
             print(f"   📊 Max Levels: {max_levels}")
-            print(f"   🛡️ Survivability: {calculated_survivability:,.0f} points")
+            print(f"   🛡️ Theoretical Survivability: {actual_survivability:,.0f} points")
+            print(f"   💯 REALISTIC Survivability: {survivability_metrics['realistic_points']:,.0f} points")
             print(f"   💪 Safety Margin: ${safety_margin:,.2f} ({margin_percentage:.1f}%)")
+            
+            if lot_adjusted:
+                print(f"   ⚠️ Warning: Lot size limited by broker minimum")
+                print(f"   📉 Actual survivability reduced due to minimum lot constraint")
             
             return results
             
@@ -227,83 +255,136 @@ class SurvivabilityEngine:
             
         return final_spacing
         
-    def calculate_max_grid_levels(self, usable_capital: float, base_lot: float, grid_spacing: int) -> int:
-        """Calculate maximum number of grid levels"""
+    def calculate_max_grid_levels_realistic(self, usable_capital: float, actual_lot: float, grid_spacing: int) -> int:
+        """Calculate maximum number of grid levels with REAL lot sizes and costs"""
         
-        # Calculate cost per grid level
-        cost_per_level = base_lot * grid_spacing * self.gold_point_value * 100
+        # Calculate REAL cost per grid level
+        # Cost = lot_size * grid_spacing * point_value + margin_requirement
+        cost_per_level = actual_lot * grid_spacing * self.gold_point_value * 100  # Point value for gold
         
-        # Add margin requirements (estimated)
-        margin_per_level = base_lot * 1000  # Approximate margin per 0.01 lot
+        # Add realistic margin requirements (approximate)
+        margin_per_level = actual_lot * 2000  # Approximate $2000 margin per 0.01 lot for gold
         total_cost_per_level = cost_per_level + margin_per_level
         
-        # Calculate maximum affordable levels
+        # Calculate maximum affordable levels with safety factor
+        max_affordable_levels = (usable_capital * 0.8) / total_cost_per_level  # 80% safety factor
+        
+        # Ensure we don't exceed reasonable limits
+        max_reasonable_levels = min(100, int(self.target_survivability / grid_spacing))
+        
+        final_levels = min(int(max_affordable_levels), max_reasonable_levels)
+        
+        # Ensure minimum viable levels
+        final_levels = max(final_levels, 10)  # At least 10 levels
+        
+        return final_levels
+        
+    def calculate_realistic_survivability_metrics(self, actual_lot: float, grid_spacing: int, 
+                                                 usable_capital: float, max_levels: int) -> Dict:
+        """Calculate realistic survivability considering actual constraints"""
+        
+        # Real cost per level calculation
+        point_value_per_lot = 100  # $100 per point for 1 lot gold
+        cost_per_point = actual_lot * point_value_per_lot
+        cost_per_level = grid_spacing * cost_per_point
+        
+        # Add margin costs
+        margin_per_level = actual_lot * 2000  # Estimated margin per level
+        total_cost_per_level = cost_per_level + margin_per_level
+        
+        # Calculate how many levels we can actually afford
         max_affordable_levels = usable_capital / total_cost_per_level
         
-        # Apply safety factor
-        safe_max_levels = max_affordable_levels * 0.7  # 70% of maximum for safety
+        # Realistic levels considering our max_levels constraint
+        realistic_levels = min(max_levels, int(max_affordable_levels))
         
-        # Ensure we can reach target survivability
-        required_levels_for_target = self.target_survivability / grid_spacing
+        # Calculate realistic survivability in points
+        realistic_points = realistic_levels * grid_spacing
         
-        # Use the higher of safe calculation or required for target
-        final_levels = max(safe_max_levels, required_levels_for_target)
+        # Capital utilization
+        total_cost = realistic_levels * total_cost_per_level
+        capital_utilization = (total_cost / usable_capital) * 100
         
-        # Round down to whole number
-        return int(final_levels)
+        # Generate warnings
+        warnings = []
         
-    def adjust_for_target_survivability(self, usable_capital: float, account_balance: float) -> Dict:
-        """Adjust parameters to guarantee target survivability"""
+        if realistic_points < self.target_survivability:
+            shortage = self.target_survivability - realistic_points
+            warnings.append(f"Survivability {shortage:,.0f} points below target due to capital constraints")
+            
+        if actual_lot == 0.01:  # If we're at minimum lot
+            warnings.append("Using minimum broker lot size - may limit survivability optimization")
+            
+        if capital_utilization > 90:
+            warnings.append("High capital utilization - consider reducing exposure")
+            
+        if realistic_levels < 20:
+            warnings.append("Low number of grid levels - may not provide adequate coverage")
+            
+        return {
+            'realistic_points': realistic_points,
+            'cost_per_level': round(total_cost_per_level, 2),
+            'max_affordable_levels': int(max_affordable_levels),
+            'capital_utilization': round(capital_utilization, 1),
+            'warnings': warnings
+        }
+        
+    def calculate_max_drawdown_value_realistic(self, actual_lot: float, max_levels: int, grid_spacing: int) -> float:
+        """Calculate maximum drawdown value with realistic lot sizes"""
+        
+        # Total exposure with actual lot sizes
+        total_exposure = actual_lot * max_levels
+        max_drawdown_points = max_levels * grid_spacing
+        
+        # Calculate dollar value of maximum drawdown
+        # For gold: 1 point = $1 for 1 lot
+        max_drawdown_value = total_exposure * max_drawdown_points * self.base_point_value
+        
+        return max_drawdown_value
+        
+    def adjust_for_target_survivability(self, usable_capital: float, account_balance: float, min_lot: float = 0.01) -> Dict:
+        """Adjust parameters to guarantee target survivability with broker constraints"""
         
         target_points = self.target_survivability
         
-        # Start with conservative parameters that guarantee the target
-        # Work backwards from target survivability
-        
+        # Work backwards from target survivability considering minimum lot
         # Try different grid spacing options from wide to tight
         spacing_options = [600, 500, 400, 350, 300, 250, 200, 175, 150, 125, 100]
         
         for grid_spacing in spacing_options:
             required_levels = math.ceil(target_points / grid_spacing)
             
-            # Calculate maximum lot size that allows these levels
-            cost_per_level = grid_spacing * self.gold_point_value * 100
-            margin_estimate = 1000  # Conservative margin estimate per level
+            # Calculate cost per level with minimum lot
+            cost_per_level = min_lot * grid_spacing * self.gold_point_value * 100
+            margin_per_level = min_lot * 2000  # More realistic margin estimate
+            total_cost_per_level = cost_per_level + margin_per_level
             
-            total_cost = required_levels * (cost_per_level + margin_estimate)
+            total_cost = required_levels * total_cost_per_level
             
-            if total_cost <= usable_capital:
-                # This configuration works
-                max_affordable_lot = (usable_capital - required_levels * margin_estimate) / (required_levels * cost_per_level)
-                
-                # Round to appropriate lot step
-                lot_step = self.determine_lot_step(max_affordable_lot)
-                base_lot = self.round_to_lot_step(max_affordable_lot * 0.8, lot_step)  # 80% for safety
-                
-                # Ensure minimum lot
-                base_lot = max(base_lot, 0.001)
-                
-                # Recalculate survivability
+            if total_cost <= usable_capital * 0.9:  # 90% of capital
+                # This configuration works with minimum lot
                 actual_survivability = required_levels * grid_spacing
                 
-                if actual_survivability >= target_points:
-                    return {
-                        'base_lot': round(base_lot, 3),
-                        'grid_spacing': grid_spacing,
-                        'max_levels': required_levels,
-                        'survivability': actual_survivability
-                    }
-                    
-        # Fallback: use minimum parameters that meet target
-        fallback_spacing = 500
-        fallback_levels = math.ceil(target_points / fallback_spacing)
-        fallback_lot = 0.001
+                return {
+                    'base_lot': min_lot,
+                    'grid_spacing': grid_spacing,
+                    'max_levels': required_levels,
+                    'survivability': actual_survivability
+                }
+                
+        # Fallback: use maximum possible with minimum lot
+        max_cost_per_level = usable_capital * 0.8 / 20  # At least 20 levels
+        affordable_spacing = int((max_cost_per_level - min_lot * 2000) / (min_lot * self.gold_point_value * 100))
+        affordable_spacing = max(100, min(affordable_spacing, 600))  # Keep reasonable range
+        
+        fallback_levels = int(usable_capital * 0.8 / (min_lot * affordable_spacing * self.gold_point_value * 100 + min_lot * 2000))
+        fallback_levels = max(fallback_levels, 15)  # Minimum 15 levels
         
         return {
-            'base_lot': fallback_lot,
-            'grid_spacing': fallback_spacing,
+            'base_lot': min_lot,
+            'grid_spacing': affordable_spacing,
             'max_levels': fallback_levels,
-            'survivability': fallback_levels * fallback_spacing
+            'survivability': fallback_levels * affordable_spacing
         }
         
     def determine_lot_step(self, lot_size: float) -> float:

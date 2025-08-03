@@ -66,9 +66,10 @@ class GoldHedgeCalculator:
         self.total_grid_exposure = 0.0
         self.current_drawdown = 0.0
         
-    def calculate_hedge_plan(self, survivability_params: Dict) -> List[Tuple[float, float]]:
+    def calculate_hedge_plan(self, survivability_params: Dict, min_lot: float = 0.01) -> List[Tuple[float, float]]:
         """
         Calculate comprehensive hedge plan based on survivability parameters
+        Now includes broker minimum lot constraints
         Returns list of (trigger_points, hedge_size) tuples
         """
         try:
@@ -78,35 +79,53 @@ class GoldHedgeCalculator:
             survivability = survivability_params['survivability']
             
             print(f"🛡️ Calculating hedge plan for {survivability:,.0f} points survivability...")
+            print(f"📏 Broker minimum lot for hedges: {min_lot}")
             
             hedge_plan = []
+            adjusted_hedges = 0
             
             # Calculate hedge levels based on survivability
             for i, trigger_ratio in enumerate(self.hedge_triggers):
                 trigger_points = survivability * trigger_ratio
                 
                 # Calculate optimal hedge size for this level
-                hedge_size = self.calculate_optimal_hedge_size(
+                ideal_hedge_size = self.calculate_optimal_hedge_size(
                     base_lot, 
                     trigger_points, 
                     grid_spacing,
                     i + 1  # Hedge level
                 )
                 
-                hedge_plan.append((trigger_points, hedge_size))
+                # Apply minimum lot constraint
+                actual_hedge_size = max(ideal_hedge_size, min_lot)
+                
+                # Track if we had to adjust
+                if actual_hedge_size > ideal_hedge_size:
+                    adjusted_hedges += 1
+                
+                hedge_plan.append((trigger_points, actual_hedge_size))
                 
             # Add emergency hedge levels for extreme scenarios
             emergency_hedges = self.calculate_emergency_hedges(
-                base_lot, survivability, max_levels
+                base_lot, survivability, max_levels, min_lot
             )
             hedge_plan.extend(emergency_hedges)
             
             # Sort by trigger points
             hedge_plan.sort(key=lambda x: x[0])
             
+            # Calculate realistic hedge effectiveness
+            hedge_metrics = self.calculate_realistic_hedge_metrics(hedge_plan, base_lot, min_lot)
+            
             print(f"✅ Hedge plan calculated with {len(hedge_plan)} levels")
+            if adjusted_hedges > 0:
+                print(f"⚠️ {adjusted_hedges} hedge levels adjusted to minimum lot size")
+                print(f"📊 Hedge effectiveness: {hedge_metrics['effectiveness']:.1f}%")
+                print(f"💰 Total hedge cost: ${hedge_metrics['total_cost']:.2f}")
+            
             for i, (trigger, size) in enumerate(hedge_plan):
-                print(f"   Level {i+1}: @{trigger:,.0f} points → {size:.3f} lots")
+                color = "⚠️" if size == min_lot else "✅"
+                print(f"   Level {i+1}: @{trigger:,.0f} points → {size:.3f} lots {color}")
                 
             return hedge_plan
             
@@ -146,27 +165,70 @@ class GoldHedgeCalculator:
         return round(hedge_size, 3)
         
     def calculate_emergency_hedges(self, base_lot: float, survivability: float, 
-                                 max_levels: int) -> List[Tuple[float, float]]:
-        """Calculate emergency hedge levels beyond normal plan"""
+                                 max_levels: int, min_lot: float = 0.01) -> List[Tuple[float, float]]:
+        """Calculate emergency hedge levels beyond normal plan with minimum lot constraints"""
         
         emergency_hedges = []
         
         # Emergency hedge at 80% of survivability
         emergency_trigger_1 = survivability * 0.8
-        emergency_size_1 = base_lot * 2.5
-        emergency_hedges.append((emergency_trigger_1, emergency_size_1))
+        ideal_emergency_size_1 = base_lot * 2.5
+        actual_emergency_size_1 = max(ideal_emergency_size_1, min_lot)
+        emergency_hedges.append((emergency_trigger_1, actual_emergency_size_1))
         
         # Critical hedge at 90% of survivability
         critical_trigger = survivability * 0.9
-        critical_size = base_lot * 3.0
-        emergency_hedges.append((critical_trigger, critical_size))
+        ideal_critical_size = base_lot * 3.0
+        actual_critical_size = max(ideal_critical_size, min_lot)
+        emergency_hedges.append((critical_trigger, actual_critical_size))
         
         # Final hedge at 95% of survivability
         final_trigger = survivability * 0.95
-        final_size = base_lot * 4.0
-        emergency_hedges.append((final_trigger, final_size))
+        ideal_final_size = base_lot * 4.0
+        actual_final_size = max(ideal_final_size, min_lot)
+        emergency_hedges.append((final_trigger, actual_final_size))
         
         return emergency_hedges
+        
+    def calculate_realistic_hedge_metrics(self, hedge_plan: List[Tuple[float, float]], 
+                                        base_lot: float, min_lot: float) -> Dict:
+        """Calculate realistic hedge effectiveness and costs"""
+        
+        total_hedge_exposure = sum(size for _, size in hedge_plan)
+        total_grid_exposure = base_lot * 50  # Estimated average grid exposure
+        
+        # Calculate hedge ratio
+        hedge_ratio = total_hedge_exposure / total_grid_exposure if total_grid_exposure > 0 else 0
+        
+        # Calculate hedge effectiveness (reduced if many hedges are at minimum)
+        min_lot_hedges = sum(1 for _, size in hedge_plan if size == min_lot)
+        total_hedges = len(hedge_plan)
+        
+        base_effectiveness = 85  # Base 85% effectiveness
+        if min_lot_hedges > 0:
+            effectiveness_reduction = (min_lot_hedges / total_hedges) * 20  # Up to 20% reduction
+            actual_effectiveness = base_effectiveness - effectiveness_reduction
+        else:
+            actual_effectiveness = base_effectiveness
+            
+        # Calculate estimated hedge costs
+        avg_gold_price = 2000  # Assume $2000 gold price
+        total_cost = 0
+        
+        for trigger, size in hedge_plan:
+            # Spread cost + commission
+            hedge_cost = size * 30 * 0.01  # 30 point spread
+            hedge_cost += size * 5  # $5 commission per lot
+            total_cost += hedge_cost
+            
+        return {
+            'effectiveness': actual_effectiveness,
+            'hedge_ratio': hedge_ratio * 100,
+            'total_cost': total_cost,
+            'min_lot_hedges': min_lot_hedges,
+            'total_hedges': total_hedges,
+            'cost_per_hedge': total_cost / total_hedges if total_hedges > 0 else 0
+        }
         
     def create_detailed_hedge_levels(self, hedge_plan: List[Tuple[float, float]], 
                                    base_lot: float) -> List[HedgeLevel]:

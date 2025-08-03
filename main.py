@@ -10,6 +10,7 @@ import json
 import threading
 import time
 from datetime import datetime
+from typing import Dict, List, Optional
 import os
 import sys
 
@@ -452,11 +453,42 @@ class AIGoldTradingGUI:
         """Update connection status display"""
         self.connection_status.config(text="✅ Connected", fg='#51cf66')
         
-        account_text = f"💰 Account: {account_info['login']} | Balance: ${account_info['balance']:,.2f} | {gold_symbol}"
-        self.account_label.config(text=account_text)
+        # Check market status
+        market_status = self.check_market_status()
+        market_text = "🟢 Open" if market_status else "🔴 Closed"
+        market_color = '#51cf66' if market_status else '#ff6b6b'
+        
+        account_text = f"💰 Account: {account_info['login']} | Balance: ${account_info['balance']:,.2f} | {gold_symbol} | Market: {market_text}"
+        self.account_label.config(text=account_text, fg=market_color if not market_status else '#ffffff')
         
         # Enable calculate button
         self.connect_btn.config(text="✅ Connected", state='disabled')
+        
+    def check_market_status(self) -> bool:
+        """Check if market is currently open"""
+        try:
+            if not hasattr(self, 'mt5_connector') or not self.mt5_connector:
+                return False
+                
+            # Get current time
+            current_time = datetime.now()
+            
+            # Check if it's weekend
+            if current_time.weekday() >= 5:  # Saturday = 5, Sunday = 6
+                return False
+                
+            # Check MT5 tick data
+            import MetaTrader5 as mt5
+            gold_symbol = self.mt5_connector.get_gold_symbol()
+            if gold_symbol:
+                tick = mt5.symbol_info_tick(gold_symbol)
+                return tick is not None and tick.time > 0
+                
+            return False
+            
+        except Exception as e:
+            print(f"Error checking market status: {e}")
+            return False
         
     def calculate_survivability(self):
         """Calculate and display survivability parameters"""
@@ -469,18 +501,30 @@ class AIGoldTradingGUI:
             if balance <= 0:
                 raise ValueError("Invalid account balance")
                 
+            # Get broker minimum lot size
+            symbol_info = self.mt5_connector.get_symbol_info()
+            min_lot = symbol_info.get('volume_min', 0.01) if symbol_info else 0.01
+                
             self.log_message(f"🧮 Calculating survivability for ${balance:,.2f}...")
+            self.log_message(f"📏 Broker minimum lot: {min_lot}")
             
-            # Calculate using survivability engine
-            calculations = self.survivability_engine.calculate_for_balance(balance)
+            # Calculate using survivability engine with broker constraints
+            calculations = self.survivability_engine.calculate_for_balance(balance, min_lot)
             self.current_calculations = calculations
             
             # Update display
             self.update_survivability_display(calculations)
             
-            # Calculate hedge plan
-            hedge_plan = self.hedge_calculator.calculate_hedge_plan(calculations)
+            # Calculate hedge plan with broker constraints
+            symbol_info = self.mt5_connector.get_symbol_info()
+            min_lot = symbol_info.get('volume_min', 0.01) if symbol_info else 0.01
+            hedge_plan = self.hedge_calculator.calculate_hedge_plan(calculations, min_lot)
             self.update_hedge_display(hedge_plan)
+            
+            # Log warnings if any
+            if calculations.get('warnings'):
+                for warning in calculations['warnings']:
+                    self.log_message(f"⚠️ {warning}", "WARNING")
             
             self.log_message("✅ Survivability calculation completed", "SUCCESS")
             
@@ -491,29 +535,80 @@ class AIGoldTradingGUI:
     def update_survivability_display(self, calc):
         """Update survivability display with calculations"""
         self.balance_label.config(text=f"💰 Balance: ${calc['account_balance']:,.2f}")
-        self.base_lot_label.config(text=f"🎯 Base Lot: {calc['base_lot']:.2f}")
+        
+        # Show both ideal and actual lot sizes
+        if calc.get('lot_size_adjusted', False):
+            lot_text = f"🎯 Lot: {calc['base_lot']:.3f} (Ideal: {calc['ideal_base_lot']:.3f}) ⚠️"
+            lot_color = '#ffd43b'  # Yellow for warning
+        else:
+            lot_text = f"🎯 Base Lot: {calc['base_lot']:.3f}"
+            lot_color = '#ffffff'
+            
+        self.base_lot_label.config(text=lot_text, fg=lot_color)
+        
         self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} จุด (${calc['grid_spacing']*0.01:.2f})")
         self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']}")
         
-        # Survivability with color coding
-        survivability = calc['survivability']
-        if survivability >= 20000:
+        # Show both theoretical and realistic survivability
+        theoretical_surv = calc['survivability']
+        realistic_surv = calc.get('realistic_survivability', theoretical_surv)
+        
+        if realistic_surv >= 20000:
             surv_color = '#51cf66'  # Green
-            surv_text = f"🛡️ Survivability: {survivability:,.0f} จุด ✅"
+            if realistic_surv != theoretical_surv:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ✅ (Theory: {theoretical_surv:,.0f})"
+            else:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ✅"
         else:
             surv_color = '#ff6b6b'  # Red
-            surv_text = f"🛡️ Survivability: {survivability:,.0f} จุด ⚠️"
+            if realistic_surv != theoretical_surv:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ⚠️ (Theory: {theoretical_surv:,.0f})"
+            else:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ⚠️"
             
         self.survivability_label.config(text=surv_text, fg=surv_color)
         
         safety_margin = calc['account_balance'] * (1 - self.config['safety_ratio'])
         self.safety_margin_label.config(text=f"💪 Safety Margin: ${safety_margin:,.2f} ({100-self.config['safety_ratio']*100:.0f}%)")
         
+        # Show capital utilization if available
+        if 'capital_utilization' in calc:
+            util_text = f"📊 Capital Used: {calc['capital_utilization']:.1f}%"
+            if calc['capital_utilization'] > 90:
+                util_color = '#ff6b6b'  # Red for high utilization
+            elif calc['capital_utilization'] > 70:
+                util_color = '#ffd43b'  # Yellow for moderate
+            else:
+                util_color = '#51cf66'  # Green for safe
+            
+            # Add utilization label if not exists
+            if not hasattr(self, 'utilization_label'):
+                self.utilization_label = tk.Label(
+                    self.max_levels_label.master, 
+                    text=util_text, 
+                    font=('Arial', 10), 
+                    fg=util_color, 
+                    bg='#16213e'
+                )
+                self.utilization_label.pack(anchor='w', pady=2)
+            else:
+                self.utilization_label.config(text=util_text, fg=util_color)
+        
     def update_hedge_display(self, hedge_plan):
-        """Update hedge plan display"""
+        """Update hedge plan display with minimum lot warnings"""
         # Clear previous hedge display
         for widget in self.hedge_display.winfo_children():
             widget.destroy()
+            
+        # Get minimum lot for comparison with error handling
+        min_lot = 0.01  # Default minimum lot
+        try:
+            if hasattr(self, 'mt5_connector') and self.mt5_connector:
+                symbol_info = self.mt5_connector.get_symbol_info()
+                if symbol_info and isinstance(symbol_info, dict):
+                    min_lot = symbol_info.get('volume_min', 0.01)
+        except Exception as e:
+            print(f"Warning: Could not get symbol info for hedge display: {e}")
             
         for i, (trigger_points, hedge_size) in enumerate(hedge_plan):
             hedge_frame = tk.Frame(self.hedge_display, bg='#16213e')
@@ -530,17 +625,42 @@ class AIGoldTradingGUI:
             )
             trigger_label.pack(side=tk.LEFT)
             
+            # Check if hedge size was adjusted to minimum
+            is_minimum = abs(hedge_size - min_lot) < 0.0001  # Account for floating point precision
+            
+            if is_minimum and hedge_size == min_lot:
+                hedge_text = f"+{hedge_size:.3f} lot hedge ⚠️"
+                hedge_color = '#ffd43b'  # Yellow for minimum lot warning
+            else:
+                hedge_text = f"+{hedge_size:.3f} lot hedge"
+                hedge_color = '#ffffff'
+            
             hedge_label = tk.Label(
                 hedge_frame,
-                text=f"+{hedge_size:.3f} lot hedge",
+                text=hedge_text,
                 font=('Arial', 9),
-                fg='#ffffff',
+                fg=hedge_color,
                 bg='#16213e'
             )
             hedge_label.pack(side=tk.LEFT, padx=(10, 0))
             
+        # Add summary if any hedges were adjusted
+        adjusted_count = sum(1 for _, size in hedge_plan if abs(size - min_lot) < 0.0001 and size == min_lot)
+        if adjusted_count > 0:
+            summary_frame = tk.Frame(self.hedge_display, bg='#16213e')
+            summary_frame.pack(fill=tk.X, pady=(10, 0))
+            
+            summary_label = tk.Label(
+                summary_frame,
+                text=f"⚠️ {adjusted_count} hedge levels using minimum lot ({min_lot})",
+                font=('Arial', 9, 'italic'),
+                fg='#ffd43b',
+                bg='#16213e'
+            )
+            summary_label.pack(anchor='w')
+            
     def start_trading(self):
-        """Start AI grid trading system"""
+        """Start AI grid trading system - REAL TRADING"""
         if not self.is_connected:
             messagebox.showwarning("Warning", "Please connect to MT5 first")
             return
@@ -549,8 +669,24 @@ class AIGoldTradingGUI:
             messagebox.showwarning("Warning", "Please calculate survivability first")
             return
             
+        # Final confirmation for real trading
+        confirm_msg = f"""⚠️ REAL TRADING CONFIRMATION ⚠️
+
+You are about to start LIVE trading with:
+• Account Balance: ${self.current_calculations['account_balance']:,.2f}
+• Base Lot Size: {self.current_calculations['base_lot']:.3f}
+• Max Survivability: {self.current_calculations.get('realistic_survivability', self.current_calculations['survivability']):,.0f} points
+• Daily Loss Limit: ${self.config.get('daily_loss_limit', 500):,.2f}
+
+This will place REAL orders on your MT5 account!
+
+Are you absolutely sure you want to proceed?"""
+
+        if not messagebox.askyesno("⚠️ LIVE TRADING CONFIRMATION", confirm_msg):
+            return
+            
         try:
-            # Initialize grid trader
+            # Initialize grid trader with real trading
             gold_symbol = self.mt5_connector.get_gold_symbol()
             self.grid_trader = AIGoldGrid(
                 self.mt5_connector,
@@ -558,59 +694,222 @@ class AIGoldTradingGUI:
                 self.config
             )
             
+            # Initialize the grid system
+            self.log_message("🚀 Initializing AI Grid Trading System...", "INFO")
+            if not self.grid_trader.initialize_grid():
+                raise Exception("Failed to initialize grid system")
+            
             # Start trading
-            self.is_trading = True
-            self.start_btn.config(state='disabled')
-            self.stop_btn.config(state='normal')
-            
-            self.log_message("🚀 AI Grid Trading System Started!", "SUCCESS")
-            self.log_message(f"📊 Trading {gold_symbol} with {self.current_calculations['survivability']:,.0f} points survivability", "INFO")
-            
-            # Start trading thread
-            self.trading_thread = threading.Thread(target=self.run_trading_loop, daemon=True)
-            self.trading_thread.start()
+            if self.grid_trader.start_trading():
+                self.is_trading = True
+                self.start_btn.config(state='disabled', bg='#6c757d')
+                self.stop_btn.config(state='normal', bg='#dc3545')
+                
+                self.log_message("🚀 AI Grid Trading System Started - LIVE TRADING!", "SUCCESS")
+                self.log_message(f"📊 Trading {gold_symbol} with {self.current_calculations.get('realistic_survivability', 0):,.0f} points survivability", "INFO")
+                self.log_message(f"🎯 Magic Number: {self.grid_trader.magic_number}", "INFO")
+                
+                # Start trading monitoring thread
+                self.trading_thread = threading.Thread(target=self.run_trading_loop, daemon=True)
+                self.trading_thread.start()
+                
+                # Start real-time monitoring
+                self.start_real_time_monitoring()
+            else:
+                raise Exception("Failed to start trading system")
             
         except Exception as e:
             self.log_message(f"❌ Start Trading Error: {str(e)}", "ERROR")
-            messagebox.showerror("Trading Error", str(e))
+            messagebox.showerror("Trading Error", f"Failed to start trading:\n{str(e)}")
             
     def stop_trading(self):
-        """Stop trading system"""
-        self.is_trading = False
-        self.start_btn.config(state='normal')
-        self.stop_btn.config(state='disabled')
-        
-        if self.grid_trader:
-            self.grid_trader.stop_trading()
+        """Stop trading system gracefully"""
+        if not self.is_trading:
+            return
             
-        self.log_message("⏹️ AI Grid Trading System Stopped", "WARNING")
-        
-    def emergency_stop(self):
-        """Emergency stop - close all positions"""
-        if messagebox.askyesno("Emergency Stop", "⚠️ This will close ALL positions immediately!\nAre you sure?"):
-            try:
+        try:
+            confirm_msg = "Stop AI Grid Trading?\n\nThis will:\n• Stop placing new orders\n• Keep existing positions open\n• Cancel pending orders\n\nContinue?"
+            
+            if messagebox.askyesno("Stop Trading", confirm_msg):
+                self.is_trading = False
+                
                 if self.grid_trader:
+                    self.grid_trader.stop_trading()
+                    
+                    # Cancel pending orders
+                    cancelled = self.grid_trader.cancel_all_orders()
+                    self.log_message(f"🔴 Cancelled {cancelled} pending orders", "WARNING")
+                    
+                self.start_btn.config(state='normal', bg='#51cf66')
+                self.stop_btn.config(state='disabled', bg='#6c757d')
+                
+                self.log_message("⏹️ AI Grid Trading System Stopped", "WARNING")
+                
+                # Show final status
+                if self.grid_trader:
+                    status = self.grid_trader.get_grid_status()
+                    self.log_message(f"📊 Final Status: {status['active_positions']} positions, Total PnL: ${status['total_pnl']:.2f}", "INFO")
+                
+        except Exception as e:
+            self.log_message(f"❌ Stop Trading Error: {str(e)}", "ERROR")
+            
+    def emergency_stop(self):
+        """Emergency stop - close all positions immediately"""
+        if not self.is_trading:
+            messagebox.showwarning("Warning", "Trading is not active")
+            return
+            
+        emergency_msg = """🚨 EMERGENCY STOP WARNING 🚨
+
+This will IMMEDIATELY:
+• Close ALL open positions at market price
+• Cancel ALL pending orders  
+• Stop the trading system completely
+
+This action cannot be undone!
+Use only in emergency situations.
+
+Proceed with emergency stop?"""
+
+        if messagebox.askyesno("🚨 EMERGENCY STOP", emergency_msg):
+            try:
+                self.log_message("🚨 EMERGENCY STOP INITIATED!", "ERROR")
+                
+                if self.grid_trader:
+                    # Emergency close all
                     self.grid_trader.emergency_close_all()
                     
-                self.stop_trading()
-                self.log_message("🚨 EMERGENCY STOP EXECUTED - All positions closed", "ERROR")
+                    # Get final status
+                    status = self.grid_trader.get_grid_status()
+                    self.log_message(f"🚨 Emergency Stop Completed - Final PnL: ${status['total_pnl']:.2f}", "ERROR")
+                    
+                self.is_trading = False
+                self.start_btn.config(state='normal', bg='#51cf66')
+                self.stop_btn.config(state='disabled', bg='#6c757d')
+                
+                messagebox.showinfo("Emergency Stop", "Emergency stop completed!\nAll positions have been closed.")
                 
             except Exception as e:
                 self.log_message(f"❌ Emergency Stop Error: {str(e)}", "ERROR")
+                messagebox.showerror("Emergency Stop Error", f"Error during emergency stop:\n{str(e)}")
                 
     def run_trading_loop(self):
-        """Main trading loop"""
-        while self.is_trading:
+        """Main trading monitoring loop"""
+        if not self.grid_trader:
+            return
+            
+        # Start the grid trader's internal loop
+        self.grid_trader.run_trading_loop()
+        
+    def start_real_time_monitoring(self):
+        """Start real-time monitoring of trading status"""
+        self.monitoring_active = True
+        self.monitoring_thread = threading.Thread(target=self.real_time_monitor, daemon=True)
+        self.monitoring_thread.start()
+        
+    def real_time_monitor(self):
+        """Real-time monitoring thread"""
+        update_count = 0
+        
+        while self.is_trading and self.monitoring_active:
             try:
                 if self.grid_trader:
-                    self.grid_trader.update_grid()
-                    self.grid_trader.check_hedge_triggers()
+                    # Get current status
+                    status = self.grid_trader.get_grid_status()
+                    
+                    # Update GUI every 5 seconds
+                    if update_count % 5 == 0:
+                        self.root.after(0, self.update_trading_display, status)
+                        
+                    # Check for emergency conditions
+                    if status.get('emergency_stop', False):
+                        self.root.after(0, self.handle_emergency_triggered)
+                        break
+                        
+                    update_count += 1
                     
                 time.sleep(1)  # Update every second
                 
             except Exception as e:
-                self.log_message(f"❌ Trading Loop Error: {str(e)}", "ERROR")
+                print(f"Monitor error: {e}")
                 time.sleep(5)
+                
+    def update_trading_display(self, status: Dict):
+        """Update GUI with real-time trading data"""
+        try:
+            # Update current drawdown display
+            current_drawdown = status.get('current_drawdown', 0)
+            total_pnl = status.get('total_pnl', 0)
+            market_open = status.get('market_open', True)
+            
+            if total_pnl >= 0:
+                color = '#51cf66'  # Green for profit
+                text = f"📊 Current Profit: +${total_pnl:.2f} ({current_drawdown:.0f} pts)"
+            else:
+                color = '#ff6b6b'  # Red for loss
+                text = f"📊 Current Loss: ${total_pnl:.2f} ({current_drawdown:.0f} pts)"
+                
+            # Add market status to display
+            market_emoji = "🟢" if market_open else "🔴"
+            text += f" | Market: {market_emoji}"
+                
+            self.current_drawdown_label.config(text=text, fg=color)
+            
+            # Update next hedge trigger
+            if hasattr(self, 'hedge_calculator') and current_drawdown > 0:
+                next_hedge = self.hedge_calculator.get_next_hedge_trigger(current_drawdown)
+                if next_hedge:
+                    self.next_hedge_label.config(text=f"⏳ Next Hedge: {next_hedge:,.0f} จุด")
+                else:
+                    self.next_hedge_label.config(text="⏳ Next Hedge: Max Level")
+            
+            # Update position counts in a label (create if doesn't exist)
+            if not hasattr(self, 'position_count_label'):
+                self.position_count_label = tk.Label(
+                    self.current_drawdown_label.master,
+                    text="",
+                    font=('Arial', 10),
+                    fg='#ffffff',
+                    bg='#16213e'
+                )
+                self.position_count_label.pack(anchor='w', pady=2)
+                
+            position_text = f"📈 Positions: {status.get('active_positions', 0)} active, {status.get('pending_orders', 0)} pending"
+            if not market_open:
+                position_text += " | 🕒 Market Closed - Orders paused"
+                
+            self.position_count_label.config(text=position_text)
+            
+        except Exception as e:
+            print(f"Display update error: {e}")
+            
+    def handle_emergency_triggered(self):
+        """Handle emergency stop triggered by system"""
+        
+        # Get the reason from the grid trader if available
+        if hasattr(self, 'grid_trader') and self.grid_trader:
+            status = self.grid_trader.get_grid_status()
+            
+            # Don't show emergency dialog if it's just market closure
+            # Emergency stops should only be for real emergencies (loss limits, margin, etc.)
+            if status.get('market_open', True) == False:
+                # Market is closed - this is not a real emergency
+                self.log_message("🕒 Market closed - System in monitoring mode", "INFO")
+                return
+                
+        # Real emergency stop
+        self.is_trading = False
+        self.monitoring_active = False
+        
+        self.start_btn.config(state='normal', bg='#51cf66')
+        self.stop_btn.config(state='disabled', bg='#6c757d')
+        
+        self.log_message("🚨 AUTOMATIC EMERGENCY STOP TRIGGERED!", "ERROR")
+        
+        messagebox.showerror(
+            "🚨 Emergency Stop", 
+            "Automatic emergency stop was triggered!\n\nCheck the logs for details.\nAll positions have been closed."
+        )
                 
     def monitor_system(self):
         """Monitor system status"""
@@ -658,20 +957,53 @@ class AIGoldTradingGUI:
         self.log_message("🗑️ Logs cleared", "INFO")
         
     def on_closing(self):
-        """Handle application closing"""
+        """Handle application closing - SAFE EXIT"""
+        
         if self.is_trading:
-            if messagebox.askyesno("Confirm Exit", "Trading is active. Stop trading before exit?"):
+            exit_msg = """Trading is currently active!
+
+Choose your exit option:
+
+• STOP TRADING: Stop system but keep positions open
+• EMERGENCY CLOSE: Close all positions immediately  
+• CANCEL: Continue trading
+
+What would you like to do?"""
+
+            # Custom dialog for exit options
+            from tkinter import messagebox
+            
+            result = messagebox.askyesnocancel(
+                "Trading Active", 
+                "Trading is active. Stop trading before exit?\n\n• YES = Stop trading (keep positions)\n• NO = Emergency close all\n• CANCEL = Don't exit"
+            )
+            
+            if result is True:  # YES - Stop trading
                 self.stop_trading()
-                time.sleep(1)
-            else:
+                time.sleep(2)  # Give time for cleanup
+                
+            elif result is False:  # NO - Emergency close
+                self.emergency_stop()
+                time.sleep(3)  # Give time for emergency close
+                
+            else:  # CANCEL - Don't exit
                 return
                 
+        # Stop monitoring
         self.monitoring = False
+        if hasattr(self, 'monitoring_active'):
+            self.monitoring_active = False
         
+        # Disconnect MT5
         if hasattr(self, 'mt5_connector'):
             self.mt5_connector.disconnect()
             
+        # Save config
         self.save_config()
+        
+        # Final log
+        self.log_message("👋 AI Gold Grid Trading System Closed Safely", "INFO")
+        
         self.root.destroy()
         
     def run(self):

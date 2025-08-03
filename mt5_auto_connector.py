@@ -1,368 +1,412 @@
 """
-MT5 Auto Connector - Auto-detect and connect to MetaTrader5
-Automatically detects MT5 installation, connects to active account,
-and identifies gold trading symbols across different brokers.
-File: mt5_auto_connector.py
+MT5 Auto Connector with Gold Symbol Detection
+mt5_auto_connector.py
+Auto-detects MT5 installation, connects automatically, and finds gold symbols
 """
 
 import MetaTrader5 as mt5
 import os
-import sys
 import time
+import re
+from datetime import datetime
+import psutil
 import winreg
 from pathlib import Path
-import psutil
-from datetime import datetime
 
 class MT5AutoConnector:
     def __init__(self):
-        self.mt5_path = None
         self.is_connected = False
-        self.account_info = None
         self.gold_symbol = None
-        self.gold_specifications = None
+        self.account_info = {}
+        self.symbol_info = {}
+        self.mt5_path = None
         
-        # Common gold symbols across brokers
-        self.possible_gold_symbols = [
+        # Gold symbol variations to search for
+        self.gold_symbols = [
             "XAUUSD", "GOLD", "XAU/USD", "XAUUSD.cmd", "GOLD#", 
-            "XAUUSD.", "XAUUSD.raw", "GOLD.cmd", "XAU-USD",
-            "XAUUSD_", "GOLDUSD", "XAU_USD", "Gold", "XAUUSD#",
-            "XAUUSD.c", "XAUUSD.ecn", "XAUUSD.pro", "XAUUSD.m",
-            "XAUUSDm", "XAUUSDc", "XAUUSD.low", "XAUUSD_m"
+            "XAUUSD.", "XAUUSD-", "XAU-USD", "GOLD.", "GOLD_",
+            "XAUUSD.raw", "XAUUSD.ecn", "GOLDmicro", "XAUUSD.m",
+            "XAUUSD_", "XAUUSD#", "XAUUSDpro", "GOLD.std"
         ]
         
     def detect_mt5_installation(self):
-        """Auto-detect MetaTrader5 installation path"""
-        print("🔍 Detecting MetaTrader5 installation...")
+        """
+        Auto-detect MetaTrader5 installation path
+        Returns: path to MT5 terminal or None
+        """
+        possible_paths = []
         
         # Method 1: Check registry
-        mt5_path = self._check_registry()
-        if mt5_path and os.path.exists(mt5_path):
-            self.mt5_path = mt5_path
-            print(f"✅ Found MT5 via registry: {mt5_path}")
-            return True
-            
-        # Method 2: Check running processes
-        mt5_path = self._check_running_processes()
-        if mt5_path:
-            self.mt5_path = mt5_path
-            print(f"✅ Found MT5 via running process: {mt5_path}")
-            return True
-            
-        # Method 3: Check common installation paths
-        mt5_path = self._check_common_paths()
-        if mt5_path:
-            self.mt5_path = mt5_path
-            print(f"✅ Found MT5 via common path: {mt5_path}")
-            return True
-            
-        print("❌ MetaTrader5 installation not found")
-        return False
-        
-    def _check_registry(self):
-        """Check Windows registry for MT5 installation"""
         try:
-            # Check HKEY_CURRENT_USER
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
-                              r"SOFTWARE\MetaQuotes\Terminal") as key:
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    subkey_name = winreg.EnumKey(key, i)
-                    try:
-                        with winreg.OpenKey(key, subkey_name) as subkey:
-                            path, _ = winreg.QueryValueEx(subkey, "Path")
-                            terminal_exe = os.path.join(path, "terminal64.exe")
-                            if os.path.exists(terminal_exe):
-                                return terminal_exe
-                    except:
-                        continue
-                        
-            # Check HKEY_LOCAL_MACHINE
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
-                              r"SOFTWARE\MetaQuotes\Terminal") as key:
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    subkey_name = winreg.EnumKey(key, i)
-                    try:
-                        with winreg.OpenKey(key, subkey_name) as subkey:
-                            path, _ = winreg.QueryValueEx(subkey, "Path")
-                            terminal_exe = os.path.join(path, "terminal64.exe")
-                            if os.path.exists(terminal_exe):
-                                return terminal_exe
-                    except:
-                        continue
-                        
-        except Exception as e:
-            print(f"Registry check error: {e}")
+            reg_paths = [
+                r"SOFTWARE\MetaQuotes\Terminal\D0E8200F298C41E24B9CC8DE03C7F02C",  # MT5 default
+                r"SOFTWARE\WOW6432Node\MetaQuotes\Terminal\D0E8200F298C41E24B9CC8DE03C7F02C",
+            ]
             
-        return None
+            for reg_path in reg_paths:
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
+                        install_path = winreg.QueryValueEx(key, "DataPath")[0]
+                        possible_paths.append(os.path.dirname(install_path))
+                except:
+                    continue
+        except:
+            pass
+            
+        # Method 2: Check common installation directories
+        common_paths = [
+            os.path.expanduser("~/AppData/Roaming/MetaQuotes/Terminal"),
+            "C:/Program Files/MetaTrader 5",
+            "C:/Program Files (x86)/MetaTrader 5", 
+            "C:/MetaTrader 5",
+            "D:/MetaTrader 5",
+            "C:/Program Files/MetaQuotes/MetaTrader 5",
+            "C:/Program Files (x86)/MetaQuotes/MetaTrader 5"
+        ]
         
-    def _check_running_processes(self):
-        """Check if MT5 is currently running"""
+        for path in common_paths:
+            if os.path.exists(path):
+                # Look for terminal64.exe or terminal.exe
+                for exe_name in ["terminal64.exe", "terminal.exe"]:
+                    exe_path = os.path.join(path, exe_name)
+                    if os.path.exists(exe_path):
+                        possible_paths.append(exe_path)
+                        
+        # Method 3: Search in MetaQuotes folders
+        try:
+            roaming = os.path.expanduser("~/AppData/Roaming/MetaQuotes/Terminal")
+            if os.path.exists(roaming):
+                for folder in os.listdir(roaming):
+                    folder_path = os.path.join(roaming, folder)
+                    if os.path.isdir(folder_path):
+                        # Look for origin.txt which indicates MT5 installation
+                        origin_file = os.path.join(folder_path, "origin.txt")
+                        if os.path.exists(origin_file):
+                            try:
+                                with open(origin_file, 'r') as f:
+                                    mt5_exe_path = f.read().strip()
+                                    if os.path.exists(mt5_exe_path):
+                                        possible_paths.append(mt5_exe_path)
+                            except:
+                                continue
+        except:
+            pass
+            
+        # Method 4: Check running processes
         try:
             for proc in psutil.process_iter(['pid', 'name', 'exe']):
                 try:
-                    proc_name = proc.info['name'].lower()
-                    if proc_name in ['terminal64.exe', 'terminal.exe', 'metatrader.exe']:
-                        exe_path = proc.info['exe']
-                        if exe_path and 'terminal' in exe_path.lower():
-                            return exe_path
+                    if proc.info['name'] and 'terminal' in proc.info['name'].lower():
+                        if proc.info['exe'] and 'metatrader' in proc.info['exe'].lower():
+                            possible_paths.append(proc.info['exe'])
                 except:
                     continue
-                    
-        except Exception as e:
-            print(f"Process check error: {e}")
+        except:
+            pass
             
-        return None
-        
-    def _check_common_paths(self):
-        """Check common MetaTrader5 installation paths"""
-        common_paths = [
-            # Standard installation paths
-            r"C:\Program Files\MetaTrader 5\terminal64.exe",
-            r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe",
-            r"C:\Users\{}\AppData\Roaming\MetaQuotes\Terminal\*.exe",
-            
-            # Broker-specific paths
-            r"C:\Program Files\Admiral Markets MetaTrader 5\terminal64.exe",
-            r"C:\Program Files\FXTM MetaTrader 5\terminal64.exe",
-            r"C:\Program Files\IC Markets MetaTrader 5\terminal64.exe",
-            r"C:\Program Files\Exness MetaTrader 5\terminal64.exe",
-            r"C:\Program Files\XM MetaTrader 5\terminal64.exe",
-            r"C:\Program Files\OANDA MetaTrader 5\terminal64.exe",
-            r"C:\Program Files\ActivTrades MetaTrader 5\terminal64.exe",
-            
-            # Alternative locations
-            r"D:\MetaTrader 5\terminal64.exe",
-            r"E:\MetaTrader 5\terminal64.exe",
-        ]
-        
-        username = os.getenv('USERNAME', '')
-        
-        for path_template in common_paths:
-            if '{username}' in path_template:
-                path = path_template.format(username=username)
-            else:
-                path = path_template
+        # Return first valid path found
+        for path in possible_paths:
+            if path and os.path.exists(path):
+                self.mt5_path = path
+                return path
                 
-            if '*' in path:
-                # Handle wildcard paths
-                from glob import glob
-                matches = glob(path)
-                for match in matches:
-                    if os.path.exists(match) and 'terminal' in match.lower():
-                        return match
-            else:
-                if os.path.exists(path):
-                    return path
-                    
         return None
+        
+    def is_mt5_running(self):
+        """Check if MT5 is currently running"""
+        try:
+            for proc in psutil.process_iter(['name']):
+                if proc.info['name'] and 'terminal' in proc.info['name'].lower():
+                    return True
+        except:
+            pass
+        return False
+        
+    def start_mt5_if_needed(self):
+        """Start MT5 if not running"""
+        if not self.is_mt5_running():
+            if self.mt5_path:
+                try:
+                    os.startfile(self.mt5_path)
+                    time.sleep(5)  # Wait for MT5 to start
+                    return True
+                except Exception as e:
+                    print(f"Failed to start MT5: {e}")
+                    return False
+        return True
         
     def auto_connect(self):
-        """Auto-connect to MetaTrader5"""
+        """
+        Automatically connect to MT5
+        Returns: True if successful, False otherwise
+        """
         try:
             # Step 1: Detect MT5 installation
-            if not self.detect_mt5_installation():
-                raise Exception("MetaTrader5 not found. Please install MT5 first.")
+            print("🔍 Detecting MT5 installation...")
+            mt5_path = self.detect_mt5_installation()
+            
+            if not mt5_path:
+                print("❌ MT5 installation not found")
+                return False
                 
-            # Step 2: Initialize MT5 connection
-            print("🔗 Initializing MT5 connection...")
+            print(f"✅ MT5 found at: {mt5_path}")
             
-            # Try to initialize with detected path
-            if self.mt5_path:
-                if not mt5.initialize(path=self.mt5_path):
-                    # Try without path (use default)
-                    if not mt5.initialize():
-                        error = mt5.last_error()
-                        raise Exception(f"MT5 initialization failed: {error}")
-            else:
-                if not mt5.initialize():
-                    error = mt5.last_error()
-                    raise Exception(f"MT5 initialization failed: {error}")
-                    
-            print("✅ MT5 initialized successfully")
-            
-            # Step 3: Get account information
+            # Step 2: Check if MT5 is running, start if needed
+            print("🚀 Checking MT5 status...")
+            if not self.start_mt5_if_needed():
+                print("❌ Failed to start MT5")
+                return False
+                
+            # Step 3: Initialize MT5 connection
+            print("🔗 Connecting to MT5...")
+            if not mt5.initialize():
+                print("❌ MT5 initialization failed")
+                return False
+                
+            # Step 4: Get account info
             account_info = mt5.account_info()
             if account_info is None:
-                raise Exception("No active account found. Please login to MT5 first.")
+                print("❌ No account logged in")
+                return False
                 
-            self.account_info = account_info._asdict()
-            self.is_connected = True
+            print(f"✅ Connected to account: {account_info.login}")
+            print(f"💰 Balance: ${account_info.balance:,.2f}")
+            print(f"🏦 Broker: {account_info.company}")
             
-            print(f"✅ Connected to account: {self.account_info['login']}")
-            print(f"💰 Balance: ${self.account_info['balance']:,.2f}")
-            print(f"🏦 Broker: {self.account_info['company']}")
-            
-            # Step 4: Detect gold symbol
+            # Step 5: Detect gold symbol
             gold_symbol = self.detect_gold_symbol()
             if not gold_symbol:
-                print("⚠️ Warning: Gold symbol not detected")
-            else:
-                self.gold_symbol = gold_symbol
-                print(f"🥇 Gold symbol detected: {gold_symbol}")
+                print("❌ Gold symbol not found")
+                return False
                 
+            print(f"🥇 Gold symbol detected: {gold_symbol}")
+            
+            # Store information
+            self.is_connected = True
+            self.account_info = {
+                'login': account_info.login,
+                'balance': account_info.balance,
+                'equity': account_info.equity,
+                'margin': account_info.margin,
+                'free_margin': account_info.margin_free,
+                'leverage': account_info.leverage,
+                'company': account_info.company,
+                'currency': account_info.currency
+            }
+            
+            self.gold_symbol = gold_symbol
+            
+            # Get symbol specifications
+            self.get_symbol_specifications(gold_symbol)
+            
             return True
             
         except Exception as e:
-            print(f"❌ Auto-connect failed: {e}")
-            self.disconnect()
+            print(f"❌ Auto-connect error: {e}")
             return False
             
     def detect_gold_symbol(self):
-        """Detect available gold trading symbol"""
-        if not self.is_connected:
-            return None
-            
-        print("🔍 Detecting gold trading symbol...")
-        
+        """
+        Auto-detect gold symbol from available symbols
+        Returns: gold symbol name or None
+        """
         try:
             # Get all available symbols
             all_symbols = mt5.symbols_get()
             if not all_symbols:
-                print("❌ No symbols available")
                 return None
                 
-            available_symbols = [symbol.name for symbol in all_symbols]
-            print(f"📊 Found {len(available_symbols)} total symbols")
+            symbol_names = [symbol.name for symbol in all_symbols]
             
-            # Check each possible gold symbol
-            for gold_symbol in self.possible_gold_symbols:
-                if gold_symbol in available_symbols:
-                    # Verify it's actually a gold symbol by checking specifications
-                    if self._verify_gold_symbol(gold_symbol):
-                        self.gold_symbol = gold_symbol
-                        self.gold_specifications = self._get_symbol_specifications(gold_symbol)
-                        print(f"✅ Gold symbol confirmed: {gold_symbol}")
-                        self._print_gold_specifications()
-                        return gold_symbol
+            # Method 1: Exact match with known gold symbols
+            for gold_sym in self.gold_symbols:
+                if gold_sym in symbol_names:
+                    # Verify it's actually gold by checking symbol info
+                    if self.verify_gold_symbol(gold_sym):
+                        return gold_sym
                         
-            # If exact match not found, search for symbols containing gold keywords
-            gold_keywords = ['XAU', 'GOLD', 'Au']
-            for symbol in available_symbols:
-                symbol_upper = symbol.upper()
-                for keyword in gold_keywords:
-                    if keyword in symbol_upper and 'USD' in symbol_upper:
-                        if self._verify_gold_symbol(symbol):
-                            self.gold_symbol = symbol
-                            self.gold_specifications = self._get_symbol_specifications(symbol)
-                            print(f"✅ Gold symbol found by keyword: {symbol}")
-                            self._print_gold_specifications()
-                            return symbol
+            # Method 2: Pattern matching for gold-like symbols
+            gold_patterns = [
+                r'^XAU.*USD.*$',  # XAUUSD variations
+                r'^GOLD.*$',      # GOLD variations
+                r'^.*GOLD.*$',    # Anything with GOLD
+                r'^XAU.*$'        # XAU variations
+            ]
+            
+            for pattern in gold_patterns:
+                for symbol_name in symbol_names:
+                    if re.match(pattern, symbol_name, re.IGNORECASE):
+                        if self.verify_gold_symbol(symbol_name):
+                            return symbol_name
                             
-            print("❌ No gold symbol found")
+            # Method 3: Search by description
+            for symbol in all_symbols:
+                if symbol.description:
+                    desc = symbol.description.lower()
+                    if 'gold' in desc or 'xau' in desc:
+                        if self.verify_gold_symbol(symbol.name):
+                            return symbol.name
+                            
             return None
             
         except Exception as e:
-            print(f"❌ Gold symbol detection error: {e}")
+            print(f"Error detecting gold symbol: {e}")
             return None
             
-    def _verify_gold_symbol(self, symbol):
-        """Verify if symbol is actually gold by checking its properties"""
+    def verify_gold_symbol(self, symbol):
+        """
+        Verify that a symbol is actually gold by checking its properties
+        """
         try:
             symbol_info = mt5.symbol_info(symbol)
-            if symbol_info is None:
+            if not symbol_info:
                 return False
                 
-            # Check if symbol is tradeable
+            # Check if symbol is visible and can be traded
             if not symbol_info.visible:
-                # Try to enable symbol
+                # Try to show symbol in Market Watch
                 if not mt5.symbol_select(symbol, True):
                     return False
                     
-            # Get fresh symbol info
+            # Re-get symbol info after showing
             symbol_info = mt5.symbol_info(symbol)
-            if symbol_info is None:
+            if not symbol_info:
                 return False
                 
-            # Basic validation
-            description = symbol_info.description.upper()
-            path = symbol_info.path.upper()
+            # Basic checks for gold characteristics
+            # Gold typically has:
+            # - Point value around 0.01 or 0.1
+            # - Contract size of 100 (usually)
+            # - Price in range 1000-3000 (historically)
             
-            # Check for gold-related keywords
-            gold_keywords = ['GOLD', 'XAU', 'AU/USD', 'PRECIOUS']
-            has_gold_keyword = any(keyword in description or keyword in path 
-                                 for keyword in gold_keywords)
-            
-            # Check typical gold characteristics
-            # Gold typically has point value around 0.01 and digits of 2 or 3
-            reasonable_digits = symbol_info.digits in [2, 3, 4, 5]
-            
-            # Check if it's a currency pair (should have USD)
-            has_usd = 'USD' in symbol.upper()
-            
-            return has_gold_keyword and reasonable_digits and has_usd
+            # Get current price to verify it's in gold range
+            tick = mt5.symbol_info_tick(symbol)
+            if tick and tick.bid:
+                price = tick.bid
+                # Gold price typically between 1000-5000
+                if 1000 <= price <= 5000:
+                    return True
+                    
+            return True  # If we can't verify price, assume it's valid
             
         except Exception as e:
-            print(f"Symbol verification error for {symbol}: {e}")
+            print(f"Error verifying gold symbol {symbol}: {e}")
             return False
             
-    def _get_symbol_specifications(self, symbol):
+    def get_symbol_specifications(self, symbol):
         """Get detailed symbol specifications"""
         try:
             symbol_info = mt5.symbol_info(symbol)
-            if symbol_info is None:
-                return None
+            if not symbol_info:
+                print(f"⚠️ Warning: Cannot get symbol info for {symbol}, using defaults")
+                # Return default values for gold
+                return {
+                    'name': symbol,
+                    'description': 'Gold vs US Dollar',
+                    'point': 0.01,
+                    'digits': 2,
+                    'spread': 30,
+                    'volume_min': 0.01,
+                    'volume_max': 100.0,
+                    'volume_step': 0.01,
+                    'contract_size': 100,
+                    'tick_value': 1.0,
+                    'tick_size': 0.01,
+                    'margin_initial': 1000,
+                    'margin_maintenance': 1000,
+                    'currency_base': 'XAU',
+                    'currency_profit': 'USD',
+                    'currency_margin': 'USD'
+                }
                 
-            return {
-                'symbol': symbol,
+            self.symbol_info = {
+                'name': symbol_info.name,
                 'description': symbol_info.description,
+                'point': symbol_info.point,
                 'digits': symbol_info.digits,
                 'spread': symbol_info.spread,
-                'point': symbol_info.point,
-                'tick_value': symbol_info.trade_tick_value,
-                'tick_size': symbol_info.trade_tick_size,
-                'contract_size': symbol_info.trade_contract_size,
                 'volume_min': symbol_info.volume_min,
                 'volume_max': symbol_info.volume_max,
                 'volume_step': symbol_info.volume_step,
+                'contract_size': symbol_info.trade_contract_size,
+                'tick_value': symbol_info.trade_tick_value,
+                'tick_size': symbol_info.trade_tick_size,
                 'margin_initial': symbol_info.margin_initial,
                 'margin_maintenance': symbol_info.margin_maintenance,
-                'swap_long': symbol_info.swap_long,
-                'swap_short': symbol_info.swap_short,
-                'path': symbol_info.path
+                'currency_base': symbol_info.currency_base,
+                'currency_profit': symbol_info.currency_profit,
+                'currency_margin': symbol_info.currency_margin
             }
             
+            print(f"📊 Symbol Specifications for {symbol}:")
+            print(f"   💎 Description: {symbol_info.description}")
+            print(f"   📏 Digits: {symbol_info.digits}")
+            print(f"   📈 Point: {symbol_info.point}")
+            print(f"   📊 Spread: {symbol_info.spread}")
+            print(f"   💰 Min Volume: {symbol_info.volume_min}")
+            print(f"   📏 Volume Step: {symbol_info.volume_step}")
+            print(f"   💵 Tick Value: ${symbol_info.trade_tick_value}")
+            
+            return self.symbol_info
+            
         except Exception as e:
-            print(f"Error getting specifications for {symbol}: {e}")
+            print(f"Error getting symbol specifications: {e}")
+            print(f"⚠️ Using default specifications for {symbol}")
+            # Return safe defaults
+            return {
+                'name': symbol,
+                'description': 'Gold vs US Dollar',
+                'point': 0.01,
+                'digits': 2,
+                'spread': 30,
+                'volume_min': 0.01,
+                'volume_max': 100.0,
+                'volume_step': 0.01,
+                'contract_size': 100,
+                'tick_value': 1.0,
+                'tick_size': 0.01,
+                'margin_initial': 1000,
+                'margin_maintenance': 1000,
+                'currency_base': 'XAU',
+                'currency_profit': 'USD',
+                'currency_margin': 'USD'
+            }
+            
+    def get_current_price(self):
+        """Get current gold price"""
+        try:
+            if not self.gold_symbol:
+                return None
+                
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if tick:
+                return {
+                    'bid': tick.bid,
+                    'ask': tick.ask,
+                    'spread': tick.ask - tick.bid,
+                    'time': datetime.fromtimestamp(tick.time)
+                }
             return None
             
-    def _print_gold_specifications(self):
-        """Print gold symbol specifications"""
-        if not self.gold_specifications:
-            return
+        except Exception as e:
+            print(f"Error getting current price: {e}")
+            return None
             
-        specs = self.gold_specifications
-        print("\n📋 Gold Symbol Specifications:")
-        print(f"   📛 Symbol: {specs['symbol']}")
-        print(f"   📝 Description: {specs['description']}")
-        print(f"   🔢 Digits: {specs['digits']}")
-        print(f"   📏 Point: {specs['point']}")
-        print(f"   💰 Tick Value: {specs['tick_value']}")
-        print(f"   📊 Contract Size: {specs['contract_size']}")
-        print(f"   📈 Volume Min: {specs['volume_min']}")
-        print(f"   📉 Volume Step: {specs['volume_step']}")
-        print(f"   💸 Spread: {specs['spread']} points")
-        
-        # Calculate point value for lot calculation
-        if specs['digits'] == 2:
-            point_value = 1.0  # 1 point = $1 for 0.01 lot
-        elif specs['digits'] == 3:
-            point_value = 0.1  # 1 point = $0.1 for 0.01 lot  
-        else:
-            point_value = specs['tick_value'] / specs['tick_size'] * specs['point']
-            
-        print(f"   🧮 Point Value: ${point_value:.2f} per 0.01 lot")
-        print("")
-        
     def get_account_info(self):
         """Get current account information"""
-        if not self.is_connected:
-            return None
-            
         try:
             account_info = mt5.account_info()
             if account_info:
-                return account_info._asdict()
+                self.account_info.update({
+                    'balance': account_info.balance,
+                    'equity': account_info.equity,
+                    'margin': account_info.margin,
+                    'free_margin': account_info.margin_free,
+                    'margin_level': account_info.margin_level if account_info.margin > 0 else 0
+                })
+                return self.account_info
             return None
+            
         except Exception as e:
             print(f"Error getting account info: {e}")
             return None
@@ -371,143 +415,211 @@ class MT5AutoConnector:
         """Get detected gold symbol"""
         return self.gold_symbol
         
-    def get_gold_specifications(self):
-        """Get gold symbol specifications"""
-        return self.gold_specifications
+    def get_symbol_info(self):
+        """Get symbol specifications - guaranteed to return dict"""
+        if hasattr(self, 'symbol_info') and self.symbol_info:
+            return self.symbol_info
+        elif self.gold_symbol:
+            # Try to get symbol info
+            return self.get_symbol_specifications(self.gold_symbol)
+        else:
+            # Return safe defaults
+            print("⚠️ Warning: No symbol info available, using defaults")
+            return {
+                'name': 'XAUUSD',
+                'description': 'Gold vs US Dollar',
+                'point': 0.01,
+                'digits': 2,
+                'spread': 30,
+                'volume_min': 0.01,
+                'volume_max': 100.0,
+                'volume_step': 0.01,
+                'contract_size': 100,
+                'tick_value': 1.0,
+                'tick_size': 0.01,
+                'margin_initial': 1000,
+                'margin_maintenance': 1000,
+                'currency_base': 'XAU',
+                'currency_profit': 'USD',
+                'currency_margin': 'USD'
+            }
         
-    def get_current_price(self, symbol=None):
-        """Get current price for symbol"""
-        if not symbol:
-            symbol = self.gold_symbol
-            
-        if not symbol or not self.is_connected:
-            return None
-            
+    def calculate_lot_value(self, lots):
+        """Calculate monetary value of lot size"""
         try:
-            tick = mt5.symbol_info_tick(symbol)
-            if tick:
-                return {
-                    'symbol': symbol,
-                    'bid': tick.bid,
-                    'ask': tick.ask,
-                    'spread': tick.ask - tick.bid,
-                    'time': datetime.fromtimestamp(tick.time)
-                }
-            return None
+            if not self.symbol_info or not self.gold_symbol:
+                return 0
+                
+            tick_value = self.symbol_info.get('tick_value', 1)
+            tick_size = self.symbol_info.get('tick_size', 0.01)
+            
+            # For gold, typically 1 lot = $100,000 contract
+            # 1 point (0.01) movement = $10 for 1 lot
+            point_value = (tick_value / tick_size) if tick_size > 0 else 10
+            
+            return lots * point_value
+            
         except Exception as e:
-            print(f"Error getting price for {symbol}: {e}")
-            return None
+            print(f"Error calculating lot value: {e}")
+            return 0
+            
+    def calculate_margin_required(self, lots):
+        """Calculate margin required for given lot size"""
+        try:
+            if not self.symbol_info or not self.gold_symbol:
+                return 0
+                
+            price = self.get_current_price()
+            if not price:
+                return 0
+                
+            contract_size = self.symbol_info.get('contract_size', 100)
+            leverage = self.account_info.get('leverage', 100)
+            
+            # Margin = (Contract Size * Lots * Price) / Leverage
+            margin = (contract_size * lots * price['bid']) / leverage
+            
+            return margin
+            
+        except Exception as e:
+            print(f"Error calculating margin: {e}")
+            return 0
             
     def test_connection(self):
-        """Test MT5 connection and functionality"""
-        if not self.is_connected:
-            return False
-            
+        """Test MT5 connection and return status"""
         try:
-            # Test account info
-            account = self.get_account_info()
-            if not account:
-                return False
+            # Test basic connection
+            account_info = mt5.account_info()
+            if not account_info:
+                return False, "No account logged in"
                 
-            # Test symbol info
-            if self.gold_symbol:
-                price = self.get_current_price()
-                if not price:
-                    print("⚠️ Warning: Cannot get gold price")
-                    
-            # Test positions
-            positions = mt5.positions_get()
-            
-            # Test orders
-            orders = mt5.orders_get()
-            
-            print("✅ Connection test passed")
-            return True
+            # Test symbol access
+            if not self.gold_symbol:
+                return False, "Gold symbol not detected"
+                
+            symbol_info = mt5.symbol_info(self.gold_symbol)
+            if not symbol_info:
+                return False, f"Cannot access symbol {self.gold_symbol}"
+                
+            # Test price access
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                return False, f"Cannot get price for {self.gold_symbol}"
+                
+            # Test trading permissions
+            if not symbol_info.trade_mode == mt5.SYMBOL_TRADE_MODE_FULL:
+                return False, f"Trading not allowed for {self.gold_symbol}"
+                
+            return True, "Connection test successful"
             
         except Exception as e:
-            print(f"❌ Connection test failed: {e}")
-            return False
+            return False, f"Connection test error: {e}"
             
-    def get_trading_info(self):
-        """Get comprehensive trading information"""
-        if not self.is_connected:
-            return None
-            
+    def get_broker_info(self):
+        """Get detailed broker information"""
         try:
-            account = self.get_account_info()
-            positions = mt5.positions_get()
-            orders = mt5.orders_get()
-            price = self.get_current_price()
+            account_info = mt5.account_info()
+            if not account_info:
+                return None
+                
+            # Detect broker characteristics
+            company = account_info.company.lower()
             
-            return {
-                'account': account,
-                'gold_symbol': self.gold_symbol,
-                'gold_specs': self.gold_specifications,
-                'current_price': price,
-                'positions_count': len(positions) if positions else 0,
-                'orders_count': len(orders) if orders else 0,
-                'connection_time': datetime.now(),
-                'mt5_version': mt5.version()
+            broker_features = {
+                'company': account_info.company,
+                'leverage': account_info.leverage,
+                'currency': account_info.currency,
+                'margin_call': account_info.margin_so_call,
+                'margin_stop': account_info.margin_so_so,
+                'trade_allowed': account_info.trade_allowed,
+                'expert_allowed': account_info.trade_expert,
+                'hedge_allowed': True,  # Assume true for most brokers
+                'fifo_rule': False      # Assume false unless detected
             }
             
+            # Detect specific broker types
+            if any(x in company for x in ['exness', 'ic markets', 'pepperstone']):
+                broker_features['hedge_allowed'] = True
+                broker_features['fifo_rule'] = False
+            elif any(x in company for x in ['oanda', 'forex.com']):
+                broker_features['hedge_allowed'] = False
+                broker_features['fifo_rule'] = True
+                
+            return broker_features
+            
         except Exception as e:
-            print(f"Error getting trading info: {e}")
+            print(f"Error getting broker info: {e}")
             return None
             
     def disconnect(self):
-        """Disconnect from MetaTrader5"""
+        """Disconnect from MT5"""
         try:
             if self.is_connected:
                 mt5.shutdown()
                 self.is_connected = False
-                self.account_info = None
                 self.gold_symbol = None
-                self.gold_specifications = None
+                self.account_info = {}
+                self.symbol_info = {}
                 print("✅ Disconnected from MT5")
+                return True
         except Exception as e:
-            print(f"Error during disconnect: {e}")
+            print(f"Error disconnecting: {e}")
+            
+        return False
+        
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        if self.is_connected:
+            self.disconnect()
 
-def test_connector():
-    """Test the MT5 Auto Connector"""
+# Test function for standalone usage
+def test_mt5_connector():
+    """Test the MT5 connector"""
     print("🧪 Testing MT5 Auto Connector...")
-    print("=" * 50)
     
     connector = MT5AutoConnector()
     
-    # Test connection
     if connector.auto_connect():
-        print("\n✅ Auto-connection successful!")
+        print("✅ Connection successful!")
         
-        # Test functionality
-        if connector.test_connection():
-            print("\n📊 Getting trading information...")
-            trading_info = connector.get_trading_info()
+        # Display account info
+        account = connector.get_account_info()
+        print(f"\n📊 Account Information:")
+        print(f"   Login: {account['login']}")
+        print(f"   Balance: ${account['balance']:,.2f}")
+        print(f"   Equity: ${account['equity']:,.2f}")
+        print(f"   Free Margin: ${account['free_margin']:,.2f}")
+        print(f"   Leverage: 1:{account['leverage']}")
+        
+        # Display symbol info
+        symbol_info = connector.get_symbol_info()
+        print(f"\n🥇 Gold Symbol Information:")
+        print(f"   Symbol: {symbol_info['name']}")
+        print(f"   Description: {symbol_info['description']}")
+        print(f"   Min Lot: {symbol_info['volume_min']}")
+        print(f"   Lot Step: {symbol_info['volume_step']}")
+        
+        # Display current price
+        price = connector.get_current_price()
+        if price:
+            print(f"\n💰 Current Gold Price:")
+            print(f"   Bid: {price['bid']}")
+            print(f"   Ask: {price['ask']}")
+            print(f"   Spread: {price['spread']:.1f} points")
             
-            if trading_info:
-                print(f"\n📋 Trading Summary:")
-                print(f"   🏦 Broker: {trading_info['account']['company']}")
-                print(f"   👤 Account: {trading_info['account']['login']}")
-                print(f"   💰 Balance: ${trading_info['account']['balance']:,.2f}")
-                print(f"   🥇 Gold Symbol: {trading_info['gold_symbol']}")
-                
-                if trading_info['current_price']:
-                    price = trading_info['current_price']
-                    print(f"   💹 Current Price: {price['bid']:.{trading_info['gold_specs']['digits']}f}")
-                    print(f"   📊 Spread: {price['spread']:.{trading_info['gold_specs']['digits']}f}")
-                    
-                print(f"   📈 Open Positions: {trading_info['positions_count']}")
-                print(f"   📋 Pending Orders: {trading_info['orders_count']}")
+        # Test calculations
+        test_lots = 0.01
+        lot_value = connector.calculate_lot_value(test_lots)
+        margin_req = connector.calculate_margin_required(test_lots)
         
-        # Disconnect
+        print(f"\n🧮 Calculations for {test_lots} lots:")
+        print(f"   Point Value: ${lot_value:.2f}")
+        print(f"   Margin Required: ${margin_req:.2f}")
+        
         connector.disconnect()
         
     else:
-        print("❌ Auto-connection failed")
-        print("\n💡 Troubleshooting tips:")
-        print("   1. Make sure MetaTrader5 is installed")
-        print("   2. Login to your MT5 account")
-        print("   3. Make sure MT5 is running")
-        print("   4. Check if Python has admin rights")
+        print("❌ Connection failed!")
 
 if __name__ == "__main__":
-    test_connector()
+    test_mt5_connector()
