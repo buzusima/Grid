@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 import os
 import sys
 
-# Import custom modules (will be created)
+# Import custom modules
 try:
     from mt5_auto_connector import MT5AutoConnector
     from ai_gold_grid import AIGoldGrid
@@ -223,7 +223,7 @@ class AIGoldTradingGUI:
                                       font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.base_lot_label.pack(anchor='w', pady=2)
         
-        self.grid_spacing_label = tk.Label(left_col, text="📏 Grid Spacing: 0 จุด", 
+        self.grid_spacing_label = tk.Label(left_col, text="📏 Grid Spacing: 0 points", 
                                           font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.grid_spacing_label.pack(anchor='w', pady=2)
         
@@ -231,7 +231,7 @@ class AIGoldTradingGUI:
                                         font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.max_levels_label.pack(anchor='w', pady=2)
         
-        self.survivability_label = tk.Label(left_col, text="🛡️ Survivability: 0 จุด", 
+        self.survivability_label = tk.Label(left_col, text="🛡️ Survivability: 0 points", 
                                            font=('Arial', 10, 'bold'), fg='#51cf66', bg='#16213e')
         self.survivability_label.pack(anchor='w', pady=2)
         
@@ -278,7 +278,7 @@ class AIGoldTradingGUI:
         
         self.current_drawdown_label = tk.Label(
             status_frame,
-            text="📊 Current Drawdown: 0 จุด",
+            text="📊 Current Drawdown: 0 points",
             font=('Arial', 10, 'bold'),
             fg='#51cf66',
             bg='#16213e'
@@ -425,7 +425,7 @@ class AIGoldTradingGUI:
                 if self.mt5_connector.auto_connect():
                     self.is_connected = True
                     account_info = self.mt5_connector.get_account_info()
-                    gold_symbol = self.mt5_connector.detect_gold_symbol()
+                    gold_symbol = self.mt5_connector.get_gold_symbol()
                     
                     if account_info and gold_symbol:
                         self.account_info = account_info
@@ -512,6 +512,26 @@ class AIGoldTradingGUI:
             calculations = self.survivability_engine.calculate_for_balance(balance, min_lot)
             self.current_calculations = calculations
             
+            # แก้ไข: ตรวจสอบให้ survivability ≥ 20,000 จุด
+            realistic_surv = calculations.get('realistic_survivability', calculations['survivability'])
+            
+            if realistic_surv < 20000:
+                # ลองปรับพารามิเตอร์ใหม่
+                self.log_message("⚠️ Survivability below target, adjusting parameters...", "WARNING")
+                
+                # เพิ่มการปรับปรุงพารามิเตอร์
+                improved_calculations = self.survivability_engine.optimize_for_target_survivability(
+                    balance, min_lot, 20000
+                )
+                
+                if improved_calculations:
+                    calculations = improved_calculations
+                    self.current_calculations = calculations
+                    self.log_message("✅ Parameters optimized for 20,000+ points", "SUCCESS")
+                else:
+                    self.log_message("❌ Cannot achieve 20,000 points with current balance", "ERROR")
+                    # แต่ยังให้ใช้งานต่อได้
+            
             # Update display
             self.update_survivability_display(calculations)
             
@@ -546,7 +566,7 @@ class AIGoldTradingGUI:
             
         self.base_lot_label.config(text=lot_text, fg=lot_color)
         
-        self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} จุด (${calc['grid_spacing']*0.01:.2f})")
+        self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} points (${calc['grid_spacing']*0.01:.2f})")
         self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']}")
         
         # Show both theoretical and realistic survivability
@@ -556,15 +576,15 @@ class AIGoldTradingGUI:
         if realistic_surv >= 20000:
             surv_color = '#51cf66'  # Green
             if realistic_surv != theoretical_surv:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ✅ (Theory: {theoretical_surv:,.0f})"
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ✅ (Theory: {theoretical_surv:,.0f})"
             else:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ✅"
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ✅"
         else:
             surv_color = '#ff6b6b'  # Red
             if realistic_surv != theoretical_surv:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ⚠️ (Theory: {theoretical_surv:,.0f})"
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️ (Theory: {theoretical_surv:,.0f})"
             else:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} จุด ⚠️"
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️"
             
         self.survivability_label.config(text=surv_text, fg=surv_color)
         
@@ -616,7 +636,7 @@ class AIGoldTradingGUI:
             
             trigger_label = tk.Label(
                 hedge_frame,
-                text=f"▶️ @{trigger_points:,.0f} จุด:",
+                text=f"▶️ @{trigger_points:,.0f} points:",
                 font=('Arial', 9),
                 fg='#ffd43b',
                 bg='#16213e',
@@ -669,13 +689,34 @@ class AIGoldTradingGUI:
             messagebox.showwarning("Warning", "Please calculate survivability first")
             return
             
+        # ตรวจสอบ survivability ก่อนเริ่มเทรด
+        realistic_surv = self.current_calculations.get('realistic_survivability', 
+                                                     self.current_calculations['survivability'])
+        
+        if realistic_surv <= 0:
+            messagebox.showerror("Cannot Start Trading", 
+                               "Survivability is 0 points. Please:\n\n" +
+                               "• Increase account balance\n" + 
+                               "• Check broker minimum lot size\n" +
+                               "• Recalculate survivability")
+            return
+            
+        if realistic_surv < 10000:
+            confirm_low_surv = messagebox.askyesno("Low Survivability Warning",
+                f"Survivability is only {realistic_surv:,.0f} points (below 20,000 target).\n\n" +
+                "This means higher risk. Do you want to continue anyway?\n\n" +
+                "Recommended: Increase account balance or change broker.")
+            
+            if not confirm_low_surv:
+                return
+        
         # Final confirmation for real trading
         confirm_msg = f"""⚠️ REAL TRADING CONFIRMATION ⚠️
 
 You are about to start LIVE trading with:
 • Account Balance: ${self.current_calculations['account_balance']:,.2f}
 • Base Lot Size: {self.current_calculations['base_lot']:.3f}
-• Max Survivability: {self.current_calculations.get('realistic_survivability', self.current_calculations['survivability']):,.0f} points
+• Max Survivability: {realistic_surv:,.0f} points
 • Daily Loss Limit: ${self.config.get('daily_loss_limit', 500):,.2f}
 
 This will place REAL orders on your MT5 account!
@@ -706,7 +747,7 @@ Are you absolutely sure you want to proceed?"""
                 self.stop_btn.config(state='normal', bg='#dc3545')
                 
                 self.log_message("🚀 AI Grid Trading System Started - LIVE TRADING!", "SUCCESS")
-                self.log_message(f"📊 Trading {gold_symbol} with {self.current_calculations.get('realistic_survivability', 0):,.0f} points survivability", "INFO")
+                self.log_message(f"📊 Trading {gold_symbol} with {realistic_surv:,.0f} points survivability", "INFO")
                 self.log_message(f"🎯 Magic Number: {self.grid_trader.magic_number}", "INFO")
                 
                 # Start trading monitoring thread
@@ -859,7 +900,7 @@ Proceed with emergency stop?"""
             if hasattr(self, 'hedge_calculator') and current_drawdown > 0:
                 next_hedge = self.hedge_calculator.get_next_hedge_trigger(current_drawdown)
                 if next_hedge:
-                    self.next_hedge_label.config(text=f"⏳ Next Hedge: {next_hedge:,.0f} จุด")
+                    self.next_hedge_label.config(text=f"⏳ Next Hedge: {next_hedge:,.0f} points")
                 else:
                     self.next_hedge_label.config(text="⏳ Next Hedge: Max Level")
             
@@ -936,10 +977,10 @@ Proceed with emergency stop?"""
         """Update current drawdown display"""
         if drawdown >= 0:
             color = '#51cf66'  # Green for profit
-            text = f"📊 Current Profit: +{drawdown:,.0f} จุด"
+            text = f"📊 Current Profit: +{drawdown:,.0f} points"
         else:
             color = '#ff6b6b'  # Red for loss
-            text = f"📊 Current Drawdown: {abs(drawdown):,.0f} จุด"
+            text = f"📊 Current Drawdown: {abs(drawdown):,.0f} points"
             
         self.current_drawdown_label.config(text=text, fg=color)
         
@@ -947,7 +988,7 @@ Proceed with emergency stop?"""
         if self.current_calculations and abs(drawdown) > 0:
             next_hedge = self.hedge_calculator.get_next_hedge_trigger(abs(drawdown))
             if next_hedge:
-                self.next_hedge_label.config(text=f"⏳ Next Hedge: {next_hedge:,.0f} จุด")
+                self.next_hedge_label.config(text=f"⏳ Next Hedge: {next_hedge:,.0f} points")
             else:
                 self.next_hedge_label.config(text="⏳ Next Hedge: Max Level")
                 

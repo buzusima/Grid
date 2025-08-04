@@ -236,6 +236,7 @@ class AIGoldGrid:
     def create_grid_levels(self, direction: GridDirection):
         """Create grid level structure"""
         self.grid_levels = []
+        current_time = datetime.now()
         
         if direction == GridDirection.BIDIRECTIONAL:
             # Create buy levels below current price
@@ -246,7 +247,8 @@ class AIGoldGrid:
                     price=round(buy_price, 5),
                     lot_size=self.calculate_level_lot_size(i),
                     direction="BUY",
-                    status=PositionStatus.PENDING
+                    status=PositionStatus.PENDING,
+                    entry_time=current_time  # เพิ่ม timestamp
                 )
                 self.grid_levels.append(buy_level)
                 
@@ -258,7 +260,8 @@ class AIGoldGrid:
                     price=round(sell_price, 5),
                     lot_size=self.calculate_level_lot_size(i),
                     direction="SELL",
-                    status=PositionStatus.PENDING
+                    status=PositionStatus.PENDING,
+                    entry_time=current_time  # เพิ่ม timestamp
                 )
                 self.grid_levels.append(sell_level)
                 
@@ -271,7 +274,8 @@ class AIGoldGrid:
                     price=round(buy_price, 5),
                     lot_size=self.calculate_level_lot_size(i),
                     direction="BUY",
-                    status=PositionStatus.PENDING
+                    status=PositionStatus.PENDING,
+                    entry_time=current_time
                 )
                 self.grid_levels.append(buy_level)
                 
@@ -284,7 +288,8 @@ class AIGoldGrid:
                     price=round(sell_price, 5),
                     lot_size=self.calculate_level_lot_size(i),
                     direction="SELL",
-                    status=PositionStatus.PENDING
+                    status=PositionStatus.PENDING,
+                    entry_time=current_time
                 )
                 self.grid_levels.append(sell_level)
                 
@@ -1096,87 +1101,6 @@ class AIGoldGrid:
         except Exception as e:
             print(f"❌ Error in cancel_all_orders: {e}")
             
-        return cancelled_count(symbol=self.gold_symbol)
-            if positions:
-                our_positions = [pos for pos in positions if pos.magic == self.magic_number]
-                
-                for position in our_positions:
-                    try:
-                        # Get current market prices
-                        tick = mt5.symbol_info_tick(self.gold_symbol)
-                        if not tick:
-                            continue
-                            
-                        if position.type == mt5.POSITION_TYPE_BUY:
-                            trade_type = mt5.ORDER_TYPE_SELL
-                            price = tick.bid
-                        else:
-                            trade_type = mt5.ORDER_TYPE_BUY
-                            price = tick.ask
-                            
-                        request = {
-                            "action": mt5.TRADE_ACTION_DEAL,
-                            "symbol": self.gold_symbol,
-                            "volume": position.volume,
-                            "type": trade_type,
-                            "position": position.ticket,
-                            "price": price,
-                            "deviation": 50,  # Higher deviation for emergency
-                            "magic": self.magic_number,
-                            "comment": "AIGrid_Emergency_Close"
-                        }
-                        
-                        result = mt5.order_send(request)
-                        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                            closed_count += 1
-                            print(f"   ✅ Emergency closed: {position.ticket} ({position.volume} lots)")
-                        else:
-                            error_msg = f"Failed to close {position.ticket}"
-                            if result:
-                                error_msg += f" - {result.comment}"
-                            print(f"   ❌ {error_msg}")
-                            
-                    except Exception as e:
-                        print(f"   ❌ Error closing position {position.ticket}: {e}")
-                        
-        except Exception as e:
-            print(f"❌ Error in close_all_positions: {e}")
-            
-        return closed_count
-        
-    def cancel_all_orders(self) -> int:
-        """Cancel all pending orders - EMERGENCY FUNCTION"""
-        
-        cancelled_count = 0
-        
-        try:
-            orders = mt5.orders_get(symbol=self.gold_symbol)
-            if orders:
-                our_orders = [order for order in orders if order.magic == self.magic_number]
-                
-                for order in our_orders:
-                    try:
-                        request = {
-                            "action": mt5.TRADE_ACTION_REMOVE,
-                            "order": order.ticket
-                        }
-                        
-                        result = mt5.order_send(request)
-                        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                            cancelled_count += 1
-                            print(f"   ✅ Cancelled order: {order.ticket}")
-                        else:
-                            error_msg = f"Failed to cancel {order.ticket}"
-                            if result:
-                                error_msg += f" - {result.comment}"
-                            print(f"   ❌ {error_msg}")
-                            
-                    except Exception as e:
-                        print(f"   ❌ Error cancelling order {order.ticket}: {e}")
-                        
-        except Exception as e:
-            print(f"❌ Error in cancel_all_orders: {e}")
-            
         return cancelled_count
         
     def log_emergency_stop(self, reason: str):
@@ -1273,12 +1197,276 @@ class AIGoldGrid:
         """Public method for emergency close - called from GUI"""
         self.emergency_stop("Manual emergency stop from GUI")
         
+    def cleanup_far_orders(self):
+        """ลบ orders ที่ไกลเกินไปและเก่าเกินไป"""
+        try:
+            current_price = self.get_current_price()
+            orders_to_remove = []
+            removed_count = 0
+            
+            print(f"🔍 Checking orders cleanup at price: ${current_price:.2f}")
+            
+            # คำนวณระยะห่างที่ควรลบ (ขึ้นกับ grid spacing)
+            far_distance = self.calculate_cleanup_distance()
+            old_age_hours = 24 * 7  # 7 วัน
+            
+            # ตรวจสอบ pending orders
+            for order_id, grid_level in list(self.pending_orders.items()):
+                try:
+                    distance_points = abs(grid_level.price - current_price) / self.point_value
+                    age_hours = 0
+                    
+                    # คำนวณอายุ order
+                    if grid_level.entry_time:
+                        age_hours = (datetime.now() - grid_level.entry_time).total_seconds() / 3600
+                    
+                    # เงื่อนไขลับ orders
+                    should_remove = (
+                        distance_points > far_distance and age_hours > old_age_hours
+                    ) or (
+                        distance_points > far_distance * 2  # ห่างมากเกินไป
+                    ) or (
+                        age_hours > 24 * 30  # เก่าเกิน 30 วัน
+                    )
+                    
+                    if should_remove:
+                        if self.cancel_single_order(order_id):
+                            del self.pending_orders[order_id]
+                            grid_level.status = PositionStatus.CANCELLED
+                            removed_count += 1
+                            print(f"🗑️ Removed: {grid_level.level_id} @ ${grid_level.price:.2f} (Distance: {distance_points:.0f}pts, Age: {age_hours/24:.1f}d)")
+                        
+                except Exception as e:
+                    print(f"⚠️ Error processing order {order_id}: {e}")
+                    continue
+            
+            if removed_count > 0:
+                print(f"✅ Cleanup completed: {removed_count} orders removed")
+            else:
+                print("📋 No orders need cleanup")
+                
+            return removed_count
+            
+        except Exception as e:
+            print(f"❌ Error in cleanup_far_orders: {e}")
+            return 0
+    
+    def calculate_cleanup_distance(self):
+        """คำนวณระยะห่างที่ควรลบ orders"""
+        try:
+            # Base distance = 15-20x grid spacing
+            base_distance = self.grid_spacing * 15
+            
+            # ปรับตาม account size
+            if self.base_lot >= 0.1:
+                # Account ใหญ่ = เก็บ orders ไว้นานกว่า
+                distance_multiplier = 1.5
+            elif self.base_lot >= 0.05:
+                # Account กลาง = ปกติ
+                distance_multiplier = 1.0
+            else:
+                # Account เล็ก = ลบเร็วกว่า
+                distance_multiplier = 0.8
+                
+            cleanup_distance = base_distance * distance_multiplier
+            
+            # ขั้นต่ำ 3000 points, สูงสุด 15000 points
+            cleanup_distance = max(3000, min(cleanup_distance, 15000))
+            
+            print(f"📏 Cleanup distance: {cleanup_distance:.0f} points (Grid: {self.grid_spacing}, Lot: {self.base_lot})")
+            return cleanup_distance
+            
+        except Exception as e:
+            print(f"❌ Error calculating cleanup distance: {e}")
+            return 5000  # Default fallback
+    
+    def cancel_single_order(self, order_id: int) -> bool:
+        """ยกเลิก order เดียว"""
+        try:
+            request = {
+                "action": mt5.TRADE_ACTION_REMOVE,
+                "order": order_id
+            }
+            
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                return True
+            else:
+                error_msg = f"Failed to cancel order {order_id}"
+                if result:
+                    error_msg += f" - Code: {result.retcode}, Comment: {result.comment}"
+                print(f"⚠️ {error_msg}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error cancelling order {order_id}: {e}")
+            return False
+    
+    def ensure_sufficient_grid_coverage(self):
+        """ตรวจสอบและเพิ่ม grid coverage ใกล้ราคาปัจจุบัน"""
+        try:
+            current_price = self.get_current_price()
+            coverage_range = self.grid_spacing * 10  # ครอบคลุม ±10 levels
+            
+            # นับ orders ใกล้ราคาปัจจุบัน
+            nearby_buy_orders = []
+            nearby_sell_orders = []
+            
+            for grid_level in self.pending_orders.values():
+                distance = abs(grid_level.price - current_price)
+                if distance <= coverage_range * self.point_value:
+                    if grid_level.direction == "BUY":
+                        nearby_buy_orders.append(grid_level)
+                    else:
+                        nearby_sell_orders.append(grid_level)
+            
+            print(f"📊 Current coverage: {len(nearby_buy_orders)} BUY, {len(nearby_sell_orders)} SELL orders nearby")
+            
+            # เพิ่ม orders ถ้าไม่เพียงพอ
+            min_coverage = 5  # อย่างน้อย 5 orders แต่ละด้าน
+            
+            if len(nearby_buy_orders) < min_coverage:
+                needed = min_coverage - len(nearby_buy_orders)
+                self.add_nearby_buy_orders(needed, current_price)
+                
+            if len(nearby_sell_orders) < min_coverage:
+                needed = min_coverage - len(nearby_sell_orders)
+                self.add_nearby_sell_orders(needed, current_price)
+                
+        except Exception as e:
+            print(f"❌ Error ensuring grid coverage: {e}")
+    
+    def add_nearby_buy_orders(self, count: int, current_price: float):
+        """เพิ่ม BUY orders ใกล้ราคาปัจจุบัน"""
+        try:
+            for i in range(count):
+                # หา BUY level ที่ใกล้ที่สุดที่ยังไม่มี order
+                level_price = current_price - ((i + 1) * self.grid_spacing * self.point_value)
+                
+                # ตรวจสอบว่ามี order ใกล้ๆ แล้วหรือไม่
+                too_close = False
+                for existing_level in self.pending_orders.values():
+                    if (existing_level.direction == "BUY" and 
+                        abs(existing_level.price - level_price) < self.grid_spacing * self.point_value * 0.5):
+                        too_close = True
+                        break
+                
+                if not too_close:
+                    new_level = GridLevel(
+                        level_id=f"BUY_NEAR_{int(time.time())}_{i}",
+                        price=round(level_price, 5),
+                        lot_size=self.calculate_level_lot_size(i + 1),
+                        direction="BUY",
+                        status=PositionStatus.PENDING,
+                        entry_time=datetime.now()
+                    )
+                    
+                    order_result = self.place_pending_order(new_level)
+                    if order_result:
+                        new_level.order_id = order_result
+                        self.grid_levels.append(new_level)
+                        self.pending_orders[order_result] = new_level
+                        print(f"🆕 Added nearby BUY: {new_level.level_id} @ ${level_price:.2f}")
+                        
+        except Exception as e:
+            print(f"❌ Error adding nearby BUY orders: {e}")
+    
+    def add_nearby_sell_orders(self, count: int, current_price: float):
+        """เพิ่ม SELL orders ใกล้ราคาปัจจุบัน"""
+        try:
+            for i in range(count):
+                # หา SELL level ที่ใกล้ที่สุดที่ยังไม่มี order
+                level_price = current_price + ((i + 1) * self.grid_spacing * self.point_value)
+                
+                # ตรวจสอบว่ามี order ใกล้ๆ แล้วหรือไม่
+                too_close = False
+                for existing_level in self.pending_orders.values():
+                    if (existing_level.direction == "SELL" and 
+                        abs(existing_level.price - level_price) < self.grid_spacing * self.point_value * 0.5):
+                        too_close = True
+                        break
+                
+                if not too_close:
+                    new_level = GridLevel(
+                        level_id=f"SELL_NEAR_{int(time.time())}_{i}",
+                        price=round(level_price, 5),
+                        lot_size=self.calculate_level_lot_size(i + 1),
+                        direction="SELL",
+                        status=PositionStatus.PENDING,
+                        entry_time=datetime.now()
+                    )
+                    
+                    order_result = self.place_pending_order(new_level)
+                    if order_result:
+                        new_level.order_id = order_result
+                        self.grid_levels.append(new_level)
+                        self.pending_orders[order_result] = new_level
+                        print(f"🆕 Added nearby SELL: {new_level.level_id} @ ${level_price:.2f}")
+                        
+        except Exception as e:
+            print(f"❌ Error adding nearby SELL orders: {e}")
+    
+    def weekly_maintenance(self):
+        """การบำรุงรักษาประจำสัปดาห์"""
+        try:
+            print("🔧 === WEEKLY MAINTENANCE STARTED ===")
+            
+            # 1. ลบ orders เก่าและไกล
+            removed = self.cleanup_far_orders()
+            
+            # 2. ตรวจสอบ grid coverage
+            self.ensure_sufficient_grid_coverage()
+            
+            # 3. แสดงสถิติ orders
+            self.display_order_statistics()
+            
+            print("✅ === WEEKLY MAINTENANCE COMPLETED ===")
+            
+        except Exception as e:
+            print(f"❌ Weekly maintenance error: {e}")
+    
+    def display_order_statistics(self):
+        """แสดงสถิติ orders"""
+        try:
+            current_price = self.get_current_price()
+            
+            buy_orders = [l for l in self.pending_orders.values() if l.direction == "BUY"]
+            sell_orders = [l for l in self.pending_orders.values() if l.direction == "SELL"]
+            
+            if buy_orders:
+                buy_distances = [abs(l.price - current_price) / self.point_value for l in buy_orders]
+                avg_buy_distance = sum(buy_distances) / len(buy_distances)
+                max_buy_distance = max(buy_distances)
+            else:
+                avg_buy_distance = 0
+                max_buy_distance = 0
+                
+            if sell_orders:
+                sell_distances = [abs(l.price - current_price) / self.point_value for l in sell_orders]
+                avg_sell_distance = sum(sell_distances) / len(sell_distances)
+                max_sell_distance = max(sell_distances)
+            else:
+                avg_sell_distance = 0
+                max_sell_distance = 0
+            
+            print(f"📊 === ORDER STATISTICS ===")
+            print(f"   📈 BUY Orders: {len(buy_orders)} (Avg: {avg_buy_distance:.0f}pts, Max: {max_buy_distance:.0f}pts)")
+            print(f"   📉 SELL Orders: {len(sell_orders)} (Avg: {avg_sell_distance:.0f}pts, Max: {max_sell_distance:.0f}pts)")
+            print(f"   📋 Total Pending: {len(self.pending_orders)}")
+            print(f"   🎯 Active Positions: {len(self.active_positions)}")
+            print(f"   💰 Current Price: ${current_price:.2f}")
+            
+        except Exception as e:
+            print(f"❌ Error displaying statistics: {e}")
+
     def run_trading_loop(self):
         """Main trading loop - called continuously while trading is active"""
         
         loop_count = 0
         market_check_interval = 60  # Check market every 60 loops (1 minute)
         last_market_status = self.is_market_open()
+        last_maintenance = datetime.now()
+        last_cleanup = datetime.now()
         
         while self.trading_active and not self.emergency_stop_triggered:
             try:
@@ -1300,6 +1488,27 @@ class AIGoldGrid:
                     elif loop_count % (market_check_interval * 10) == 0:  # Every 10 minutes
                         if not current_market_status:
                             print("🕒 Market still closed - monitoring existing positions only")
+
+                # ===== MAINTENANCE SCHEDULES =====
+                
+                # Daily cleanup (ทุก 24 ชั่วโมง)
+                if (datetime.now() - last_cleanup).total_seconds() >= 24 * 3600:
+                    print("🧹 Running daily cleanup...")
+                    removed = self.cleanup_far_orders()
+                    if removed > 0:
+                        self.ensure_sufficient_grid_coverage()
+                    last_cleanup = datetime.now()
+                
+                # Weekly maintenance (ทุก 7 วัน)
+                if (datetime.now() - last_maintenance).total_seconds() >= 7 * 24 * 3600:
+                    self.weekly_maintenance()
+                    last_maintenance = datetime.now()
+                
+                # Grid extension check (ทุก 5 นาที)
+                if loop_count % 300 == 0:  # 5 minutes
+                    self.check_grid_triggers()
+                
+                # ===== REGULAR TRADING LOGIC =====
                 
                 # Update current price and price history
                 self.update_current_price()
@@ -1311,10 +1520,6 @@ class AIGoldGrid:
                     
                     # Update position PnL (every loop)
                     self.update_positions_pnl()
-                    
-                    # Check grid triggers (every 5 loops = ~5 seconds)
-                    if loop_count % 5 == 0:
-                        self.check_grid_triggers()
                     
                     # Update performance metrics (every 10 loops = ~10 seconds)
                     if loop_count % 10 == 0:
@@ -1329,11 +1534,12 @@ class AIGoldGrid:
                     # Only check critical emergency conditions (not margin-related)
                     self.check_critical_emergency_conditions()
                 
-                # Log status periodically (every 60 loops = ~1 minute)
-                if loop_count % 60 == 0:
+                # Log status periodically (every 300 loops = ~5 minutes)
+                if loop_count % 300 == 0:
                     status = self.get_grid_status()
                     market_emoji = "🟢" if last_market_status else "🔴"
-                    print(f"📊 Status: {market_emoji} Market, {status['active_positions']} positions, PnL: ${status['total_pnl']:.2f}, Drawdown: {status['current_drawdown']:.0f}pts")
+                    pending_count = len(self.pending_orders)
+                    print(f"📊 Status: {market_emoji} Market, {status['active_positions']} positions, {pending_count} pending, PnL: ${status['total_pnl']:.2f}, Drawdown: {status['current_drawdown']:.0f}pts")
                 
                 self.last_update = datetime.now()
                 time.sleep(1)  # 1 second intervals
@@ -1406,198 +1612,6 @@ class AIGoldGrid:
             return price_data['bid'] if price_data else self.current_price
         except:
             return self.current_price
-            
-    def calculate_grid_efficiency(self) -> Dict:
-        """Calculate grid trading efficiency metrics"""
-        
-        try:
-            # Calculate price range coverage
-            if self.grid_levels:
-                min_price = min(level.price for level in self.grid_levels)
-                max_price = max(level.price for level in self.grid_levels)
-                price_range = max_price - min_price
-                price_range_points = price_range / self.point_value
-            else:
-                price_range_points = 0
-                
-            # Calculate capital efficiency
-            total_margin_used = sum(
-                self.mt5_connector.calculate_margin_required(level.lot_size) 
-                for level in self.active_positions.values()
-            )
-            
-            account_info = self.mt5_connector.get_account_info()
-            capital_efficiency = (total_margin_used / account_info['balance']) * 100 if account_info else 0
-            
-            # Calculate profit per trade efficiency
-            avg_profit_per_trade = (self.realized_pnl / self.trades_closed) if self.trades_closed > 0 else 0
-            
-            return {
-                'price_range_coverage': round(price_range_points, 0),
-                'capital_efficiency': round(capital_efficiency, 1),
-                'avg_profit_per_trade': round(avg_profit_per_trade, 2),
-                'grid_utilization': round((len(self.active_positions) / len(self.grid_levels)) * 100, 1) if self.grid_levels else 0,
-                'survivability_usage': round((self.current_drawdown / self.survivability) * 100, 1),
-                'risk_reward_ratio': round(abs(self.largest_win / self.largest_loss), 2) if self.largest_loss < 0 else 0
-            }
-        except Exception as e:
-            print(f"❌ Error calculating efficiency: {e}")
-            return {}
-            
-    def generate_trading_report(self) -> str:
-        """Generate comprehensive trading report"""
-        
-        try:
-            status = self.get_grid_status()
-            efficiency = self.calculate_grid_efficiency()
-            
-            report = f"""
-🤖 AI GOLD GRID TRADING REPORT
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-{'='*60}
-
-📊 CURRENT STATUS:
-   Trading Active: {'✅ YES' if status['trading_active'] else '❌ NO'}
-   Symbol: {status['gold_symbol']}
-   Current Price: ${status['current_price']:.2f}
-   Starting Price: ${status['starting_price']:.2f}
-   
-💰 PROFIT & LOSS:
-   Total PnL: ${status['total_pnl']:,.2f}
-   Unrealized PnL: ${status['unrealized_pnl']:,.2f}
-   Realized PnL: ${status['realized_pnl']:,.2f}
-   
-📈 POSITION OVERVIEW:
-   Active Positions: {status['active_positions']}
-   Pending Orders: {status['pending_orders']}
-   Total Grid Levels: {status['total_grid_levels']}
-   
-⚠️ RISK METRICS:
-   Current Drawdown: {status['current_drawdown']:,.0f} points
-   Maximum Drawdown: {status['max_drawdown']:,.0f} points
-   Survivability Used: {status['survivability_used']:.1f}%
-   Emergency Stop: {'🚨 TRIGGERED' if status['emergency_stop'] else '✅ NORMAL'}
-   
-📊 PERFORMANCE METRICS:
-   Trades Opened: {status['trades_opened']}
-   Trades Closed: {status['trades_closed']}
-   Win Rate: {status['win_rate']:.1f}%
-   Largest Win: ${status['largest_win']:,.2f}
-   Largest Loss: ${status['largest_loss']:,.2f}
-   
-⚡ EFFICIENCY ANALYSIS:
-   Price Range Coverage: {efficiency.get('price_range_coverage', 0):,.0f} points
-   Capital Efficiency: {efficiency.get('capital_efficiency', 0):.1f}%
-   Grid Utilization: {efficiency.get('grid_utilization', 0):.1f}%
-   Avg Profit/Trade: ${efficiency.get('avg_profit_per_trade', 0):,.2f}
-   Risk/Reward Ratio: {efficiency.get('risk_reward_ratio', 0):.2f}
-   
-🎯 GRID CONFIGURATION:
-   Base Lot Size: {self.base_lot:.3f}
-   Grid Spacing: {self.grid_spacing} points
-   Max Levels: {self.max_levels}
-   Survivability: {self.survivability:,.0f} points
-   Magic Number: {self.magic_number}
-   
-{'='*60}
-🏆 AI GOLD GRID TRADING SYSTEM - LIVE TRADING ENGINE
-"""
-            
-            return report
-            
-        except Exception as e:
-            return f"❌ Error generating report: {e}"
-            
-    def get_real_time_stats(self) -> Dict:
-        """Get real-time trading statistics"""
-        
-        try:
-            # Get current account info
-            account_info = self.mt5_connector.get_account_info()
-            
-            # Calculate real-time metrics
-            total_exposure = sum(pos.lot_size for pos in self.active_positions.values())
-            avg_entry_price = sum(pos.price * pos.lot_size for pos in self.active_positions.values()) / total_exposure if total_exposure > 0 else 0
-            
-            return {
-                'account_balance': account_info.get('balance', 0) if account_info else 0,
-                'account_equity': account_info.get('equity', 0) if account_info else 0,
-                'margin_level': account_info.get('margin_level', 0) if account_info else 0,
-                'free_margin': account_info.get('free_margin', 0) if account_info else 0,
-                'total_exposure_lots': round(total_exposure, 3),
-                'average_entry_price': round(avg_entry_price, 2),
-                'unrealized_pnl_percentage': round((self.unrealized_pnl / account_info.get('balance', 1)) * 100, 2) if account_info else 0,
-                'grid_coverage_points': len(self.grid_levels) * self.grid_spacing if self.grid_levels else 0,
-                'system_uptime_minutes': (datetime.now() - self.last_update).total_seconds() / 60
-            }
-        except Exception as e:
-            print(f"❌ Error getting real-time stats: {e}")
-            return {}
-            
-    def __del__(self):
-        """Cleanup when object is destroyed"""
-        try:
-            if self.trading_active:
-                print("🛑 Grid system cleanup - stopping trading")
-                self.stop_trading()
-        except:
-            pass
-
-# Test function for real trading mode
-def test_ai_gold_grid_real():
-    """Test the AI Gold Grid system in REAL mode"""
-    
-    print("🚨 AI Gold Grid REAL TRADING MODE - USE WITH CAUTION!")
-    print("="*60)
-    
-    # Test survivability parameters
-    test_params = {
-        'base_lot': 0.05,
-        'grid_spacing': 300,
-        'max_levels': 67,
-        'survivability': 20100,
-        'realistic_survivability': 18500,
-        'account_balance': 10000
-    }
-    
-    # Test config
-    test_config = {
-        'daily_loss_limit': 500,
-        'target_survivability': 20000
-    }
-    
-    print("⚠️ This test requires:")
-    print("   1. Active MT5 connection")
-    print("   2. Sufficient account balance")  
-    print("   3. Gold symbol available")
-    print("   4. Trading permissions enabled")
-    
-    print(f"\n🔧 Real Trading Features:")
-    print("   ✅ Place actual pending orders")
-    print("   ✅ Monitor real position fills")
-    print("   ✅ Calculate real PnL")
-    print("   ✅ Emergency stop system")
-    print("   ✅ Real-time risk management")
-    
-    print(f"\n🛡️ Safety Features:")
-    print("   ✅ Magic number isolation")
-    print("   ✅ Daily loss limits")
-    print("   ✅ Margin level monitoring")
-    print("   ✅ Emergency close all")
-    
-    print(f"\n📊 Test Parameters:")
-    print(f"   Base Lot: {test_params['base_lot']}")
-    print(f"   Grid Spacing: {test_params['grid_spacing']} points")
-    print(f"   Max Levels: {test_params['max_levels']}")
-    print(f"   Survivability: {test_params['survivability']:,} points")
-    print(f"   Daily Loss Limit: ${test_config['daily_loss_limit']}")
-    
-    print("\n" + "="*60)
-    print("🚀 Ready for LIVE TRADING!")
-    print("⚠️ Remember: This will place REAL orders with REAL money!")
-
-if __name__ == "__main__":
-    test_ai_gold_grid_real()
             
     def calculate_grid_efficiency(self) -> Dict:
         """Calculate grid trading efficiency metrics"""
