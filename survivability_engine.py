@@ -310,8 +310,8 @@ class SurvivabilityEngine:
         
         if realistic_points < self.target_survivability:
             shortage = self.target_survivability - realistic_points
-            warnings.append(f"Survivability {shortage:,.0f} points below target due to capital constraints")
-            
+            warnings.append(f"Survivability {shortage:,.0f} points below 20,000 target - system usable but with reduced coverage")
+
         if actual_lot == 0.01:  # If we're at minimum lot
             warnings.append("Using minimum broker lot size - may limit survivability optimization")
             
@@ -427,7 +427,7 @@ class SurvivabilityEngine:
         elif survivability >= 18000:
             return "ACCEPTABLE"
         else:
-            return "NEEDS_IMPROVEMENT"
+           return "LIMITED"
             
     def assess_risk_level(self, account_balance: float, max_drawdown_value: float) -> str:
         """Assess overall risk level"""

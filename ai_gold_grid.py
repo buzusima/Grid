@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from enum import Enum
 import threading
 import json
+import os
+import random 
 
 class GridDirection(Enum):
     BUY_GRID = "BUY_GRID"
@@ -89,8 +91,14 @@ class AIGoldGrid:
         self.price_history = []
         self.volatility_buffer = 50  # points
         
-        # Magic number for identifying our orders
-        self.magic_number = 999888777  # Unique magic number
+        # Fixed Magic Number based on account (for recovery system)
+        account_info = mt5_connector.get_account_info()
+        if account_info:
+            account_login = str(account_info.get('login', 12345))
+            # Create consistent magic number: 777 + last 5 digits of account
+            self.magic_number = int(f"777{account_login[-5:]}")
+        else:
+            self.magic_number = 777888999  # fallback
         
         # Risk management
         self.max_drawdown_points = 0
@@ -120,7 +128,216 @@ class AIGoldGrid:
         print(f"   🛡️ Realistic Survivability: {self.survivability:,.0f} points")
         print(f"   ⚙️ Broker Min Lot: {self.min_lot}")
         print(f"   🔄 Filling Mode: {self.filling_mode_name}")
-        
+        print(f"   🎯 Fixed Magic Number: {self.magic_number} (Account-based)")
+
+    def save_grid_state(self):
+        """Save current grid state for recovery"""
+        try:
+            state = {
+                'magic_number': self.magic_number,
+                'account_login': self.mt5_connector.get_account_info().get('login') if self.mt5_connector.get_account_info() else None,
+                'base_lot': self.base_lot,
+                'grid_spacing': self.grid_spacing,
+                'max_levels': self.max_levels,
+                'starting_price': self.starting_price,
+                'survivability': self.survivability,
+                'gold_symbol': self.gold_symbol,
+                'created_timestamp': datetime.now().isoformat(),
+                'version': '1.0'
+            }
+            
+            filename = f"grid_state_{self.magic_number}.json"
+            with open(filename, 'w') as f:
+                json.dump(state, f, indent=2)
+                
+            print(f"💾 Grid state saved to {filename}")
+            
+        except Exception as e:
+            print(f"❌ Save state error: {e}")
+
+    def load_grid_state(self) -> bool:
+        """Load grid state for recovery"""
+        try:
+            filename = f"grid_state_{self.magic_number}.json"
+            
+            if os.path.exists(filename):
+                with open(filename, 'r') as f:
+                    state = json.load(f)
+                    
+                # Verify it's the same account
+                saved_login = state.get('account_login')
+                current_account = self.mt5_connector.get_account_info()
+                current_login = current_account.get('login') if current_account else None
+                
+                if saved_login == current_login:
+                    print(f"📂 Grid state loaded from {filename}")
+                    print(f"🔗 Account verified: {current_login}")
+                    return True
+                else:
+                    print(f"⚠️ Account mismatch: saved={saved_login}, current={current_login}")
+                    
+        except Exception as e:
+            print(f"❌ Load state error: {e}")
+            
+        return False
+
+    def recover_existing_orders_and_positions(self) -> bool:
+        """Recover existing orders and positions after restart"""
+        try:
+            print("🔄 Scanning MT5 for existing orders/positions...")
+            
+            recovered_orders = 0
+            recovered_positions = 0
+            
+            # Recover pending orders
+            orders = mt5.orders_get(symbol=self.gold_symbol)
+            if orders:
+                our_orders = [order for order in orders if order.magic == self.magic_number]
+                
+                for order in our_orders:
+                    try:
+                        # Determine direction
+                        if order.type in [mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP]:
+                            direction = "BUY"
+                        else:
+                            direction = "SELL"
+                            
+                        # Create grid level from existing order
+                        grid_level = GridLevel(
+                            level_id=f"RECOVERED_ORD_{order.ticket}",
+                            price=order.price_open,
+                            lot_size=order.volume_initial,
+                            direction=direction,
+                            status=PositionStatus.PENDING,
+                            order_id=order.ticket,
+                            entry_time=datetime.fromtimestamp(order.time_setup) if hasattr(order, 'time_setup') else datetime.now()
+                        )
+                        
+                        self.grid_levels.append(grid_level)
+                        self.pending_orders[order.ticket] = grid_level
+                        recovered_orders += 1
+                        
+                        print(f"   📋 Recovered order: {direction} {order.volume_initial:.3f} @ {order.price_open}")
+                        
+                    except Exception as e:
+                        print(f"   ⚠️ Failed to recover order {order.ticket}: {e}")
+                        
+            # Recover active positions (exclude hedge positions)
+            positions = mt5.positions_get(symbol=self.gold_symbol)
+            if positions:
+                our_positions = [pos for pos in positions 
+                            if pos.magic == self.magic_number and "HEDGE" not in pos.comment]
+                
+                for position in our_positions:
+                    try:
+                        # Determine direction
+                        direction = "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL"
+                        
+                        # Create grid level from existing position
+                        grid_level = GridLevel(
+                            level_id=f"RECOVERED_POS_{position.ticket}",
+                            price=position.price_open,
+                            lot_size=position.volume,
+                            direction=direction,
+                            status=PositionStatus.ACTIVE,
+                            position_id=position.ticket,
+                            entry_time=datetime.fromtimestamp(position.time) if hasattr(position, 'time') else datetime.now(),
+                            pnl=position.profit
+                        )
+                        
+                        self.grid_levels.append(grid_level)
+                        self.active_positions[position.ticket] = grid_level
+                        recovered_positions += 1
+                        
+                        print(f"   💼 Recovered position: {direction} {position.volume:.3f} @ {position.price_open} (PnL: ${position.profit:.2f})")
+                        
+                    except Exception as e:
+                        print(f"   ⚠️ Failed to recover position {position.ticket}: {e}")
+                        
+            # Update current price
+            price_data = self.mt5_connector.get_current_price()
+            if price_data:
+                self.current_price = price_data['bid']
+                
+                # If no starting price from state, use current
+                if not hasattr(self, 'starting_price') or self.starting_price == 0:
+                    self.starting_price = self.current_price
+                    
+            print(f"✅ Recovery completed:")
+            print(f"   📋 Orders: {recovered_orders}")
+            print(f"   💼 Positions: {recovered_positions}")
+            print(f"   💰 Current Price: {self.current_price}")
+            
+            return recovered_orders > 0 or recovered_positions > 0
+            
+        except Exception as e:
+            print(f"❌ Recovery error: {e}")
+            return False
+
+    def clean_orphaned_orders(self):
+        """Clean up orders that might be left from old versions"""
+        try:
+            print("🧹 Checking for orphaned orders...")
+            
+            # Get all orders for this symbol
+            orders = mt5.orders_get(symbol=self.gold_symbol)
+            if not orders:
+                print("✅ No orders found to clean")
+                return
+                
+            current_time = datetime.now()
+            cleaned_count = 0
+            
+            for order in orders:
+                try:
+                    # Calculate order age
+                    order_time = datetime.fromtimestamp(order.time_setup) if hasattr(order, 'time_setup') else current_time
+                    order_age_hours = (current_time - order_time).total_seconds() / 3600
+                    
+                    # Clean conditions:
+                    should_clean = False
+                    reason = ""
+                    
+                    # 1. Old magic numbers (not current account-based format)
+                    if order.magic != self.magic_number and str(order.magic).startswith(('999', '777')):
+                        should_clean = True
+                        reason = f"old magic {order.magic}"
+                        
+                    # 2. Very old orders (>7 days)
+                    elif order_age_hours > 168:  # 7 days
+                        should_clean = True
+                        reason = f"age {order_age_hours:.1f}h"
+                        
+                    # 3. Orders with old comment format
+                    elif "AIGrid_" in order.comment and order.magic != self.magic_number:
+                        should_clean = True
+                        reason = f"old version"
+                        
+                    if should_clean:
+                        # Cancel the orphaned order
+                        request = {
+                            "action": mt5.TRADE_ACTION_REMOVE,
+                            "order": order.ticket
+                        }
+                        
+                        result = mt5.order_send(request)
+                        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                            cleaned_count += 1
+                            print(f"   🗑️ Cleaned order {order.ticket} ({reason})")
+                        else:
+                            print(f"   ⚠️ Failed to clean order {order.ticket}: {result.comment if result else 'No response'}")
+                            
+                except Exception as e:
+                    print(f"   ⚠️ Error processing order {order.ticket}: {e}")
+                    
+            if cleaned_count > 0:
+                print(f"✅ Cleaned {cleaned_count} orphaned orders")
+            else:
+                print("✅ No orphaned orders found")
+                
+        except Exception as e:
+            print(f"❌ Cleanup error: {e}")
+
     def detect_broker_filling_modes(self):
         """Detect and set appropriate filling modes for the broker"""
         
@@ -174,9 +391,32 @@ class AIGoldGrid:
             self.filling_mode_name = "RETURN (Safe fallback)"
         
     def initialize_grid(self, starting_direction: GridDirection = GridDirection.BIDIRECTIONAL):
-        """Initialize the grid trading system"""
+        """Initialize the grid trading system with smart recovery"""
         try:
-            # Check if market is open
+            print("🚀 Starting AI Grid System...")
+            
+            # Step 1: Load saved state if available
+            state_loaded = self.load_grid_state()
+            
+            # Step 2: Clean orphaned orders from old versions
+            self.clean_orphaned_orders()
+            
+            # Step 3: Try to recover existing orders/positions
+            recovery_success = self.recover_existing_orders_and_positions()
+            
+            if recovery_success:
+                print("🔄 ✅ RECOVERY MODE: Continuing with existing orders/positions")
+                print(f"📊 Status: {len(self.pending_orders)} orders, {len(self.active_positions)} positions")
+                
+                # Ensure grid coverage is sufficient
+                self.ensure_sufficient_grid_coverage()
+                
+                return True
+                
+            # Step 4: No existing orders/positions found - initialize new grid
+            print("🆕 ✅ FRESH START: Initializing new grid system")
+            
+            # Check market status
             if not self.is_market_open():
                 print("⚠️ Warning: Market appears to be closed")
                 print("   Grid will be initialized but orders may fail until market opens")
@@ -189,7 +429,7 @@ class AIGoldGrid:
             self.starting_price = price_data['bid']
             self.current_price = self.starting_price
             
-            print(f"🚀 Initializing grid at price: {self.starting_price}")
+            print(f"💰 Grid starting price: {self.starting_price}")
             
             # Create grid levels
             self.create_grid_levels(starting_direction)
@@ -197,20 +437,20 @@ class AIGoldGrid:
             # Place initial pending orders
             placed_orders = self.place_initial_orders()
             
-            if placed_orders == 0:
-                print("⚠️ Warning: No orders were placed successfully")
-                print("   This is normal if the market is closed")
-                print("   Orders will be placed when market reopens")
+            # Save current state
+            self.save_grid_state()
             
-            print(f"✅ Grid initialized with {len(self.grid_levels)} levels")
-            print(f"📋 Successfully placed {placed_orders} orders")
+            print(f"✅ NEW GRID INITIALIZED:")
+            print(f"   📋 Grid levels: {len(self.grid_levels)}")
+            print(f"   📋 Orders placed: {placed_orders}")
+            print(f"   💾 State saved for future recovery")
             
             return True
             
         except Exception as e:
             print(f"❌ Grid initialization error: {e}")
             return False
-            
+                
     def is_market_open(self) -> bool:
         """Check if market is currently open for trading"""
         try:
@@ -589,42 +829,162 @@ class AIGoldGrid:
         return None
         
     def replace_filled_level(self, filled_level: GridLevel):
-        """Replace a filled grid level with a new pending order at the same level"""
+        """Auto-adaptive replacement based on account balance"""
         
         try:
-            # Calculate new price for the replacement order
-            # Place it at the opposite side to create a "bracket" effect
-            if filled_level.direction == "BUY":
-                # Original buy filled, place new buy order further down
-                new_price = filled_level.price - (self.grid_spacing * self.point_value)
-                new_direction = "BUY"
-            else:
-                # Original sell filled, place new sell order further up  
-                new_price = filled_level.price + (self.grid_spacing * self.point_value)
-                new_direction = "SELL"
-                
-            # Create new grid level
-            new_level = GridLevel(
-                level_id=f"{new_direction}_{int(time.time())}_{len(self.grid_levels)}",
-                price=round(new_price, 5),
-                lot_size=filled_level.lot_size,
-                direction=new_direction,
-                status=PositionStatus.PENDING
-            )
+            # Get current balance
+            account_info = self.mt5_connector.get_account_info()
+            balance = account_info.get('balance', 1000) if account_info else 1000
+            current_price = self.get_current_price()
             
-            # Place the new order
-            order_result = self.place_pending_order(new_level)
-            if order_result:
-                new_level.order_id = order_result
-                self.grid_levels.append(new_level)
-                self.pending_orders[order_result] = new_level
-                print(f"🔄 Replacement order placed: {new_level.level_id} @ {new_price}")
+            print(f"📊 {filled_level.direction} @ {filled_level.price} filled (Balance: ${balance:,.0f})")
+            
+            # Auto-determine strategy based on balance
+            if balance >= 25000:
+                opposite_chance = 0.80
+                tier = "PREMIUM"
+                max_opposite = 20
+                lot_multiplier = 0.9
+            elif balance >= 10000:
+                opposite_chance = 0.65  
+                tier = "LARGE"
+                max_opposite = 16
+                lot_multiplier = 0.8
+            elif balance >= 3000:
+                opposite_chance = 0.45
+                tier = "MEDIUM" 
+                max_opposite = 12
+                lot_multiplier = 0.7
+            elif balance >= 1000:
+                opposite_chance = 0.25
+                tier = "SMALL"
+                max_opposite = 8
+                lot_multiplier = 0.6
             else:
-                print(f"❌ Failed to place replacement order for {filled_level.level_id}")
+                opposite_chance = 0.10
+                tier = "MICRO"
+                max_opposite = 5
+                lot_multiplier = 0.5
+                
+            print(f"🎯 Strategy: {tier} - Opposite chance: {opposite_chance:.0%}")
+            
+            # Simple trend detection
+            trend_adjustment = 1.0
+            if len(self.price_history) >= 10:
+                recent_prices = [p['price'] for p in self.price_history[-10:]]
+                price_change = abs(recent_prices[-1] - recent_prices[0])
+                if price_change > self.grid_spacing * 3:  # Strong trend
+                    trend_adjustment = 0.5  # Reduce opposite orders
+                    print(f"⚠️ Strong trend detected - reducing opposite chance")
+            
+            adjusted_opposite_chance = opposite_chance * trend_adjustment
+            
+            # Decision: Opposite or Extension?
+            if random.random() < adjusted_opposite_chance:
+                # Place opposite order for profit-taking
+                opposite_direction = "BUY" if filled_level.direction == "SELL" else "SELL"
+                
+                # Check if too many opposite orders already
+                existing_opposite = [l for l in self.grid_levels 
+                                if l.direction == opposite_direction and 
+                                l.status == PositionStatus.PENDING]
+                
+                if len(existing_opposite) >= max_opposite:
+                    print(f"📊 Max {opposite_direction} orders reached, extending instead")
+                    self.place_extension_order(filled_level, current_price)
+                else:
+                    self.place_opposite_profit_order(filled_level, lot_multiplier)
+            else:
+                # Place extension order  
+                self.place_extension_order(filled_level, current_price)
                 
         except Exception as e:
-            print(f"❌ Error replacing filled level: {e}")
+            print(f"❌ Replacement error: {e}")
+
+    def place_opposite_profit_order(self, filled_level: GridLevel, lot_multiplier: float):
+        """Place opposite order for profit-taking"""
+        try:
+            opposite_direction = "BUY" if filled_level.direction == "SELL" else "SELL"
+            profit_points = self.grid_spacing * 0.8  # 80% of grid spacing
             
+            if filled_level.direction == "SELL":
+                opposite_price = filled_level.price - (profit_points * self.point_value)
+            else:
+                opposite_price = filled_level.price + (profit_points * self.point_value)
+            
+            # Adjust lot size
+            lot_size = filled_level.lot_size * lot_multiplier
+            lot_size = max(lot_size, self.min_lot)
+            
+            print(f"💰 Placing {opposite_direction} @ {opposite_price} for profit (lot: {lot_size:.3f})")
+            
+            opposite_level = GridLevel(
+                level_id=f"{opposite_direction}_PROFIT_{int(time.time())}",
+                price=round(opposite_price, 5),
+                lot_size=lot_size,
+                direction=opposite_direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            order_result = self.place_pending_order(opposite_level)
+            if order_result:
+                opposite_level.order_id = order_result
+                self.grid_levels.append(opposite_level)
+                self.pending_orders[order_result] = opposite_level
+                print(f"✅ {opposite_direction} profit order placed @ {opposite_price}")
+            else:
+                print(f"❌ Failed {opposite_direction} profit order")
+                
+        except Exception as e:
+            print(f"❌ Opposite order error: {e}")
+
+    def place_extension_order(self, filled_level: GridLevel, current_price: float):
+        """Place extension order in same direction"""
+        try:
+            # Count existing orders in same direction
+            if filled_level.direction == "SELL":
+                existing_orders = [l for l in self.grid_levels 
+                                if l.direction == "SELL" and 
+                                l.status == PositionStatus.PENDING and
+                                l.price > current_price]
+                if existing_orders:
+                    extension_price = max(l.price for l in existing_orders) + (self.grid_spacing * self.point_value)
+                else:
+                    extension_price = filled_level.price + (self.grid_spacing * self.point_value)
+            else:
+                existing_orders = [l for l in self.grid_levels 
+                                if l.direction == "BUY" and 
+                                l.status == PositionStatus.PENDING and
+                                l.price < current_price]
+                if existing_orders:
+                    extension_price = min(l.price for l in existing_orders) - (self.grid_spacing * self.point_value)
+                else:
+                    extension_price = filled_level.price - (self.grid_spacing * self.point_value)
+            
+            print(f"🔄 Extending {filled_level.direction} grid @ {extension_price}")
+            
+            extension_level = GridLevel(
+                level_id=f"{filled_level.direction}_EXT_{int(time.time())}",
+                price=round(extension_price, 5),
+                lot_size=filled_level.lot_size,
+                direction=filled_level.direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            order_result = self.place_pending_order(extension_level)
+            if order_result:
+                extension_level.order_id = order_result
+                self.grid_levels.append(extension_level)
+                self.pending_orders[order_result] = extension_level
+                print(f"✅ {filled_level.direction} extension @ {extension_price}")
+            else:
+                print(f"❌ Failed extension order")
+                
+        except Exception as e:
+            print(f"❌ Extension error: {e}")
+
     def update_positions_pnl(self):
         """Update PnL for all active positions - REAL DATA"""
         
@@ -934,47 +1294,44 @@ class AIGoldGrid:
             print(f"❌ Error checking grid rebalancing: {e}")
             
     def check_emergency_conditions(self):
-        """Check for emergency stop conditions - REAL RISK MANAGEMENT"""
+        """Monitor conditions only - No automatic emergency stop"""
         
         try:
-            # Check daily loss limit
+            # Monitor daily loss - แจ้งเตือนอย่างเดียว ไม่หยุด
             if self.total_pnl < -abs(self.daily_loss_limit):
-                print(f"🚨 Daily loss limit exceeded: ${self.total_pnl:.2f} < -${self.daily_loss_limit}")
-                self.emergency_stop("Daily loss limit exceeded")
-                return
+                print(f"⚠️ Daily loss alert: ${self.total_pnl:.2f} (Limit: -${self.daily_loss_limit}) - Consider manual stop")
                 
-            # Check maximum drawdown (90% of survivability)
+            # Monitor drawdown - แจ้งเตือนอย่างเดียว ไม่หยุด
             survivability_limit = self.survivability * 0.9
             if self.current_drawdown > survivability_limit:
-                print(f"🚨 Maximum drawdown approached: {self.current_drawdown:.0f} > {survivability_limit:.0f} points")
-                self.emergency_stop("Maximum drawdown reached")
-                return
+                print(f"⚠️ High drawdown alert: {self.current_drawdown:.0f} > {survivability_limit:.0f} points - Consider manual stop")
                 
-            # Check margin level
+            # Monitor margin level - เฉพาะเมื่อมี positions
             account_info = self.mt5_connector.get_account_info()
             if account_info:
-                margin_level = account_info.get('margin_level', 1000)
-                if margin_level < 150:  # Critical margin level
-                    print(f"🚨 Critical margin level: {margin_level:.0f}%")
-                    self.emergency_stop("Low margin level")
-                    return
-                elif margin_level < 200:  # Warning level
-                    print(f"⚠️ Low margin level warning: {margin_level:.0f}%")
+                margin_level = account_info.get('margin_level', 0)
+                current_margin = account_info.get('margin', 0)
+                
+                # เช็ค margin level เฉพาะเมื่อมี positions (margin > 0)
+                if current_margin > 0:  # มี positions อยู่จริง
+                    if margin_level < 150:  # Critical margin level
+                        print(f"⚠️ Critical margin level: {margin_level:.0f}% - Consider adding funds or manual stop")
+                    elif margin_level < 200:  # Warning level
+                        print(f"ℹ️ Low margin level: {margin_level:.0f}%")
+                # ถ้าไม่มี positions (margin = 0) ไม่แสดงอะไร
                     
-            # Check account equity vs balance
+            # Monitor account equity vs balance - แจ้งเตือนอย่างเดียว ไม่หยุด
             if account_info:
                 equity = account_info.get('equity', 0)
                 balance = account_info.get('balance', 0)
                 if balance > 0:
                     equity_ratio = equity / balance
                     if equity_ratio < 0.5:  # Lost 50% of account
-                        print(f"🚨 Account equity critical: {equity_ratio*100:.1f}%")
-                        self.emergency_stop("Critical account equity")
-                        return
+                        print(f"⚠️ Account equity low: {equity_ratio*100:.1f}% - Consider manual stop or add funds")
                         
         except Exception as e:
-            print(f"❌ Error checking emergency conditions: {e}")
-            
+            print(f"❌ Error monitoring conditions: {e}")
+
     def emergency_stop(self, reason: str = "Emergency condition triggered"):
         """Emergency stop all trading - REAL EMERGENCY SYSTEM"""
         
@@ -1463,7 +1820,7 @@ class AIGoldGrid:
         """Main trading loop - called continuously while trading is active"""
         
         loop_count = 0
-        market_check_interval = 60  # Check market every 60 loops (1 minute)
+        market_check_interval = 60
         last_market_status = self.is_market_open()
         last_maintenance = datetime.now()
         last_cleanup = datetime.now()
@@ -1476,7 +1833,6 @@ class AIGoldGrid:
                 if loop_count % market_check_interval == 0:
                     current_market_status = self.is_market_open()
                     
-                    # Market status changed
                     if current_market_status != last_market_status:
                         if current_market_status:
                             print("🟢 Market opened - resuming order placement")
@@ -1485,7 +1841,7 @@ class AIGoldGrid:
                             print("🔴 Market closed - pausing new orders (keeping positions)")
                             
                         last_market_status = current_market_status
-                    elif loop_count % (market_check_interval * 10) == 0:  # Every 10 minutes
+                    elif loop_count % (market_check_interval * 10) == 0:
                         if not current_market_status:
                             print("🕒 Market still closed - monitoring existing positions only")
 
@@ -1505,8 +1861,12 @@ class AIGoldGrid:
                     last_maintenance = datetime.now()
                 
                 # Grid extension check (ทุก 5 นาที)
-                if loop_count % 300 == 0:  # 5 minutes
+                if loop_count % 300 == 0:
                     self.check_grid_triggers()
+                
+                # 🛡️ SMART HEDGE CHECK (ทุก 2 นาที)
+                if loop_count % 120 == 0:  # Every 2 minutes
+                    self.check_and_place_smart_hedge()
                 
                 # ===== REGULAR TRADING LOGIC =====
                 
@@ -1525,31 +1885,34 @@ class AIGoldGrid:
                     if loop_count % 10 == 0:
                         self.update_performance_metrics()
                         
-                    # Check emergency conditions only when market is open
-                    self.check_emergency_conditions()
+                    # Monitor conditions only - no auto emergency stop
+                    if loop_count % 60 == 0:
+                        self.check_emergency_conditions()
                 else:
                     # Market closed - still update PnL for existing positions
                     self.update_positions_pnl()
                     
-                    # Only check critical emergency conditions (not margin-related)
-                    self.check_critical_emergency_conditions()
+                    # Monitor conditions only when market closed
+                    if loop_count % 300 == 0:
+                        self.check_emergency_conditions()
                 
                 # Log status periodically (every 300 loops = ~5 minutes)
                 if loop_count % 300 == 0:
                     status = self.get_grid_status()
                     market_emoji = "🟢" if last_market_status else "🔴"
                     pending_count = len(self.pending_orders)
-                    print(f"📊 Status: {market_emoji} Market, {status['active_positions']} positions, {pending_count} pending, PnL: ${status['total_pnl']:.2f}, Drawdown: {status['current_drawdown']:.0f}pts")
+                    hedge_count = 1 if self.has_active_hedge() else 0
+                    print(f"📊 Status: {market_emoji} Market, {status['active_positions']} positions, {pending_count} pending, {hedge_count} hedge, PnL: ${status['total_pnl']:.2f}, Drawdown: {status['current_drawdown']:.0f}pts")
                 
                 self.last_update = datetime.now()
-                time.sleep(1)  # 1 second intervals
+                time.sleep(1)
                 
             except Exception as e:
                 print(f"❌ Trading loop error: {e}")
-                time.sleep(5)  # Wait longer on error
+                time.sleep(5)
                 
         print("🔴 Trading loop ended")
-        
+
     def check_critical_emergency_conditions(self):
         """Check only critical emergency conditions when market is closed"""
         
@@ -1604,7 +1967,189 @@ class AIGoldGrid:
                     
         if orders_placed > 0:
             print(f"🆕 Placed {orders_placed} pending orders after market reopened")
-        
+
+    def calculate_net_exposure(self):
+        """Calculate net exposure from active positions"""
+        try:
+            sell_exposure = sum(pos.lot_size for pos in self.active_positions.values() 
+                            if pos.direction == "SELL")
+            buy_exposure = sum(pos.lot_size for pos in self.active_positions.values() 
+                            if pos.direction == "BUY")
+            
+            net_exposure = sell_exposure - buy_exposure
+            
+            print(f"📊 Exposure: SELL {sell_exposure:.3f}, BUY {buy_exposure:.3f}, NET {net_exposure:.3f}")
+            return net_exposure
+            
+        except Exception as e:
+            print(f"❌ Error calculating exposure: {e}")
+            return 0.0
+            
+    def has_active_hedge(self):
+        """Check if there's already an active hedge position"""
+        try:
+            positions = mt5.positions_get(symbol=self.gold_symbol)
+            if positions:
+                hedge_positions = [pos for pos in positions 
+                                if pos.magic == self.magic_number and 
+                                "HEDGE" in pos.comment]
+                return len(hedge_positions) > 0
+            return False
+            
+        except Exception as e:
+            print(f"❌ Error checking hedge: {e}")
+            return False
+            
+    def place_hedge_order(self, direction: str, hedge_size: float):
+        """Place hedge order - REAL TRADING"""
+        try:
+            # Validate hedge size
+            if hedge_size < self.min_lot:
+                hedge_size = self.min_lot
+                
+            hedge_size = round(hedge_size / self.lot_step) * self.lot_step
+            
+            # Get current market price
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                print(f"❌ Cannot get tick data for hedge")
+                return False
+                
+            # Determine order type and price
+            if direction == "BUY":
+                order_type = mt5.ORDER_TYPE_BUY
+                price = tick.ask
+            else:
+                order_type = mt5.ORDER_TYPE_SELL
+                price = tick.bid
+                
+            # Prepare hedge request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": self.gold_symbol,
+                "volume": hedge_size,
+                "type": order_type,
+                "price": price,
+                "deviation": 30,  # Higher deviation for hedge
+                "magic": self.magic_number,
+                "comment": f"HEDGE_{direction}_{int(time.time())}",
+                "type_filling": self.order_filling_mode
+            }
+            
+            # Execute hedge order
+            result = mt5.order_send(request)
+            
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"🛡️ Hedge placed: {direction} {hedge_size:.3f} lots @ {price}")
+                return True
+            else:
+                error_msg = f"Hedge failed - Code: {result.retcode if result else 'None'}"
+                if result:
+                    error_msg += f", Comment: {result.comment}"
+                print(f"❌ {error_msg}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Hedge placement error: {e}")
+            return False
+            
+    def check_and_place_smart_hedge(self):
+        """Smart hedge system for trend protection"""
+        try:
+            # Skip if no active positions
+            if len(self.active_positions) == 0:
+                return
+                
+            # Calculate net exposure
+            net_exposure = self.calculate_net_exposure()
+            
+            # Hedge threshold - เหมาะสำหรับเงินทุนน้อย
+            hedge_threshold = 0.03  # 0.03 lot threshold
+            
+            # Determine if hedge is needed
+            if abs(net_exposure) > hedge_threshold:
+                
+                # Check if already have hedge
+                if self.has_active_hedge():
+                    print(f"🛡️ Hedge already active, skipping")
+                    return
+                    
+                # Calculate hedge size (60% of net exposure)
+                hedge_ratio = 0.6
+                hedge_size = abs(net_exposure) * hedge_ratio
+                
+                # Determine hedge direction (opposite to net exposure)
+                hedge_direction = "BUY" if net_exposure > 0 else "SELL"
+                
+                # Place hedge order
+                success = self.place_hedge_order(hedge_direction, hedge_size)
+                
+                if success:
+                    print(f"🛡️ Smart hedge activated: {hedge_direction} {hedge_size:.3f} lots")
+                    print(f"📊 Protecting against net {net_exposure:.3f} lot exposure")
+                else:
+                    print(f"⚠️ Failed to place hedge for {net_exposure:.3f} exposure")
+                    
+            else:
+                # Check if should close existing hedge
+                if self.has_active_hedge() and abs(net_exposure) < hedge_threshold * 0.5:
+                    self.close_hedge_positions()
+                    print(f"🔄 Hedge closed - exposure normalized")
+                    
+        except Exception as e:
+            print(f"❌ Smart hedge error: {e}")
+            
+    def close_hedge_positions(self):
+        """Close all hedge positions"""
+        try:
+            positions = mt5.positions_get(symbol=self.gold_symbol)
+            if not positions:
+                return
+                
+            hedge_positions = [pos for pos in positions 
+                            if pos.magic == self.magic_number and 
+                            "HEDGE" in pos.comment]
+            
+            closed_count = 0
+            for position in hedge_positions:
+                
+                # Get current market prices
+                tick = mt5.symbol_info_tick(self.gold_symbol)
+                if not tick:
+                    continue
+                    
+                # Determine close parameters
+                if position.type == mt5.POSITION_TYPE_BUY:
+                    trade_type = mt5.ORDER_TYPE_SELL
+                    price = tick.bid
+                else:
+                    trade_type = mt5.ORDER_TYPE_BUY
+                    price = tick.ask
+                    
+                # Close hedge position
+                request = {
+                    "action": mt5.TRADE_ACTION_DEAL,
+                    "symbol": self.gold_symbol,
+                    "volume": position.volume,
+                    "type": trade_type,
+                    "position": position.ticket,
+                    "price": price,
+                    "deviation": 30,
+                    "magic": self.magic_number,
+                    "comment": "HEDGE_CLOSE",
+                    "type_filling": self.close_filling_mode
+                }
+                
+                result = mt5.order_send(request)
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    closed_count += 1
+                    print(f"✅ Hedge closed: {position.ticket} - PnL: ${position.profit:.2f}")
+                    
+            print(f"🔄 Closed {closed_count} hedge positions")
+            
+        except Exception as e:
+            print(f"❌ Error closing hedge positions: {e}")
+
     def get_current_price(self) -> float:
         """Get current price from MT5"""
         try:

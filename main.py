@@ -526,12 +526,19 @@ class AIGoldTradingGUI:
                 for warning in calculations['warnings']:
                     self.log_message(f"⚠️ {warning}", "WARNING")
             
-            self.log_message("✅ Survivability calculation completed", "SUCCESS")
+            # Show appropriate success message based on target achievement
+            realistic_surv = calculations.get('realistic_survivability', calculations.get('survivability', 0))
+            if calculations.get('target_met', False) or realistic_surv >= 20000:
+                self.log_message("✅ Survivability calculation completed - Target achieved!", "SUCCESS")
+            elif realistic_surv >= 10000:
+                self.log_message("✅ Survivability calculation completed - System ready with good protection", "SUCCESS")
+            else:
+                self.log_message("✅ Survivability calculation completed - System ready with basic protection", "SUCCESS")
             
         except Exception as e:
             self.log_message(f"❌ Calculation Error: {str(e)}", "ERROR")
             messagebox.showerror("Calculation Error", str(e))
-            
+
     def update_survivability_display(self, calc):
         """Update survivability display with calculations"""
         self.balance_label.config(text=f"💰 Balance: ${calc['account_balance']:,.2f}")
@@ -553,14 +560,21 @@ class AIGoldTradingGUI:
         theoretical_surv = calc['survivability']
         realistic_surv = calc.get('realistic_survivability', theoretical_surv)
         
+        # ปรับเงื่อนไขสีให้ยืดหยุ่นมากขึ้น
         if realistic_surv >= 20000:
-            surv_color = '#51cf66'  # Green
+            surv_color = '#51cf66'  # Green - ถึงเป้าหมายแล้ว
             if realistic_surv != theoretical_surv:
                 surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ✅ (Theory: {theoretical_surv:,.0f})"
             else:
                 surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ✅"
+        elif realistic_surv >= 10000:
+            surv_color = '#ffd43b'  # Yellow - ใช้ได้แต่ต่ำกว่าเป้าหมาย
+            if realistic_surv != theoretical_surv:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️ (Theory: {theoretical_surv:,.0f})"
+            else:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️"
         else:
-            surv_color = '#ff6b6b'  # Red
+            surv_color = '#ff6b6b'  # Red - ต่ำมาก
             if realistic_surv != theoretical_surv:
                 surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️ (Theory: {theoretical_surv:,.0f})"
             else:
@@ -570,7 +584,7 @@ class AIGoldTradingGUI:
         
         safety_margin = calc['account_balance'] * (1 - self.config['safety_ratio'])
         self.safety_margin_label.config(text=f"💪 Safety Margin: ${safety_margin:,.2f} ({100-self.config['safety_ratio']*100:.0f}%)")
-        
+    
         # Show capital utilization if available
         if 'capital_utilization' in calc:
             util_text = f"📊 Capital Used: {calc['capital_utilization']:.1f}%"
@@ -593,7 +607,7 @@ class AIGoldTradingGUI:
                 self.utilization_label.pack(anchor='w', pady=2)
             else:
                 self.utilization_label.config(text=util_text, fg=util_color)
-        
+
     def update_hedge_display(self, hedge_plan):
         """Update hedge plan display with minimum lot warnings"""
         # Clear previous hedge display
@@ -863,7 +877,7 @@ Proceed with emergency stop?"""
                 else:
                     self.next_hedge_label.config(text="⏳ Next Hedge: Max Level")
             
-            # Update position counts in a label (create if doesn't exist)
+            # Update position counts and hedge status
             if not hasattr(self, 'position_count_label'):
                 self.position_count_label = tk.Label(
                     self.current_drawdown_label.master,
@@ -874,7 +888,18 @@ Proceed with emergency stop?"""
                 )
                 self.position_count_label.pack(anchor='w', pady=2)
                 
-            position_text = f"📈 Positions: {status.get('active_positions', 0)} active, {status.get('pending_orders', 0)} pending"
+            # Check hedge status from grid trader
+            hedge_status = ""
+            try:
+                if (hasattr(self, 'grid_trader') and self.grid_trader and 
+                    hasattr(self.grid_trader, 'has_active_hedge') and 
+                    self.grid_trader.has_active_hedge()):
+                    hedge_status = " | 🛡️ HEDGE ACTIVE"
+            except Exception as hedge_error:
+                # If hedge check fails, just continue without hedge status
+                pass
+                
+            position_text = f"📈 Positions: {status.get('active_positions', 0)} active, {status.get('pending_orders', 0)} pending{hedge_status}"
             if not market_open:
                 position_text += " | 🕒 Market Closed - Orders paused"
                 
@@ -882,7 +907,7 @@ Proceed with emergency stop?"""
             
         except Exception as e:
             print(f"Display update error: {e}")
-            
+
     def handle_emergency_triggered(self):
         """Handle emergency stop triggered by system"""
         
