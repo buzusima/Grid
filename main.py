@@ -512,26 +512,6 @@ class AIGoldTradingGUI:
             calculations = self.survivability_engine.calculate_for_balance(balance, min_lot)
             self.current_calculations = calculations
             
-            # แก้ไข: ตรวจสอบให้ survivability ≥ 20,000 จุด
-            realistic_surv = calculations.get('realistic_survivability', calculations['survivability'])
-            
-            if realistic_surv < 20000:
-                # ลองปรับพารามิเตอร์ใหม่
-                self.log_message("⚠️ Survivability below target, adjusting parameters...", "WARNING")
-                
-                # เพิ่มการปรับปรุงพารามิเตอร์
-                improved_calculations = self.survivability_engine.optimize_for_target_survivability(
-                    balance, min_lot, 20000
-                )
-                
-                if improved_calculations:
-                    calculations = improved_calculations
-                    self.current_calculations = calculations
-                    self.log_message("✅ Parameters optimized for 20,000+ points", "SUCCESS")
-                else:
-                    self.log_message("❌ Cannot achieve 20,000 points with current balance", "ERROR")
-                    # แต่ยังให้ใช้งานต่อได้
-            
             # Update display
             self.update_survivability_display(calculations)
             
@@ -689,34 +669,13 @@ class AIGoldTradingGUI:
             messagebox.showwarning("Warning", "Please calculate survivability first")
             return
             
-        # ตรวจสอบ survivability ก่อนเริ่มเทรด
-        realistic_surv = self.current_calculations.get('realistic_survivability', 
-                                                     self.current_calculations['survivability'])
-        
-        if realistic_surv <= 0:
-            messagebox.showerror("Cannot Start Trading", 
-                               "Survivability is 0 points. Please:\n\n" +
-                               "• Increase account balance\n" + 
-                               "• Check broker minimum lot size\n" +
-                               "• Recalculate survivability")
-            return
-            
-        if realistic_surv < 10000:
-            confirm_low_surv = messagebox.askyesno("Low Survivability Warning",
-                f"Survivability is only {realistic_surv:,.0f} points (below 20,000 target).\n\n" +
-                "This means higher risk. Do you want to continue anyway?\n\n" +
-                "Recommended: Increase account balance or change broker.")
-            
-            if not confirm_low_surv:
-                return
-        
         # Final confirmation for real trading
         confirm_msg = f"""⚠️ REAL TRADING CONFIRMATION ⚠️
 
 You are about to start LIVE trading with:
 • Account Balance: ${self.current_calculations['account_balance']:,.2f}
 • Base Lot Size: {self.current_calculations['base_lot']:.3f}
-• Max Survivability: {realistic_surv:,.0f} points
+• Max Survivability: {self.current_calculations.get('realistic_survivability', self.current_calculations['survivability']):,.0f} points
 • Daily Loss Limit: ${self.config.get('daily_loss_limit', 500):,.2f}
 
 This will place REAL orders on your MT5 account!
@@ -747,7 +706,7 @@ Are you absolutely sure you want to proceed?"""
                 self.stop_btn.config(state='normal', bg='#dc3545')
                 
                 self.log_message("🚀 AI Grid Trading System Started - LIVE TRADING!", "SUCCESS")
-                self.log_message(f"📊 Trading {gold_symbol} with {realistic_surv:,.0f} points survivability", "INFO")
+                self.log_message(f"📊 Trading {gold_symbol} with {self.current_calculations.get('realistic_survivability', 0):,.0f} points survivability", "INFO")
                 self.log_message(f"🎯 Magic Number: {self.grid_trader.magic_number}", "INFO")
                 
                 # Start trading monitoring thread
