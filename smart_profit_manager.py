@@ -51,6 +51,14 @@ class SmartProfitManager:
         self.balanced_profit_multiplier = 5.0   # 0.01 lot = $5.0 target  
         self.aggressive_profit_multiplier = 10.0 # 0.01 lot = $10.0 target
         
+        # 🚀 Enhanced Parameters สำหรับ $5,000+
+        self.fast_profit_enabled = True
+        self.auto_reposition_enabled = True
+        self.quick_close_threshold = 0.6      # ปิดเมื่อ profit 60% ของเป้า
+        self.min_gap_for_reposition = 100     # 100 points gap minimum
+        self.positions_turned_today = 0
+        self.daily_profit_harvested = 0.0
+        
         # Trailing stop parameters
         self.trailing_stop_distance = 50       # 50 points trailing distance
         self.min_profit_for_trailing = 2.0     # Minimum $2 profit to start trailing
@@ -87,15 +95,14 @@ class SmartProfitManager:
             
         # Base calculation: reasonable profit per lot
         if strategy == ProfitStrategy.QUICK_SAFE:
-            base_target = lot_size * 100 * self.quick_profit_multiplier  # $2.5 per 0.01 lot
-            trailing_start = base_target * 0.6  # Start trailing at 60% of target
+            base_target = lot_size * 100 * 1.5  # ลดจาก 2.5 เป็น 1.5 (เร็วขึ้น)
+            trailing_start = base_target * 0.5   # เริ่ม trailing เร็วขึ้น
         elif strategy == ProfitStrategy.BALANCED:
-            base_target = lot_size * 100 * self.balanced_profit_multiplier  # $5 per 0.01 lot
-            trailing_start = base_target * 0.7  # Start trailing at 70% of target
+            base_target = lot_size * 100 * 3.0   # ลดจาก 5.0 เป็น 3.0
+            trailing_start = base_target * 0.6
         else:  # AGGRESSIVE
-            base_target = lot_size * 100 * self.aggressive_profit_multiplier  # $10 per 0.01 lot
-            trailing_start = base_target * 0.8  # Start trailing at 80% of target
-            
+            base_target = lot_size * 100 * 7.0   # ลดจาก 10.0 เป็น 7.0
+            trailing_start = base_target * 0.7            
         return {
             'profit_target': round(base_target, 2),
             'trailing_start': round(trailing_start, 2),
@@ -103,7 +110,71 @@ class SmartProfitManager:
             'min_profit_lock': round(base_target * 0.3, 2),       # Lock minimum 30%
             'strategy': strategy.value
         }
+    
+    def auto_reposition_after_close(self, closed_position):
+        """วางไม้ใหม่หลังปิดกำไร - เก็บกำไรต่อเนื่อง"""
+        try:
+            if not self.auto_reposition_enabled:
+                return
+                
+            current_price = self.grid_system.get_current_price()
+            
+            # หาตำแหน่งใหม่ที่เหมาะสม
+            direction = closed_position.direction
+            position_id = f"REPO_{direction}_{int(time.time())}"
+            
+            if direction == "BUY":
+                # วาง BUY ใหม่ต่ำกว่าราคาปัจจุบัน
+                new_price = current_price - (self.min_gap_for_reposition * 0.01)
+            else:
+                # วาง SELL ใหม่สูงกว่าราคาปัจจุบัน  
+                new_price = current_price + (self.min_gap_for_reposition * 0.01)
+                
+            # เช็คว่าไม่ซ้ำกับไม้เดิม
+            if not self.is_too_close_to_existing(new_price, direction):
+                success = self.place_replacement_position(direction, new_price, closed_position.lot_size)
+                if success:
+                    self.positions_turned_today += 1
+                    print(f"🔄 Auto repositioned: {direction} @ {new_price:.2f}")
+                    
+        except Exception as e:
+            print(f"❌ Auto reposition error: {e}")
+
+    def is_too_close_to_existing(self, price: float, direction: str) -> bool:
+        """เช็คว่าตำแหน่งใหม่ใกล้ไม้เดิมเกินไปไหม"""
+        min_distance = self.min_gap_for_reposition * 0.01
         
+        for grid_level in self.grid_system.pending_orders.values():
+            if (grid_level.direction == direction and 
+                abs(grid_level.price - price) < min_distance):
+                return True
+        return False
+
+    def place_replacement_position(self, direction: str, price: float, lot_size: float) -> bool:
+        """วางไม้ทดแทน"""
+        try:
+            from ai_gold_grid import GridLevel, PositionStatus
+            
+            new_level = GridLevel(
+                level_id=f"FAST_{direction}_{int(time.time())}",
+                price=round(price, 5),
+                lot_size=lot_size,
+                direction=direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            order_result = self.grid_system.place_pending_order(new_level)
+            if order_result:
+                new_level.order_id = order_result
+                self.grid_system.grid_levels.append(new_level)
+                self.grid_system.pending_orders[order_result] = new_level
+                return True
+                
+        except Exception as e:
+            print(f"❌ Replacement position error: {e}")
+        return False
+    
     def analyze_portfolio_positions(self) -> Dict:
         """Analyze entire portfolio including hedge positions"""
         
@@ -404,6 +475,11 @@ class SmartProfitManager:
                 if success:
                     print(f"✅ FULL CLOSE: {position.position_id} - Reason: {reason.value}")
                     print(f"   💰 Profit: ${position.pnl:.2f} | Lot: {position.lot_size}")
+                    
+                    # 🔄 เพิ่มส่วนนี้ - Auto reposition หลังปิดเต็ม
+                    self.auto_reposition_after_close(position)
+                    self.daily_profit_harvested += position.pnl
+                    
                 return success
                 
             else:
@@ -413,12 +489,21 @@ class SmartProfitManager:
                 if success:
                     print(f"✅ PARTIAL CLOSE: {position.position_id} - {close_percentage}% - Reason: {reason.value}")
                     print(f"   💰 Estimated Profit: ${position.pnl * (close_percentage/100):.2f}")
+                    
+                    # 🔄 เพิ่มส่วนนี้ - Track partial profit
+                    partial_profit = position.pnl * (close_percentage / 100)
+                    self.daily_profit_harvested += partial_profit
+                    
+                    # ถ้าปิดมากกว่า 50% ให้ reposition ใหม่
+                    if close_percentage >= 50:
+                        self.auto_reposition_after_close(position)
+                    
                 return success
                 
         except Exception as e:
             print(f"❌ Smart close execution error: {e}")
             return False
-            
+                
     def close_entire_position(self, position: SmartPosition) -> bool:
         """Close entire position"""
         

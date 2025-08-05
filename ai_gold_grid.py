@@ -160,6 +160,165 @@ class AIGoldGrid:
         # print(f"   ⚙️ Broker Min Lot: {self.min_lot}")
         # print(f"   🔄 Filling Mode: {self.filling_mode_name}")
         # print(f"   🎯 Fixed Magic Number: {self.magic_number} (Account-based)")
+# เพิ่มใน class AIGoldGrid หลัง __init__
+
+    def analyze_portfolio_exposure(self) -> Dict:
+        """วิเคราะห์ portfolio exposure แบบ real-time"""
+        try:
+            buy_positions = [pos for pos in self.active_positions.values() if pos.direction == "BUY"]
+            sell_positions = [pos for pos in self.active_positions.values() if pos.direction == "SELL"]
+            
+            buy_exposure = sum(pos.lot_size for pos in buy_positions)
+            sell_exposure = sum(pos.lot_size for pos in sell_positions)
+            
+            balance_ratio = buy_exposure / sell_exposure if sell_exposure > 0 else 999
+            
+            return {
+                'buy_exposure': round(buy_exposure, 3),
+                'sell_exposure': round(sell_exposure, 3),
+                'net_exposure': round(buy_exposure - sell_exposure, 3),
+                'balance_ratio': round(balance_ratio, 2),
+                'total_positions': len(self.active_positions),
+                'is_balanced': 0.7 <= balance_ratio <= 1.43  # ±30% tolerance
+            }
+        except Exception as e:
+            print(f"❌ Portfolio analysis error: {e}")
+            return {}
+
+    def smart_grid_rebalancing(self):
+        """Smart Grid Rebalancing - แทนระบบ hedge"""
+        try:
+            exposure = self.analyze_portfolio_exposure()
+            if not exposure:
+                return
+                
+            current_price = self.get_current_price()
+            
+            # 🔧 เพิ่มเงื่อนไขนี้ - ถ้าไม่มี positions เลย
+            if exposure['buy_exposure'] == 0 and exposure['sell_exposure'] == 0:
+                print(f"🆕 No positions yet - adding balanced grid")
+                self.add_balanced_grid_orders(current_price)
+                return
+            
+            # Debug info
+            print(f"📊 Portfolio: BUY {exposure['buy_exposure']} | SELL {exposure['sell_exposure']} | Ratio {exposure['balance_ratio']}")
+            
+            # เกณฑ์ rebalancing
+            if exposure['balance_ratio'] > 1.5:
+                # BUY มากเกินไป → เพิ่ม SELL orders
+                self.add_strategic_sell_orders(current_price, exposure['net_exposure'])
+                print(f"⚖️ Rebalancing: Adding SELL orders (BUY heavy)")
+                
+            elif exposure['balance_ratio'] < 0.67:
+                # SELL มากเกินไป → เพิ่ม BUY orders  
+                self.add_strategic_buy_orders(current_price, abs(exposure['net_exposure']))
+                print(f"⚖️ Rebalancing: Adding BUY orders (SELL heavy)")
+                
+            elif exposure['is_balanced'] and len(self.pending_orders) < 15:
+                # สมดุลดี แต่ orders น้อย → เพิ่มทั้งสองด้าน
+                self.add_balanced_grid_orders(current_price)
+                print(f"📈 Grid expansion: Adding balanced orders")
+                
+        except Exception as e:
+            print(f"❌ Smart rebalancing error: {e}")
+
+    def add_strategic_sell_orders(self, current_price: float, imbalance_size: float):
+        """เพิ่ม SELL orders เพื่อ balance portfolio"""
+        try:
+            # คำนวณจำนวน SELL ที่ต้องเพิ่ม
+            needed_sell_exposure = abs(imbalance_size) * 0.6  # ปรับ 60%
+            
+            # Grid spacing ใหม่ (ถี่ขึ้น)
+            tight_spacing = 150  # จาก 333 เป็น 150
+            
+            # วาง SELL orders ในระยะใกล้-กลาง
+            levels_to_add = [
+                current_price + tight_spacing,
+                current_price + tight_spacing * 2,
+                current_price + tight_spacing * 3,
+            ]
+            
+            lot_per_level = max(self.min_lot, needed_sell_exposure / len(levels_to_add))
+            
+            added_count = 0
+            for price in levels_to_add:
+                if not self.has_nearby_order(price, "SELL") and added_count < 3:
+                    if self.place_smart_rebalance_order("SELL", price, lot_per_level):
+                        added_count += 1
+                        
+            print(f"✅ Added {added_count} strategic SELL orders")
+            
+        except Exception as e:
+            print(f"❌ Strategic SELL error: {e}")
+
+    def add_strategic_buy_orders(self, current_price: float, imbalance_size: float):
+        """เพิ่ม BUY orders เพื่อ balance portfolio"""
+        try:
+            needed_buy_exposure = abs(imbalance_size) * 0.6
+            tight_spacing = 150
+            
+            levels_to_add = [
+                current_price - tight_spacing,
+                current_price - tight_spacing * 2,
+                current_price - tight_spacing * 3,
+            ]
+            
+            lot_per_level = max(self.min_lot, needed_buy_exposure / len(levels_to_add))
+            
+            added_count = 0
+            for price in levels_to_add:
+                if not self.has_nearby_order(price, "BUY") and added_count < 3:
+                    if self.place_smart_rebalance_order("BUY", price, lot_per_level):
+                        added_count += 1
+                        
+            print(f"✅ Added {added_count} strategic BUY orders")
+            
+        except Exception as e:
+            print(f"❌ Strategic BUY error: {e}")
+
+    def add_balanced_grid_orders(self, current_price: float):
+        """เพิ่ม orders ทั้งสองด้านแบบสมดุล"""
+        try:
+            tight_spacing = 150
+            lot_size = self.calculate_level_lot_size(1)
+            
+            # เพิ่ม BUY และ SELL คู่กัน
+            buy_price = current_price - tight_spacing
+            sell_price = current_price + tight_spacing
+            
+            if not self.has_nearby_order(buy_price, "BUY"):
+                self.place_smart_rebalance_order("BUY", buy_price, lot_size)
+                
+            if not self.has_nearby_order(sell_price, "SELL"):
+                self.place_smart_rebalance_order("SELL", sell_price, lot_size)
+                
+            print(f"✅ Added balanced grid orders @ ±{tight_spacing}")
+            
+        except Exception as e:
+            print(f"❌ Balanced grid error: {e}")
+
+    def place_smart_rebalance_order(self, direction: str, price: float, lot_size: float) -> bool:
+        """วาง order สำหรับ rebalancing"""
+        try:
+            new_level = GridLevel(
+                level_id=f"SMART_{direction}_{int(time.time())}",
+                price=round(price, 5),
+                lot_size=round(lot_size, 3),
+                direction=direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            order_result = self.place_pending_order(new_level)
+            if order_result:
+                new_level.order_id = order_result
+                self.grid_levels.append(new_level)
+                self.pending_orders[order_result] = new_level
+                return True
+                
+        except Exception as e:
+            print(f"❌ Smart rebalance order error: {e}")
+        return False
 
     def save_grid_state(self):
         """Save current grid state for recovery"""
@@ -504,99 +663,114 @@ class AIGoldGrid:
             print(f"❌ Error checking market status: {e}")
             return False
             
+    # แก้ไขใน create_grid_levels() method
     def create_grid_levels(self, direction: GridDirection):
-        """Create grid level structure"""
+        """Create grid level structure with Smart Grid spacing"""
         self.grid_levels = []
         current_time = datetime.now()
         
+        # 🚀 Smart Grid spacing - ใกล้ current price
+        account_balance = self.survivability_params.get('account_balance', 0)
+        if account_balance >= 10000:
+            smart_spacing = 80   # Ultra tight
+        elif account_balance >= 5000:
+            smart_spacing = 100  # Tight สำหรับ $5,000+
+        elif account_balance >= 3000:
+            smart_spacing = 120  # Medium
+        else:
+            smart_spacing = 150  # Conservative
+        
+        print(f"🚀 Smart Grid spacing: {smart_spacing} points (Account: ${account_balance:,.0f})")
+        
+        # 🎯 วาง grid ใกล้ current price
+        current_price = self.mt5_connector.get_current_price()
+        if current_price:
+            self.starting_price = current_price['bid']  # ใช้ current price
+            print(f"💰 Starting from current price: {self.starting_price}")
+        
+        # Override grid spacing
+        self.grid_spacing = smart_spacing
+        
         if direction == GridDirection.BIDIRECTIONAL:
-            # Create buy levels below current price
-            for i in range(1, self.max_levels + 1):
+            # สร้าง BUY levels ใกล้ๆ current price
+            for i in range(1, min(self.max_levels + 1, 15)):  # จำกัดไม่เกิน 15 levels
                 buy_price = self.starting_price - (i * self.grid_spacing * self.point_value)
-                buy_level = GridLevel(
-                    level_id=f"BUY_{i}",
-                    price=round(buy_price, 5),
-                    lot_size=self.calculate_level_lot_size(i),
-                    direction="BUY",
-                    status=PositionStatus.PENDING,
-                    entry_time=current_time  # เพิ่ม timestamp
-                )
-                self.grid_levels.append(buy_level)
+                # เช็คว่าไม่ไกลเกิน 1,500 points
+                if abs(buy_price - self.starting_price) <= 1500 * self.point_value:
+                    buy_level = GridLevel(
+                        level_id=f"SMART_BUY_{i}",
+                        price=round(buy_price, 2),  # ลด decimal places
+                        lot_size=self.calculate_level_lot_size(i),
+                        direction="BUY",
+                        status=PositionStatus.PENDING,
+                        entry_time=current_time
+                    )
+                    self.grid_levels.append(buy_level)
                 
-            # Create sell levels above current price
-            for i in range(1, self.max_levels + 1):
+            # สร้าง SELL levels ใกล้ๆ current price
+            for i in range(1, min(self.max_levels + 1, 15)):
                 sell_price = self.starting_price + (i * self.grid_spacing * self.point_value)
-                sell_level = GridLevel(
-                    level_id=f"SELL_{i}",
-                    price=round(sell_price, 5),
-                    lot_size=self.calculate_level_lot_size(i),
-                    direction="SELL",
-                    status=PositionStatus.PENDING,
-                    entry_time=current_time  # เพิ่ม timestamp
-                )
-                self.grid_levels.append(sell_level)
-                
-        elif direction == GridDirection.BUY_GRID:
-            # Only buy levels below current price
-            for i in range(1, self.max_levels + 1):
-                buy_price = self.starting_price - (i * self.grid_spacing * self.point_value)
-                buy_level = GridLevel(
-                    level_id=f"BUY_{i}",
-                    price=round(buy_price, 5),
-                    lot_size=self.calculate_level_lot_size(i),
-                    direction="BUY",
-                    status=PositionStatus.PENDING,
-                    entry_time=current_time
-                )
-                self.grid_levels.append(buy_level)
-                
-        elif direction == GridDirection.SELL_GRID:
-            # Only sell levels above current price
-            for i in range(1, self.max_levels + 1):
-                sell_price = self.starting_price + (i * self.grid_spacing * self.point_value)
-                sell_level = GridLevel(
-                    level_id=f"SELL_{i}",
-                    price=round(sell_price, 5),
-                    lot_size=self.calculate_level_lot_size(i),
-                    direction="SELL",
-                    status=PositionStatus.PENDING,
-                    entry_time=current_time
-                )
-                self.grid_levels.append(sell_level)
-                
+                # เช็คว่าไม่ไกลเกิน 1,500 points
+                if abs(sell_price - self.starting_price) <= 1500 * self.point_value:
+                    sell_level = GridLevel(
+                        level_id=f"SMART_SELL_{i}",
+                        price=round(sell_price, 2),
+                        lot_size=self.calculate_level_lot_size(i),
+                        direction="SELL",
+                        status=PositionStatus.PENDING,
+                        entry_time=current_time
+                    )
+                    self.grid_levels.append(sell_level)
+        
+        print(f"✅ Created {len(self.grid_levels)} smart grid levels")
+        print(f"   Range: {min(level.price for level in self.grid_levels):.2f} - {max(level.price for level in self.grid_levels):.2f}")
+
     def calculate_level_lot_size(self, level: int) -> float:
-        """Calculate lot size for specific grid level with AI optimization and broker constraints"""
+        """Calculate lot size for specific grid level with broker validation"""
         
         # Base lot size
         lot_size = self.base_lot
         
         # AI-enhanced lot sizing based on level
         if level <= 3:
-            # First 3 levels - standard size
             multiplier = 1.0
         elif level <= 6:
-            # Levels 4-6 - slight increase
             multiplier = 1.1
         elif level <= 10:
-            # Levels 7-10 - moderate increase
             multiplier = 1.2
         else:
-            # Higher levels - conservative increase
             multiplier = 1.3
             
         calculated_lot = lot_size * multiplier
         
-        # Apply broker constraints
-        calculated_lot = max(calculated_lot, self.min_lot)
-        
-        # Round to lot step
-        calculated_lot = round(calculated_lot / self.lot_step) * self.lot_step
-        
-        # Ensure within broker limits
+        # 🚀 เพิ่มการตรวจสอบ broker constraints
+        # Get broker info safely
+        min_lot = self.symbol_info.get('volume_min', 0.01)
         max_lot = self.symbol_info.get('volume_max', 100.0)
+        lot_step = self.symbol_info.get('volume_step', 0.01)
+        
+        # Apply minimum lot constraint
+        calculated_lot = max(calculated_lot, min_lot)
+        
+        # 🚀 Round to broker lot step
+        import math
+        calculated_lot = math.ceil(calculated_lot / lot_step) * lot_step
+        
+        # Apply maximum lot constraint
         calculated_lot = min(calculated_lot, max_lot)
         
-        return calculated_lot
+        # 🚀 Final validation
+        final_lot = round(calculated_lot, 3)
+        
+        # Debug info
+        if level == 1:  # แสดงแค่ level แรก
+            print(f"🔍 Lot Size Calculation:")
+            print(f"   Base Lot: {self.base_lot}")
+            print(f"   Level {level} Multiplier: {multiplier}")
+            print(f"   Broker Min: {min_lot}, Max: {max_lot}, Step: {lot_step}")
+            print(f"   Calculated: {calculated_lot:.3f} → Final: {final_lot:.3f}")
+        
+        return final_lot
         
     def place_initial_orders(self) -> int:
         """Place initial pending orders for grid levels"""
@@ -635,24 +809,40 @@ class AIGoldGrid:
         return orders_placed
         
     def place_pending_order(self, grid_level: GridLevel) -> Optional[int]:
-        """Place a pending order for grid level - REAL TRADING with Smart Filling"""
+        """Place a pending order with enhanced lot validation"""
         
         try:
-            # Get current market price for order type determination
+            # 🚀 Double-check lot size before placing order
+            min_lot = self.symbol_info.get('volume_min', 0.01)
+            max_lot = self.symbol_info.get('volume_max', 100.0)
+            lot_step = self.symbol_info.get('volume_step', 0.01)
+            
+            # Validate lot size
+            if grid_level.lot_size < min_lot:
+                print(f"❌ Lot size {grid_level.lot_size} < minimum {min_lot}")
+                grid_level.lot_size = min_lot
+                
+            if grid_level.lot_size > max_lot:
+                print(f"❌ Lot size {grid_level.lot_size} > maximum {max_lot}")
+                grid_level.lot_size = max_lot
+                
+            # Check lot step
+            remainder = grid_level.lot_size % lot_step
+            if remainder != 0:
+                import math
+                grid_level.lot_size = math.ceil(grid_level.lot_size / lot_step) * lot_step
+                print(f"⚠️ Adjusted lot size to step: {grid_level.lot_size}")
+            
+            # เหลือเหมือนเดิม...
             tick = mt5.symbol_info_tick(self.gold_symbol)
             if not tick:
-                print(f"❌ Cannot get tick data for {self.gold_symbol} - market may be closed")
+                print(f"❌ Cannot get tick data for {self.gold_symbol}")
                 return None
                 
             current_bid = tick.bid
             current_ask = tick.ask
             
-            # Check if market is open
-            if not self.is_market_open():
-                print(f"⚠️ Market closed - order {grid_level.level_id} will be retried when market opens")
-                return None
-            
-            # Determine order type based on direction and price
+            # Determine order type
             if grid_level.direction == "BUY":
                 if grid_level.price < current_bid:
                     order_type = mt5.ORDER_TYPE_BUY_LIMIT
@@ -668,47 +858,35 @@ class AIGoldGrid:
                     order_type = mt5.ORDER_TYPE_SELL_STOP
                     price = grid_level.price
                     
-            # Prepare order request with smart filling mode
+            # 🚀 Final lot validation
+            validated_lot = round(grid_level.lot_size, 3)
+            
             request = {
                 "action": mt5.TRADE_ACTION_PENDING,
                 "symbol": self.gold_symbol,
-                "volume": grid_level.lot_size,
+                "volume": validated_lot,  # ใช้ validated lot
                 "type": order_type,
                 "price": price,
-                "deviation": 20,  # 20 point deviation
+                "deviation": 20,
                 "magic": self.magic_number,
                 "comment": f"AIGrid_{grid_level.level_id}",
-                "type_time": mt5.ORDER_TIME_GTC,  # Good Till Cancelled
-                "type_filling": self.order_filling_mode  # Smart filling mode
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": self.order_filling_mode
             }
             
-            # Send order to broker
             result = mt5.order_send(request)
             
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 return result.order
             else:
-                # Handle specific error codes and retry with different filling modes
-                if result and result.retcode == 10030:  # Unsupported filling mode
-                    print(f"🔄 Retrying {grid_level.level_id} with different filling mode")
-                    return self.retry_order_with_different_filling(grid_level, request)
-                elif result:
-                    if result.retcode == 10018:  # Market closed
-                        print(f"🕒 Market closed - {grid_level.level_id} will be placed when market opens")
-                    elif result.retcode == 10004:  # Requote
-                        print(f"📈 Price changed - retrying {grid_level.level_id}")
-                    elif result.retcode == 10006:  # Invalid price
-                        print(f"💰 Invalid price for {grid_level.level_id} - {grid_level.price}")
-                    else:
-                        print(f"❌ Order failed {grid_level.level_id} - Code: {result.retcode}, Comment: {result.comment}")
-                else:
-                    print(f"❌ No response for order {grid_level.level_id}")
+                if result:
+                    print(f"❌ Order failed {grid_level.level_id} - Code: {result.retcode}, Comment: {result.comment}")
                 return None
                 
         except Exception as e:
-            print(f"❌ Order placement exception for {grid_level.level_id}: {e}")
+            print(f"❌ Order placement exception: {e}")
             return None
-            
+                
     def retry_order_with_different_filling(self, grid_level: GridLevel, original_request: dict) -> Optional[int]:
         """Retry order with different filling modes if the first one fails"""
         
@@ -1882,6 +2060,8 @@ class AIGoldGrid:
                 if loop_count % 120 == 0:  # Every 2 minutes
                     self.gentle_auto_rebalancing()
                 
+                if loop_count % 60 == 0:  # Every 1 minute
+                    self.smart_grid_rebalancing()
                 # Update current price and price history
                 self.update_current_price()
                 
@@ -2094,7 +2274,8 @@ class AIGoldGrid:
             print(f"❌ Hedge placement error: {e}")
             return False
             
-    def check_and_place_smart_hedge(self):
+    def check_and_place_smart_hedge(self): 
+        return
         """Smart hedge system for trend protection"""
         try:
             # Skip if no active positions

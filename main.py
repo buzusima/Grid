@@ -20,7 +20,6 @@ try:
     from ai_gold_grid import AIGoldGrid
     from survivability_engine import SurvivabilityEngine, TradingMode
     from ai_money_manager import AIMoneyManager
-    from gold_hedge_calculator import GoldHedgeCalculator
 except ImportError as e:
     print(f"Module import error: {e}")
     print("Please ensure all required modules are in the same directory")
@@ -117,7 +116,6 @@ class AIGoldTradingGUI:
             self.mt5_connector = MT5AutoConnector()
             self.survivability_engine = SurvivabilityEngine(self.config)
             self.money_manager = AIMoneyManager(self.config)
-            self.hedge_calculator = GoldHedgeCalculator(self.config)
             self.grid_trader = None  # Will be initialized after MT5 connection
             
             # System status
@@ -133,7 +131,7 @@ class AIGoldTradingGUI:
         """Create main GUI interface"""
         # Create main frame
         main_frame = tk.Frame(self.root, bg='#1a1a2e')
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Create sections
         self.create_header_section(main_frame)
@@ -145,43 +143,43 @@ class AIGoldTradingGUI:
         
     def create_header_section(self, parent):
         """Create header with system title and status"""
-        header_frame = tk.Frame(parent, bg='#16213e', relief='raised', bd=2)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+        header_frame = tk.Frame(parent, bg='#16213e', relief='raised', bd=1)
+        header_frame.pack(fill=tk.X, pady=(0, 5))
         
         title_label = tk.Label(
             header_frame,
             text="🏆 AI Gold Grid Trading System",
-            font=('Arial', 18, 'bold'),
+            font=('Arial', 14, 'bold'),
             fg='#ffd700',
             bg='#16213e'
         )
-        title_label.pack(pady=10)
+        title_label.pack(pady=5)
         
         subtitle_label = tk.Label(
             header_frame,
-            text="📊 20,000+ Points Survivability Calculator & Auto Money Management",
-            font=('Arial', 12),
+            text="Survivability Calculator & Auto Money Management",
+            font=('Arial', 10),
             fg='#ffffff',
             bg='#16213e'
         )
-        subtitle_label.pack(pady=(0, 10))
+        subtitle_label.pack(pady=(0, 5))
         
     def create_connection_section(self, parent):
         """Create MT5 connection section"""
         conn_frame = tk.LabelFrame(
             parent,
             text="🔗 MT5 Auto Connection",
-            font=('Arial', 12, 'bold'),
+            font=('Arial', 10, 'bold'),
             fg='#ffd700',
             bg='#16213e',
             relief='groove',
             bd=2
         )
-        conn_frame.pack(fill=tk.X, pady=(0, 10))
+        conn_frame.pack(fill=tk.X, pady=(0, 5))
         
         # Connection status
         status_frame = tk.Frame(conn_frame, bg='#16213e')
-        status_frame.pack(fill=tk.X, padx=10, pady=5)
+        status_frame.pack(fill=tk.X, padx=5, pady=3)
         
         tk.Label(status_frame, text="📡 Status:", font=('Arial', 10, 'bold'), 
                 fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
@@ -222,10 +220,10 @@ class AIGoldTradingGUI:
         self.connect_btn.pack(pady=10)
         
     def create_survivability_section(self, parent):
-        """Create survivability calculation display with trading mode selection"""
+        """Create survivability calculation display with Smart Grid focus"""
         surv_frame = tk.LabelFrame(
             parent,
-            text="🛡️ AI Survivability Calculator",
+            text="🚀 AI Smart Grid Calculator",  # เปลี่ยนชื่อ
             font=('Arial', 12, 'bold'),
             fg='#ffd700',
             bg='#16213e',
@@ -234,9 +232,9 @@ class AIGoldTradingGUI:
         )
         surv_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # ⭐ เพิ่มส่วนนี้ - Trading Mode Selection
+        # ⭐ Trading Mode Selection
         mode_frame = tk.Frame(surv_frame, bg='#16213e')
-        mode_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        mode_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
         
         tk.Label(mode_frame, text="🎯 Trading Mode:", 
                 font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(side=tk.LEFT)
@@ -271,12 +269,12 @@ class AIGoldTradingGUI:
         
         # Target survivability display
         target_frame = tk.Frame(surv_frame, bg='#16213e')
-        target_frame.pack(fill=tk.X, padx=10, pady=2)
+        target_frame.pack(fill=tk.X, padx=15, pady=5)
         
         self.target_surv_label = tk.Label(
             target_frame,
             text="🎯 Target: 10,000 points",
-            font=('Arial', 10, 'bold'),
+            font=('Arial', 11, 'bold'),
             fg='#ffd43b',
             bg='#16213e'
         )
@@ -285,67 +283,119 @@ class AIGoldTradingGUI:
         self.risk_level_label = tk.Label(
             target_frame,
             text="⚠️ Risk: Medium",
-            font=('Arial', 10),
+            font=('Arial', 11),
             fg='#ffd43b',
             bg='#16213e'
         )
         self.risk_level_label.pack(side=tk.RIGHT)
         
-        # Create two columns (existing code...)
-        left_col = tk.Frame(surv_frame, bg='#16213e')
-        left_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Main content area - 3 columns layout
+        content_frame = tk.Frame(surv_frame, bg='#16213e')
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
         
-        right_col = tk.Frame(surv_frame, bg='#16213e')
-        right_col.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Left column - Account & Basic Parameters (40%)
+        left_col = tk.Frame(content_frame, bg='#16213e')
+        left_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         
-        # (เก็บโค้ดเดิมของ left_col และ right_col ไว้...)
-        # Left column - Account & Parameters
-        tk.Label(left_col, text="📊 AI Calculated Parameters:", 
+        tk.Label(left_col, text="💰 Account Information:", 
                 font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(anchor='w')
         
         self.balance_label = tk.Label(left_col, text="💰 Balance: $0", 
                                     font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.balance_label.pack(anchor='w', pady=2)
+        self.balance_label.pack(anchor='w', pady=(5, 2))
         
         self.base_lot_label = tk.Label(left_col, text="🎯 Base Lot: 0.00", 
                                     font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.base_lot_label.pack(anchor='w', pady=2)
         
-        self.grid_spacing_label = tk.Label(left_col, text="📏 Grid Spacing: 0 points", 
-                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.grid_spacing_label.pack(anchor='w', pady=2)
-        
-        self.max_levels_label = tk.Label(left_col, text="📈 Max Levels: 0", 
-                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.max_levels_label.pack(anchor='w', pady=2)
-        
-        self.survivability_label = tk.Label(left_col, text="🛡️ Survivability: 0 points", 
-                                        font=('Arial', 10, 'bold'), fg='#51cf66', bg='#16213e')
-        self.survivability_label.pack(anchor='w', pady=2)
-        
         self.safety_margin_label = tk.Label(left_col, text="💪 Safety Margin: $0", 
                                         font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.safety_margin_label.pack(anchor='w', pady=2)
         
-        # Right column - Hedge Plan
-        tk.Label(right_col, text="🛡️ Hedge Protection Plan:", 
+        # Middle column - Smart Grid Parameters (35%)
+        middle_col = tk.Frame(content_frame, bg='#16213e')
+        middle_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        
+        tk.Label(middle_col, text="🚀 Smart Grid Setup:", 
                 font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(anchor='w')
         
-        self.hedge_display = tk.Frame(right_col, bg='#16213e')
-        self.hedge_display.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.grid_spacing_label = tk.Label(middle_col, text="📏 Grid Spacing: 0 points", 
+                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
+        self.grid_spacing_label.pack(anchor='w', pady=(5, 2))
         
-        # Calculate button
-        calc_btn = tk.Button(
-            surv_frame,
-            text="🔄 Recalculate Survivability",
+        self.max_levels_label = tk.Label(middle_col, text="📈 Max Levels: 0", 
+                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
+        self.max_levels_label.pack(anchor='w', pady=2)
+        
+        self.survivability_label = tk.Label(middle_col, text="🛡️ Survivability: 0 points", 
+                                        font=('Arial', 11, 'bold'), fg='#51cf66', bg='#16213e')
+        self.survivability_label.pack(anchor='w', pady=2)
+        
+        # Right column - Smart Grid Benefits (25%)
+        right_col = tk.Frame(content_frame, bg='#16213e')
+        right_col.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0))
+        
+        tk.Label(right_col, text="✨ Smart Grid Benefits:", 
+                font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(anchor='w')
+        
+        # Benefits list
+        benefits = [
+            "💸 No hedge costs",
+            "⚖️ Auto-balancing", 
+            "⚡ 3x faster profits",
+            "🎯 Tighter grid spacing",
+            "🔄 Smart reposition"
+        ]
+        
+        for i, benefit in enumerate(benefits):
+            benefit_label = tk.Label(right_col, text=benefit, 
+                                font=('Arial', 9), fg='#51cf66', bg='#16213e')
+            benefit_label.pack(anchor='w', pady=(5 if i == 0 else 1, 1))
+        
+        # Separator line
+        separator = tk.Frame(surv_frame, height=2, bg='#4ecdc4')
+        separator.pack(fill=tk.X, padx=15, pady=(10, 5))
+        
+        # Status summary row
+        status_frame = tk.Frame(surv_frame, bg='#16213e')
+        status_frame.pack(fill=tk.X, padx=15, pady=5)
+        
+        # Smart Grid status indicator
+        self.smart_grid_status = tk.Label(
+            status_frame,
+            text="🚀 Smart Grid: Ready to calculate",
             font=('Arial', 10, 'bold'),
-            bg='#ffd43b',
+            fg='#4ecdc4',
+            bg='#16213e'
+        )
+        self.smart_grid_status.pack(side=tk.LEFT)
+        
+        # Capital efficiency indicator  
+        self.efficiency_indicator = tk.Label(
+            status_frame,
+            text="📊 Efficiency: Calculating...",
+            font=('Arial', 10),
+            fg='#adb5bd',
+            bg='#16213e'
+        )
+        self.efficiency_indicator.pack(side=tk.RIGHT)
+        
+        # Calculate button - ปรับให้สวยขึ้น
+        button_frame = tk.Frame(surv_frame, bg='#16213e')
+        button_frame.pack(fill=tk.X, pady=(10, 15))
+        
+        calc_btn = tk.Button(
+            button_frame,
+            text="🔄 Calculate Smart Grid",  # เปลี่ยนข้อความ
+            font=('Arial', 12, 'bold'),
+            bg='#4ecdc4',  # เปลี่ยนสี
             fg='#1a1a2e',
             relief='raised',
             bd=3,
+            width=25,
             command=self.calculate_survivability
         )
-        calc_btn.pack(pady=10)
+        calc_btn.pack()
 
     def on_mode_change(self, event=None):
         """Handle trading mode change"""
@@ -906,12 +956,7 @@ class AIGoldTradingGUI:
             
             # Update display
             self.update_survivability_display(calculations)
-            
-            # Calculate hedge plan with broker constraints and mode
-            hedge_plan = self.hedge_calculator.calculate_hedge_plan(
-                calculations, min_lot, self.current_trading_mode  # ⭐ เพิ่ม trading_mode parameter
-            )
-            self.update_hedge_display(hedge_plan)
+        
             
             # Log warnings if any
             if calculations.get('warnings'):
@@ -964,6 +1009,21 @@ class AIGoldTradingGUI:
         
         self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} points (${calc['grid_spacing']*0.01:.2f})")
         self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']}")
+        
+        # 🚀 เพิ่ม Smart Grid Status Display
+        if not hasattr(self, 'smart_grid_label'):
+            self.smart_grid_label = tk.Label(
+                self.balance_label.master,
+                text="",
+                font=('Arial', 10, 'bold'),
+                fg='#4ecdc4',
+                bg='#16213e'
+            )
+            self.smart_grid_label.pack(anchor='w', pady=2)
+        
+        # แสดงข้อมูล Smart Grid
+        smart_text = f"🚀 Smart Grid: {calc['grid_spacing']}pt spacing, Auto-Balance Portfolio, No Hedge Cost"
+        self.smart_grid_label.config(text=smart_text)
         
         # Show both theoretical and realistic survivability with target comparison
         theoretical_surv = calc['survivability']
@@ -1036,71 +1096,38 @@ class AIGoldTradingGUI:
             else:
                 self.utilization_label.config(text=util_text, fg=util_color)
 
-    def update_hedge_display(self, hedge_plan):
-        """Update hedge plan display with minimum lot warnings"""
-        # Clear previous hedge display
-        for widget in self.hedge_display.winfo_children():
-            widget.destroy()
-            
-        # Get minimum lot for comparison with error handling
-        min_lot = 0.01  # Default minimum lot
-        try:
-            if hasattr(self, 'mt5_connector') and self.mt5_connector:
-                symbol_info = self.mt5_connector.get_symbol_info()
-                if symbol_info and isinstance(symbol_info, dict):
-                    min_lot = symbol_info.get('volume_min', 0.01)
-        except Exception as e:
-            print(f"Warning: Could not get symbol info for hedge display: {e}")
-            
-        for i, (trigger_points, hedge_size) in enumerate(hedge_plan):
-            hedge_frame = tk.Frame(self.hedge_display, bg='#16213e')
-            hedge_frame.pack(fill=tk.X, pady=2)
-            
-            trigger_label = tk.Label(
-                hedge_frame,
-                text=f"▶️ @{trigger_points:,.0f} points:",
+        # 🚀 เพิ่ม Smart Grid Benefits Display
+        if not hasattr(self, 'benefits_label'):
+            self.benefits_label = tk.Label(
+                self.balance_label.master,
+                text="",
                 font=('Arial', 9),
-                fg='#ffd43b',
-                bg='#16213e',
-                width=20,
-                anchor='w'
-            )
-            trigger_label.pack(side=tk.LEFT)
-            
-            # Check if hedge size was adjusted to minimum
-            is_minimum = abs(hedge_size - min_lot) < 0.0001  # Account for floating point precision
-            
-            if is_minimum and hedge_size == min_lot:
-                hedge_text = f"+{hedge_size:.3f} lot hedge ⚠️"
-                hedge_color = '#ffd43b'  # Yellow for minimum lot warning
-            else:
-                hedge_text = f"+{hedge_size:.3f} lot hedge"
-                hedge_color = '#ffffff'
-            
-            hedge_label = tk.Label(
-                hedge_frame,
-                text=hedge_text,
-                font=('Arial', 9),
-                fg=hedge_color,
+                fg='#51cf66',
                 bg='#16213e'
             )
-            hedge_label.pack(side=tk.LEFT, padx=(10, 0))
+            self.benefits_label.pack(anchor='w', pady=1)
+        
+        # แสดงประโยชน์ของ Smart Grid
+        benefits_text = "💡 Benefits: 3x faster profits, Self-balancing, No hedge costs, Tighter grid"
+        self.benefits_label.config(text=benefits_text)
+
+        # 🚀 เพิ่ม Smart Grid Efficiency Display
+        if 'smart_grid_efficiency' in calc:
+            if not hasattr(self, 'efficiency_label'):
+                self.efficiency_label = tk.Label(
+                    self.balance_label.master,
+                    text="",
+                    font=('Arial', 9),
+                    fg='#4ecdc4',
+                    bg='#16213e'
+                )
+                self.efficiency_label.pack(anchor='w', pady=1)
             
-        # Add summary if any hedges were adjusted
-        adjusted_count = sum(1 for _, size in hedge_plan if abs(size - min_lot) < 0.0001 and size == min_lot)
-        if adjusted_count > 0:
-            summary_frame = tk.Frame(self.hedge_display, bg='#16213e')
-            summary_frame.pack(fill=tk.X, pady=(10, 0))
-            
-            summary_label = tk.Label(
-                summary_frame,
-                text=f"⚠️ {adjusted_count} hedge levels using minimum lot ({min_lot})",
-                font=('Arial', 9, 'italic'),
-                fg='#ffd43b',
-                bg='#16213e'
-            )
-            summary_label.pack(anchor='w')
-            
+            efficiency = calc['smart_grid_efficiency']
+            saved_amount = calc.get('capital_saved', 0)
+            efficiency_text = f"⚡ Smart Grid Efficiency: {efficiency:.1f}x | Capital Saved: ${saved_amount:.0f}"
+            self.efficiency_label.config(text=efficiency_text)
+
     def start_trading(self):
         """Start AI grid trading system - REAL TRADING"""
         if not self.is_connected:
@@ -1534,14 +1561,21 @@ Proceed with emergency stop?"""
             
         self.current_drawdown_label.config(text=text, fg=color)
         
-        # Update next hedge trigger
+        # 🚀 Smart Grid status instead of hedge trigger
         if self.current_calculations and abs(drawdown) > 0:
-            next_hedge = self.hedge_calculator.get_next_hedge_trigger(abs(drawdown))
-            if next_hedge:
-                self.next_hedge_label.config(text=f"⏳ Next Hedge: {next_hedge:,.0f} points")
+            # แสดง Smart Grid rebalancing status แทน
+            abs_drawdown = abs(drawdown)
+            if abs_drawdown > 1000:
+                balance_text = "⚖️ Smart Grid: Active rebalancing"
+            elif abs_drawdown > 500:
+                balance_text = "⚖️ Smart Grid: Monitoring balance"
             else:
-                self.next_hedge_label.config(text="⏳ Next Hedge: Max Level")
+                balance_text = "⚖️ Smart Grid: Portfolio balanced"
                 
+            self.next_hedge_label.config(text=balance_text)
+        else:
+            self.next_hedge_label.config(text="⚖️ Smart Grid: Ready")
+
     def clear_logs(self):
         """Clear log display"""
         self.log_display.delete("1.0", tk.END)

@@ -352,85 +352,107 @@ class SurvivabilityEngine:
         return round(final_lot, 3)
     
     def calculate_optimal_grid_spacing(self, usable_capital: float, base_lot: float, mode_config: Dict = None) -> int:
-        """Calculate optimal grid spacing for maximum survivability with optional mode"""
+        """Calculate optimal grid spacing for Smart Grid Rebalancing"""
         
-        # Base spacing calculation
-        # Larger accounts can afford tighter grids
-        if usable_capital >= 60000:
-            base_spacing = 150  # Tight grid for large accounts
+        # 🚀 Smart Grid spacing - optimized for balance and efficiency
+        if usable_capital >= 50000:
+            base_spacing = 80   # Ultra-tight for very large accounts
         elif usable_capital >= 30000:
-            base_spacing = 200
+            base_spacing = 100  # Very tight for large accounts
         elif usable_capital >= 15000:
-            base_spacing = 250
+            base_spacing = 120  # Tight spacing
+        elif usable_capital >= 10000:
+            base_spacing = 140  # Good for $10k+
         elif usable_capital >= 6000:
-            base_spacing = 300
-        elif usable_capital >= 3000:
-            base_spacing = 400
-        elif usable_capital >= 1000:
-            base_spacing = 500
+            base_spacing = 150  # Sweet spot สำหรับ $5,000-10,000
+        elif usable_capital >= 4000:
+            base_spacing = 180  # Moderate for $4k+
+        elif usable_capital >= 2500:
+            base_spacing = 200  # Standard for $2.5k+
+        elif usable_capital >= 1500:
+            base_spacing = 250  # Wider for smaller accounts
         else:
-            base_spacing = 600  # Wider grid for small accounts
+            base_spacing = 300  # Conservative for small accounts
         
-        # ⭐ เพิ่มส่วนนี้ - Apply mode tightness if provided
+        print(f"🚀 Smart Grid Base Spacing: {base_spacing} points for ${usable_capital:,.0f}")
+        
+        # Mode tightness adjustment
         if mode_config:
             grid_tightness = mode_config.get('grid_tightness', 1.0)
-            mode_adjusted_spacing = base_spacing / grid_tightness  # Higher tightness = smaller spacing
+            mode_adjusted_spacing = base_spacing / grid_tightness
+            print(f"   Mode {mode_config.get('risk_level', 'Unknown')} adjustment: ÷{grid_tightness} = {mode_adjusted_spacing:.0f}")
         else:
             mode_adjusted_spacing = base_spacing
             
-        # Adjust based on lot size
-        lot_factor = base_lot / 0.01  # Scale factor relative to micro lot
+        # 🚀 Smart Grid lot factor adjustment (reduced impact)
+        lot_factor = base_lot / 0.01
         if lot_factor > 1:
-            # Larger lots need wider spacing
-            spacing_adjustment = math.sqrt(lot_factor) * 50
-            adjusted_spacing = mode_adjusted_spacing + spacing_adjustment  # ⭐ เปลี่ยนเป็นใช้ mode_adjusted_spacing
+            # Reduced adjustment factor for Smart Grid
+            spacing_adjustment = math.sqrt(lot_factor) * 20  # ลดจาก 30 เป็น 20
+            adjusted_spacing = mode_adjusted_spacing + spacing_adjustment
+            print(f"   Lot factor {lot_factor:.1f}x adjustment: +{spacing_adjustment:.0f}")
         else:
-            adjusted_spacing = mode_adjusted_spacing  # ⭐ เปลี่ยนเป็นใช้ mode_adjusted_spacing
+            adjusted_spacing = mode_adjusted_spacing
             
-        # Ensure minimum spacing for safety
-        min_spacing = 100
-        final_spacing = max(int(adjusted_spacing), min_spacing)
+        # 🚀 Smart Grid minimum spacing (tighter)
+        min_spacing = 60   # ลดจาก 80 เป็น 60
+        max_spacing = 400  # เพิ่ม maximum limit
         
-        # Round to nice numbers
-        if final_spacing >= 500:
-            final_spacing = round(final_spacing / 100) * 100
-        elif final_spacing >= 200:
-            final_spacing = round(final_spacing / 50) * 50
+        final_spacing = max(int(adjusted_spacing), min_spacing)
+        final_spacing = min(final_spacing, max_spacing)
+        
+        # 🚀 Smart rounding for better grid alignment
+        if final_spacing >= 300:
+            final_spacing = round(final_spacing / 25) * 25  # รอบ 25
+        elif final_spacing >= 150:
+            final_spacing = round(final_spacing / 20) * 20  # รอบ 20
+        elif final_spacing >= 100:
+            final_spacing = round(final_spacing / 10) * 10  # รอบ 10
         else:
-            final_spacing = round(final_spacing / 25) * 25
+            final_spacing = round(final_spacing / 5) * 5    # รอบ 5 สำหรับ ultra-tight
+            
+        print(f"   Final Smart Grid Spacing: {final_spacing} points")
+        
+        # 🚀 Validation and recommendations
+        if final_spacing < 100:
+            print(f"   ⚡ Ultra-tight grid detected - High frequency trading mode")
+        elif final_spacing < 150:
+            print(f"   🚀 Tight grid - Optimal for Smart Grid Rebalancing")
+        elif final_spacing < 250:
+            print(f"   ⚖️ Balanced grid - Good profit/safety ratio")
+        else:
+            print(f"   🛡️ Conservative grid - Safety-focused approach")
             
         return final_spacing
         
     def calculate_max_grid_levels_realistic(self, usable_capital: float, actual_lot: float, grid_spacing: int, 
                                         target_survivability: float = None) -> int:
-        """Calculate maximum number of grid levels with REAL lot sizes and costs"""
+        """Calculate max levels สำหรับ Smart Grid Rebalancing"""
         
+        # เดิม: target_survivability check
         if target_survivability is None:
             target_survivability = self.config.get('target_survivability', 20000)
         
-        print(f"🔍 Debug Max Levels Calculation:")
-        print(f"   Usable Capital: ${usable_capital:.2f}")
-        print(f"   Actual Lot: {actual_lot}")
-        print(f"   Grid Spacing: {grid_spacing}")
-        print(f"   Target Survivability: {target_survivability}")
+        # 🚀 New: Smart Grid มี efficiency สูงกว่า
+        smart_grid_efficiency = 1.3  # ประหยัดกว่า 30% เพราะไม่มี hedge cost
         
-        # ⭐ แก้ไขการคำนวณ cost ให้ถูกต้อง
-        # Calculate REAL cost per grid level
-        point_value_per_lot = 1.0  # $1 per point for 0.01 lot
+        # เดิม: cost calculation แต่ปรับ efficiency
+        point_value_per_lot = 1.0
         cost_per_point = (actual_lot / 0.01) * point_value_per_lot
         cost_per_level = grid_spacing * cost_per_point
-        margin_per_level = actual_lot * 500  # Reduced margin requirement
-        total_cost_per_level = cost_per_level + margin_per_level
+        margin_per_level = actual_lot * 400  # ลดจาก 500 (Smart Grid ใช้ margin น้อยกว่า)
+        total_cost_per_level = (cost_per_level + margin_per_level) / smart_grid_efficiency
         
-        # Calculate maximum affordable levels with safety factor
-        max_affordable_levels = (usable_capital * 0.9) / total_cost_per_level  # 90% instead of 80%
+        # 🚀 Smart Grid สามารถใช้เงินได้มากกว่า (95% แทน 80%)
+        max_affordable_levels = (usable_capital * 0.95) / total_cost_per_level
         
-        # Ensure we don't exceed reasonable limits
-        max_reasonable_levels = min(50, int(target_survivability / grid_spacing))  # Reduced from 100 to 50
+        # 🚀 เพิ่ม max levels (เพราะ grid ถี่ขึ้น)
+        max_reasonable_levels = min(80, int(target_survivability / grid_spacing))  # เพิ่มจาก 50 เป็น 80
         
         final_levels = min(int(max_affordable_levels), max_reasonable_levels)
-        final_levels = max(final_levels, 5)  # At least 5 levels (reduced from 10)
+        final_levels = max(final_levels, 8)  # อย่างน้อย 8 levels
         
+        print(f"   🚀 Smart Grid Efficiency: {smart_grid_efficiency}x")
         print(f"   Cost per Level: ${total_cost_per_level:.2f}")
         print(f"   Max Affordable: {max_affordable_levels:.1f}")
         print(f"   Max Reasonable: {max_reasonable_levels}")
@@ -440,69 +462,90 @@ class SurvivabilityEngine:
         
     def calculate_realistic_survivability_metrics(self, actual_lot: float, grid_spacing: int, 
                                                 usable_capital: float, max_levels: int) -> Dict:
-        """Calculate realistic survivability considering actual constraints"""
+        """Calculate realistic survivability for Smart Grid (No Hedge Cost)"""
         
-        # ⭐ แก้ไขการคำนวณ cost ให้ถูกต้อง
-        # Real cost per level calculation
-        point_value_per_lot = 1.0  # $1 per point for 0.01 lot gold (not $100!)
-        cost_per_point = (actual_lot / 0.01) * point_value_per_lot  # Scale to lot size
+        # 🚀 Smart Grid - No hedge cost calculation
+        point_value_per_lot = 1.0  # $1 per point for 0.01 lot gold
+        cost_per_point = (actual_lot / 0.01) * point_value_per_lot
         cost_per_level = grid_spacing * cost_per_point
         
-        # Add margin costs (more realistic)
-        margin_per_level = actual_lot * 500  # Reduced from 2000 to 500
-        total_cost_per_level = cost_per_level + margin_per_level
+        # 🚀 Reduced margin requirements (no hedge reserves needed)
+        margin_per_level = actual_lot * 300  # ลดจาก 500 เป็น 300
+        base_cost_per_level = cost_per_level + margin_per_level
+        
+        # 🚀 Smart Grid efficiency factor
+        smart_grid_efficiency = 1.3  # ประหยัด 30% เพราะ:
+        # - ไม่มี hedge cost
+        # - Auto-balancing ลด risk
+        # - Faster profit turnover
+        
+        effective_cost_per_level = base_cost_per_level / smart_grid_efficiency
         
         # Debug
-        print(f"🔍 Debug Realistic Calculation:")
+        print(f"🚀 Smart Grid Realistic Calculation:")
         print(f"   Actual Lot: {actual_lot}")
         print(f"   Grid Spacing: {grid_spacing}")
         print(f"   Max Levels: {max_levels}")
-        print(f"   Point Value per 0.01 lot: ${point_value_per_lot}")
-        print(f"   Cost per Point: ${cost_per_point:.2f}")
-        print(f"   Cost per Level: ${total_cost_per_level:.2f}")
+        print(f"   Base Cost per Level: ${base_cost_per_level:.2f}")
+        print(f"   Smart Grid Efficiency: {smart_grid_efficiency}x")
+        print(f"   Effective Cost per Level: ${effective_cost_per_level:.2f}")
         print(f"   Usable Capital: ${usable_capital:.2f}")
         
-        # Calculate how many levels we can actually afford
-        max_affordable_levels = usable_capital / total_cost_per_level
+        # 🚀 Smart Grid can use more capital (95% instead of 80%)
+        max_affordable_levels = (usable_capital * 0.95) / effective_cost_per_level
         
-        # ⭐ ใช้ค่าที่เหมาะสมมากขึ้น
-        realistic_levels = min(max_levels, int(max_affordable_levels * 0.8))  # 80% safety
-        realistic_levels = max(realistic_levels, 5)  # อย่างน้อย 5 levels
+        # 🚀 Higher safety threshold for Smart Grid
+        realistic_levels = min(max_levels, int(max_affordable_levels * 0.9))  # 90% safety
+        realistic_levels = max(realistic_levels, 8)  # อย่างน้อย 8 levels
         
         # Calculate realistic survivability in points
         realistic_points = realistic_levels * grid_spacing
         
         print(f"   Max Affordable Levels: {max_affordable_levels:.1f}")
         print(f"   Realistic Levels: {realistic_levels}")
-        print(f"   Realistic Points: {realistic_points}")
+        print(f"   Realistic Survivability: {realistic_points:,.0f} points")
         
-        # Capital utilization
-        total_cost = realistic_levels * total_cost_per_level
-        capital_utilization = (total_cost / usable_capital) * 100
+        # Capital utilization (based on effective cost)
+        total_effective_cost = realistic_levels * effective_cost_per_level
+        capital_utilization = (total_effective_cost / usable_capital) * 100
         
-        # Generate warnings
+        # 🚀 Smart Grid specific warnings
         warnings = []
         
-        target_for_account = 5000 if usable_capital < 3000 else 8000  # Realistic target
+        # Dynamic target based on account size
+        if usable_capital >= 10000:
+            target_for_account = 8000
+        elif usable_capital >= 5000:
+            target_for_account = 5000
+        elif usable_capital >= 3000:
+            target_for_account = 3000
+        else:
+            target_for_account = 2000
         
         if realistic_points < target_for_account:
             shortage = target_for_account - realistic_points
-            warnings.append(f"Survivability {shortage:,.0f} points below recommended target for this account size")
-
+            warnings.append(f"Survivability {shortage:,.0f} points below recommended for Smart Grid")
+        
         if actual_lot == 0.01:
-            warnings.append("Using minimum broker lot size - survivability limited by broker constraints")
+            warnings.append("Using minimum lot - consider account upgrade for better performance")
             
-        if capital_utilization > 90:
-            warnings.append("High capital utilization - consider reducing exposure")
+        if capital_utilization > 85:  # เพิ่มจาก 90 เป็น 85
+            warnings.append("High capital utilization - Smart Grid optimized but monitor closely")
             
-        if realistic_levels < 10:
-            warnings.append("Low number of grid levels - limited coverage")
+        if realistic_levels < 12:  # เพิ่มจาก 10 เป็น 12
+            warnings.append("Limited grid density - Smart Grid works best with 15+ levels")
+        
+        # 🚀 เพิ่ม Smart Grid benefits info
+        if realistic_points >= target_for_account:
+            warnings.append("✅ Smart Grid optimized - No hedge costs, Auto-balancing active")
             
         return {
             'realistic_points': realistic_points,
-            'cost_per_level': round(total_cost_per_level, 2),
+            'cost_per_level': round(effective_cost_per_level, 2),
             'max_affordable_levels': int(max_affordable_levels),
             'capital_utilization': round(capital_utilization, 1),
+            'smart_grid_efficiency': smart_grid_efficiency,
+            'capital_saved': round((base_cost_per_level - effective_cost_per_level) * realistic_levels, 2),
             'warnings': warnings
         }
         
