@@ -7,11 +7,20 @@ AI-powered calculation engine for grid trading survivability with guaranteed 20,
 import math
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
+from enum import Enum
+
+class TradingMode(Enum):
+    SAFE = "SAFE"           # 20,000 points - Maximum protection
+    BALANCED = "BALANCED"   # 10,000 points - Good balance  
+    AGGRESSIVE = "AGGRESSIVE" # 8,000 points - Higher risk/reward
+    TURBO = "TURBO"        # 5,000 points - Maximum speed
 
 class SurvivabilityEngine:
     def __init__(self, config: dict):
         self.config = config
-        self.target_survivability = config.get('target_survivability', 20000)
+        # ลบ target_survivability แบบเดิมออก (จะใช้จาก mode แทน)
+        self.target_survivability = config.get('target_survivability', 20000)  # ลบบรรทัดนี้
+        
         self.safety_ratio = config.get('safety_ratio', 0.6)  # Use 60% of capital
         self.minimum_safety_margin = config.get('minimum_safety_margin', 0.3)  # Keep 30% as absolute minimum
         
@@ -26,11 +35,50 @@ class SurvivabilityEngine:
         self.volatility_buffer = 1.15  # 15% buffer for volatility
         self.emergency_reserve = 0.2   # 20% emergency reserve
         
-    def calculate_for_balance(self, account_balance: float, min_lot: float = 0.01) -> Dict:
-        """
-        Main calculation function for survivability based on account balance
-        Now includes realistic lot size limitations and actual survivability calculation
-        """
+        # ⭐ เพิ่มส่วนนี้ - Trading mode configurations
+        # Trading mode configurations
+        self.mode_configs = {
+            TradingMode.SAFE: {
+                'target_survivability': 20000,
+                'grid_tightness': 0.8,
+                'lot_multiplier': 0.8,
+                'profit_speed': 0.7,
+                'safety_margin_override': 0.7, 
+                'description': 'Maximum protection, slower gains',
+                'risk_level': 'Low'
+            },
+            TradingMode.BALANCED: {
+                'target_survivability': 10000,
+                'grid_tightness': 1.0,
+                'lot_multiplier': 1.0,
+                'profit_speed': 1.0,
+                'safety_margin_override': 0.6,  
+                'description': 'Good balance between speed and safety',
+                'risk_level': 'Medium'
+            },
+            TradingMode.AGGRESSIVE: {
+                'target_survivability': 8000,
+                'grid_tightness': 1.3,
+                'lot_multiplier': 1.3,
+                'profit_speed': 1.5,
+                'safety_margin_override': 0.5,
+                'description': 'Faster gains, higher risk',
+                'risk_level': 'High'
+            },
+            TradingMode.TURBO: {
+                'target_survivability': 5000,
+                'grid_tightness': 1.8,
+                'lot_multiplier': 1.8,
+                'profit_speed': 2.0,
+                'safety_margin_override': 0.4,
+                'description': 'Maximum speed, maximum risk',
+                'risk_level': 'Very High'
+            }
+        }
+
+    def calculate_for_balance(self, account_balance: float, min_lot: float = 0.01, 
+                            trading_mode: TradingMode = TradingMode.BALANCED, 
+                            symbol_info: Dict = None) -> Dict:
         try:
             # Input validation
             if account_balance <= 0:
@@ -38,15 +86,38 @@ class SurvivabilityEngine:
                 
             if account_balance < 100:
                 raise ValueError("Minimum account balance required: $100")
-                
+            
+            # ⭐ เพิ่ม debug และ validation
             print(f"🧮 AI Calculating survivability for ${account_balance:,.2f}...")
+            print(f"🎯 Trading Mode: {trading_mode.value}")
             print(f"📏 Broker minimum lot: {min_lot}")
             
-            # Calculate usable capital with safety margins
-            usable_capital = self.calculate_usable_capital(account_balance)
+            # Get mode configuration with validation
+            if trading_mode not in self.mode_configs:
+                print(f"⚠️ Warning: Mode {trading_mode} not found, using BALANCED")
+                trading_mode = TradingMode.BALANCED
+                
+            mode_config = self.mode_configs[trading_mode]
+            target_survivability = mode_config['target_survivability']
             
-            # AI-powered parameter optimization
-            ideal_base_lot = self.calculate_optimal_base_lot(usable_capital, account_balance)
+            print(f"🎯 Mode config loaded: {mode_config}")
+            print(f"🎯 Target survivability: {target_survivability}")
+            
+            # Calculate usable capital with mode-specific safety margins
+            usable_capital = self.calculate_usable_capital(account_balance, mode_config)
+            print(f"💰 Usable capital: ${usable_capital}")
+            
+            if usable_capital <= 0:
+                raise ValueError("Usable capital must be positive")
+            
+            # AI-powered parameter optimization with mode
+            ideal_base_lot = self.calculate_optimal_base_lot(
+                usable_capital, account_balance, target_survivability, mode_config, symbol_info  # ⭐ เพิ่ม symbol_info
+            )            
+            print(f"🎯 Ideal base lot: {ideal_base_lot}")
+            
+            if ideal_base_lot <= 0:
+                raise ValueError("Calculated base lot must be positive")
             
             # Apply broker minimum lot constraint
             actual_base_lot = max(ideal_base_lot, min_lot)
@@ -57,17 +128,28 @@ class SurvivabilityEngine:
             if lot_adjusted:
                 print(f"⚠️ Lot size adjusted: {ideal_base_lot:.3f} → {actual_base_lot:.3f} (broker minimum)")
             
-            # Calculate parameters with actual lot size
-            grid_spacing = self.calculate_optimal_grid_spacing(usable_capital, actual_base_lot)
-            max_levels = self.calculate_max_grid_levels_realistic(usable_capital, actual_base_lot, grid_spacing)
+            # Calculate parameters with actual lot size and mode
+            grid_spacing = self.calculate_optimal_grid_spacing(usable_capital, actual_base_lot, mode_config)
+            print(f"📏 Grid spacing: {grid_spacing}")
+            
+            if grid_spacing <= 0:
+                raise ValueError("Grid spacing must be positive")
+            
+            max_levels = self.calculate_max_grid_levels_realistic(usable_capital, actual_base_lot, grid_spacing, target_survivability)
+            print(f"📊 Max levels: {max_levels}")
+            
+            if max_levels <= 0:
+                raise ValueError("Max levels must be positive")
             
             # Calculate ACTUAL survivability with real lot sizes
             actual_survivability = max_levels * grid_spacing
+            print(f"🛡️ Actual survivability: {actual_survivability}")
             
             # If still below target and we haven't hit minimum lot, try adjustment
-            if actual_survivability < self.target_survivability and not lot_adjusted:
+            if actual_survivability < target_survivability and not lot_adjusted:
+                print("🔧 Adjusting for target survivability...")
                 adjusted_params = self.adjust_for_target_survivability(
-                    usable_capital, account_balance, min_lot
+                    usable_capital, account_balance, min_lot, mode_config, target_survivability
                 )
                 actual_base_lot = adjusted_params['base_lot']
                 grid_spacing = adjusted_params['grid_spacing']
@@ -89,9 +171,13 @@ class SurvivabilityEngine:
                 actual_base_lot, grid_spacing, usable_capital, max_levels
             )
             
-            # Compile results
+            # Compile results with mode information
             results = {
                 'account_balance': account_balance,
+                'trading_mode': trading_mode.value,
+                'mode_description': mode_config['description'],
+                'mode_risk_level': mode_config['risk_level'],
+                'target_survivability': target_survivability,
                 'usable_capital': usable_capital,
                 'safety_margin': safety_margin,
                 'safety_margin_percentage': margin_percentage,
@@ -104,10 +190,10 @@ class SurvivabilityEngine:
                 'realistic_survivability': survivability_metrics['realistic_points'],
                 'actual_cost_per_level': survivability_metrics['cost_per_level'],
                 'max_affordable_levels': survivability_metrics['max_affordable_levels'],
-                'target_met': actual_survivability >= self.target_survivability,
+                'target_met': actual_survivability >= target_survivability,
                 'total_exposure': total_exposure,
                 'max_drawdown_value': max_drawdown_value,
-                'efficiency_rating': self.calculate_efficiency_rating(actual_survivability),
+                'efficiency_rating': self.calculate_efficiency_rating(actual_survivability, target_survivability),
                 'risk_level': self.assess_risk_level(account_balance, max_drawdown_value),
                 'capital_utilization': survivability_metrics['capital_utilization'],
                 'calculation_timestamp': datetime.now().isoformat(),
@@ -118,6 +204,7 @@ class SurvivabilityEngine:
             results['detailed_breakdown'] = self.create_detailed_breakdown(results)
             
             print(f"✅ AI Calculation completed:")
+            print(f"   🎯 Mode: {trading_mode.value} ({target_survivability:,} points)")
             print(f"   🎯 Actual Lot: {actual_base_lot:.3f} (Ideal: {ideal_base_lot:.3f})")
             print(f"   📏 Grid Spacing: {grid_spacing} points")
             print(f"   📊 Max Levels: {max_levels}")
@@ -133,23 +220,39 @@ class SurvivabilityEngine:
             
         except Exception as e:
             print(f"❌ Survivability calculation error: {e}")
+            import traceback
+            traceback.print_exc()  # แสดง full error trace
             raise
-            
-    def calculate_usable_capital(self, account_balance: float) -> float:
-        """Calculate usable capital with safety margins"""
+
+    def calculate_usable_capital(self, account_balance: float, mode_config: Dict = None) -> float:
+        """Calculate usable capital with safety margins and optional mode override"""
+        
+        # ⭐ แก้ไขส่วนนี้ - Check for mode-specific safety margin with proper fallback
+        if mode_config and mode_config.get('safety_margin_override') is not None:
+            base_safety_ratio = mode_config['safety_margin_override']
+        else:
+            base_safety_ratio = self.safety_ratio
+        
+        # ⭐ เพิ่ม validation
+        if base_safety_ratio is None:
+            print(f"⚠️ Warning: base_safety_ratio is None, using default {self.safety_ratio}")
+            base_safety_ratio = self.safety_ratio
+        
+        print(f"💰 Using safety ratio: {base_safety_ratio}")
+        
         # Start with configured safety ratio
-        base_usable = account_balance * self.safety_ratio
+        base_usable = account_balance * base_safety_ratio
         
         # Apply additional safety for smaller accounts
         if account_balance < 1000:
             # More conservative for small accounts
-            safety_factor = 0.5
+            safety_factor = min(0.5, base_safety_ratio)
         elif account_balance < 5000:
-            safety_factor = 0.55
+            safety_factor = min(0.55, base_safety_ratio)
         elif account_balance < 10000:
-            safety_factor = 0.6
+            safety_factor = min(0.6, base_safety_ratio)
         else:
-            safety_factor = self.safety_ratio
+            safety_factor = base_safety_ratio
             
         # Apply efficiency and volatility factors
         usable_capital = (
@@ -163,12 +266,15 @@ class SurvivabilityEngine:
         usable_capital = min(usable_capital, min_usable)
         
         return round(usable_capital, 2)
+    
+    def calculate_optimal_base_lot(self, usable_capital: float, account_balance: float, 
+                                target_points: float = None, mode_config: Dict = None, 
+                                symbol_info: Dict = None) -> float:
+        """Calculate optimal base lot size using AI algorithm with optional mode and broker constraints"""
         
-    def calculate_optimal_base_lot(self, usable_capital: float, account_balance: float) -> float:
-        """Calculate optimal base lot size using AI algorithm"""
-        
-        # Base calculation considering target survivability
-        target_points = self.target_survivability
+        # Use target from parameter or get from config
+        if target_points is None:
+            target_points = self.config.get('target_survivability', 20000)
         
         # Calculate maximum affordable lot size
         # Formula: usable_capital / (target_points * point_value * safety_buffer)
@@ -181,7 +287,6 @@ class SurvivabilityEngine:
         
         # Account size-based adjustments
         if account_balance >= 100000:
-            # Large accounts - can use larger lots
             base_multiplier = 0.8
         elif account_balance >= 50000:
             base_multiplier = 0.7
@@ -195,25 +300,59 @@ class SurvivabilityEngine:
             base_multiplier = 0.3
         else:
             base_multiplier = 0.2
-            
-        calculated_lot = max_affordable_lot * base_multiplier
         
-        # Round to appropriate lot step
-        lot_step = self.determine_lot_step(calculated_lot)
-        base_lot = self.round_to_lot_step(calculated_lot, lot_step)
+        # Apply mode multiplier if provided
+        if mode_config and 'lot_multiplier' in mode_config:
+            mode_lot_multiplier = mode_config['lot_multiplier']
+            calculated_lot = max_affordable_lot * base_multiplier * mode_lot_multiplier
+        else:
+            calculated_lot = max_affordable_lot * base_multiplier
         
-        # Ensure minimum viable lot size
-        min_lot = 0.001  # Micro lot minimum
-        base_lot = max(base_lot, min_lot)
+        # ⭐ เพิ่มส่วนนี้ - Debug และ lot step handling
+        print(f"🎯 Lot calculation debug:")
+        print(f"   Max affordable: {max_affordable_lot:.3f}")
+        print(f"   Base multiplier: {base_multiplier}")
+        print(f"   Calculated lot: {calculated_lot:.3f}")
+        
+        # ⭐ แก้ไขส่วนนี้ - Round to broker lot step first
+        # Get broker lot step from symbol info
+        if symbol_info:
+            broker_lot_step = symbol_info.get('volume_step', 0.01)
+            broker_min_lot = symbol_info.get('volume_min', 0.01)
+        else:
+            broker_lot_step = 0.01  # Default
+            broker_min_lot = 0.01   # Default
+        
+        print(f"   Broker lot step: {broker_lot_step}")
+        print(f"   Broker min lot: {broker_min_lot}")
+        
+        # Round to broker lot step (ปัดขึ้น)
+        import math
+        rounded_to_step = math.ceil(calculated_lot / broker_lot_step) * broker_lot_step
+        
+        print(f"   Rounded to step: {rounded_to_step:.3f}")
+        
+        # Apply broker minimum lot constraint
+        base_lot = max(rounded_to_step, broker_min_lot)
+        
+        print(f"   After min constraint: {base_lot:.3f}")
         
         # Maximum lot size safety check
-        max_lot = min(1.0, usable_capital / 10000)  # Conservative maximum
+        max_lot = min(1.0, usable_capital / 10000)
         base_lot = min(base_lot, max_lot)
         
-        return round(base_lot, 3)
+        print(f"   After max constraint: {base_lot:.3f}")
         
-    def calculate_optimal_grid_spacing(self, usable_capital: float, base_lot: float) -> int:
-        """Calculate optimal grid spacing for maximum survivability"""
+        # ⭐ Final validation - ensure it's valid broker step
+        final_lot = round(base_lot / broker_lot_step) * broker_lot_step
+        final_lot = max(final_lot, broker_min_lot)  # Ensure not below minimum
+        
+        print(f"   Final lot: {final_lot:.3f}")
+        
+        return round(final_lot, 3)
+    
+    def calculate_optimal_grid_spacing(self, usable_capital: float, base_lot: float, mode_config: Dict = None) -> int:
+        """Calculate optimal grid spacing for maximum survivability with optional mode"""
         
         # Base spacing calculation
         # Larger accounts can afford tighter grids
@@ -231,15 +370,22 @@ class SurvivabilityEngine:
             base_spacing = 500
         else:
             base_spacing = 600  # Wider grid for small accounts
+        
+        # ⭐ เพิ่มส่วนนี้ - Apply mode tightness if provided
+        if mode_config:
+            grid_tightness = mode_config.get('grid_tightness', 1.0)
+            mode_adjusted_spacing = base_spacing / grid_tightness  # Higher tightness = smaller spacing
+        else:
+            mode_adjusted_spacing = base_spacing
             
         # Adjust based on lot size
         lot_factor = base_lot / 0.01  # Scale factor relative to micro lot
         if lot_factor > 1:
             # Larger lots need wider spacing
             spacing_adjustment = math.sqrt(lot_factor) * 50
-            adjusted_spacing = base_spacing + spacing_adjustment
+            adjusted_spacing = mode_adjusted_spacing + spacing_adjustment  # ⭐ เปลี่ยนเป็นใช้ mode_adjusted_spacing
         else:
-            adjusted_spacing = base_spacing
+            adjusted_spacing = mode_adjusted_spacing  # ⭐ เปลี่ยนเป็นใช้ mode_adjusted_spacing
             
         # Ensure minimum spacing for safety
         min_spacing = 100
@@ -255,51 +401,80 @@ class SurvivabilityEngine:
             
         return final_spacing
         
-    def calculate_max_grid_levels_realistic(self, usable_capital: float, actual_lot: float, grid_spacing: int) -> int:
+    def calculate_max_grid_levels_realistic(self, usable_capital: float, actual_lot: float, grid_spacing: int, 
+                                        target_survivability: float = None) -> int:
         """Calculate maximum number of grid levels with REAL lot sizes and costs"""
         
-        # Calculate REAL cost per grid level
-        # Cost = lot_size * grid_spacing * point_value + margin_requirement
-        cost_per_level = actual_lot * grid_spacing * self.gold_point_value * 100  # Point value for gold
+        if target_survivability is None:
+            target_survivability = self.config.get('target_survivability', 20000)
         
-        # Add realistic margin requirements (approximate)
-        margin_per_level = actual_lot * 2000  # Approximate $2000 margin per 0.01 lot for gold
+        print(f"🔍 Debug Max Levels Calculation:")
+        print(f"   Usable Capital: ${usable_capital:.2f}")
+        print(f"   Actual Lot: {actual_lot}")
+        print(f"   Grid Spacing: {grid_spacing}")
+        print(f"   Target Survivability: {target_survivability}")
+        
+        # ⭐ แก้ไขการคำนวณ cost ให้ถูกต้อง
+        # Calculate REAL cost per grid level
+        point_value_per_lot = 1.0  # $1 per point for 0.01 lot
+        cost_per_point = (actual_lot / 0.01) * point_value_per_lot
+        cost_per_level = grid_spacing * cost_per_point
+        margin_per_level = actual_lot * 500  # Reduced margin requirement
         total_cost_per_level = cost_per_level + margin_per_level
         
         # Calculate maximum affordable levels with safety factor
-        max_affordable_levels = (usable_capital * 0.8) / total_cost_per_level  # 80% safety factor
+        max_affordable_levels = (usable_capital * 0.9) / total_cost_per_level  # 90% instead of 80%
         
         # Ensure we don't exceed reasonable limits
-        max_reasonable_levels = min(100, int(self.target_survivability / grid_spacing))
+        max_reasonable_levels = min(50, int(target_survivability / grid_spacing))  # Reduced from 100 to 50
         
         final_levels = min(int(max_affordable_levels), max_reasonable_levels)
+        final_levels = max(final_levels, 5)  # At least 5 levels (reduced from 10)
         
-        # Ensure minimum viable levels
-        final_levels = max(final_levels, 10)  # At least 10 levels
+        print(f"   Cost per Level: ${total_cost_per_level:.2f}")
+        print(f"   Max Affordable: {max_affordable_levels:.1f}")
+        print(f"   Max Reasonable: {max_reasonable_levels}")
+        print(f"   Final Levels: {final_levels}")
         
         return final_levels
         
     def calculate_realistic_survivability_metrics(self, actual_lot: float, grid_spacing: int, 
-                                                 usable_capital: float, max_levels: int) -> Dict:
+                                                usable_capital: float, max_levels: int) -> Dict:
         """Calculate realistic survivability considering actual constraints"""
         
+        # ⭐ แก้ไขการคำนวณ cost ให้ถูกต้อง
         # Real cost per level calculation
-        point_value_per_lot = 100  # $100 per point for 1 lot gold
-        cost_per_point = actual_lot * point_value_per_lot
+        point_value_per_lot = 1.0  # $1 per point for 0.01 lot gold (not $100!)
+        cost_per_point = (actual_lot / 0.01) * point_value_per_lot  # Scale to lot size
         cost_per_level = grid_spacing * cost_per_point
         
-        # Add margin costs
-        margin_per_level = actual_lot * 2000  # Estimated margin per level
+        # Add margin costs (more realistic)
+        margin_per_level = actual_lot * 500  # Reduced from 2000 to 500
         total_cost_per_level = cost_per_level + margin_per_level
+        
+        # Debug
+        print(f"🔍 Debug Realistic Calculation:")
+        print(f"   Actual Lot: {actual_lot}")
+        print(f"   Grid Spacing: {grid_spacing}")
+        print(f"   Max Levels: {max_levels}")
+        print(f"   Point Value per 0.01 lot: ${point_value_per_lot}")
+        print(f"   Cost per Point: ${cost_per_point:.2f}")
+        print(f"   Cost per Level: ${total_cost_per_level:.2f}")
+        print(f"   Usable Capital: ${usable_capital:.2f}")
         
         # Calculate how many levels we can actually afford
         max_affordable_levels = usable_capital / total_cost_per_level
         
-        # Realistic levels considering our max_levels constraint
-        realistic_levels = min(max_levels, int(max_affordable_levels))
+        # ⭐ ใช้ค่าที่เหมาะสมมากขึ้น
+        realistic_levels = min(max_levels, int(max_affordable_levels * 0.8))  # 80% safety
+        realistic_levels = max(realistic_levels, 5)  # อย่างน้อย 5 levels
         
         # Calculate realistic survivability in points
         realistic_points = realistic_levels * grid_spacing
+        
+        print(f"   Max Affordable Levels: {max_affordable_levels:.1f}")
+        print(f"   Realistic Levels: {realistic_levels}")
+        print(f"   Realistic Points: {realistic_points}")
         
         # Capital utilization
         total_cost = realistic_levels * total_cost_per_level
@@ -308,18 +483,20 @@ class SurvivabilityEngine:
         # Generate warnings
         warnings = []
         
-        if realistic_points < self.target_survivability:
-            shortage = self.target_survivability - realistic_points
-            warnings.append(f"Survivability {shortage:,.0f} points below 20,000 target - system usable but with reduced coverage")
+        target_for_account = 5000 if usable_capital < 3000 else 8000  # Realistic target
+        
+        if realistic_points < target_for_account:
+            shortage = target_for_account - realistic_points
+            warnings.append(f"Survivability {shortage:,.0f} points below recommended target for this account size")
 
-        if actual_lot == 0.01:  # If we're at minimum lot
-            warnings.append("Using minimum broker lot size - may limit survivability optimization")
+        if actual_lot == 0.01:
+            warnings.append("Using minimum broker lot size - survivability limited by broker constraints")
             
         if capital_utilization > 90:
             warnings.append("High capital utilization - consider reducing exposure")
             
-        if realistic_levels < 20:
-            warnings.append("Low number of grid levels - may not provide adequate coverage")
+        if realistic_levels < 10:
+            warnings.append("Low number of grid levels - limited coverage")
             
         return {
             'realistic_points': realistic_points,
@@ -342,14 +519,27 @@ class SurvivabilityEngine:
         
         return max_drawdown_value
         
-    def adjust_for_target_survivability(self, usable_capital: float, account_balance: float, min_lot: float = 0.01) -> Dict:
-        """Adjust parameters to guarantee target survivability with broker constraints"""
+    def adjust_for_target_survivability(self, usable_capital: float, account_balance: float, 
+                                    min_lot: float = 0.01, mode_config: Dict = None, 
+                                    target_points: float = None) -> Dict:
+        """Adjust parameters to guarantee target survivability with broker constraints and mode support"""
         
-        target_points = self.target_survivability
+        # ⭐ แก้ไขส่วนนี้ - Use target from parameter or get from mode or config
+        if target_points is None:
+            if mode_config and 'target_survivability' in mode_config:
+                target_points = mode_config['target_survivability']
+            else:
+                target_points = self.config.get('target_survivability', 20000)  # ใช้จาก config แทน self.target_survivability
         
         # Work backwards from target survivability considering minimum lot
         # Try different grid spacing options from wide to tight
         spacing_options = [600, 500, 400, 350, 300, 250, 200, 175, 150, 125, 100]
+        
+        # Apply mode tightness if provided
+        if mode_config and 'grid_tightness' in mode_config:
+            grid_tightness = mode_config['grid_tightness']
+            spacing_options = [int(spacing / grid_tightness) for spacing in spacing_options]
+            spacing_options = [max(100, spacing) for spacing in spacing_options]  # Ensure minimum 100
         
         for grid_spacing in spacing_options:
             required_levels = math.ceil(target_points / grid_spacing)
@@ -397,8 +587,14 @@ class SurvivabilityEngine:
             return 0.001
             
     def round_to_lot_step(self, lot_size: float, lot_step: float) -> float:
-        """Round lot size to appropriate step"""
-        return round(lot_size / lot_step) * lot_step
+        """Round lot size to appropriate step - ปัดขึ้นแทนปัดลง"""
+        
+        # ⭐ เปลี่ยนจาก round เป็น ceil (ปัดขึ้น)
+        import math
+        rounded = math.ceil(lot_size / lot_step) * lot_step
+        
+        print(f"📏 Lot rounding: {lot_size:.3f} → {rounded:.3f} (step: {lot_step})")
+        return rounded
         
     def calculate_total_exposure(self, base_lot: float, max_levels: int) -> float:
         """Calculate total position exposure at maximum grid"""
@@ -416,19 +612,24 @@ class SurvivabilityEngine:
         
         return max_drawdown_value
         
-    def calculate_efficiency_rating(self, survivability: float) -> str:
-        """Rate the efficiency of the survivability setup"""
-        if survivability >= 25000:
+    def calculate_efficiency_rating(self, survivability: float, target_survivability: float = None) -> str:
+        """Rate the efficiency of the survivability setup with dynamic target"""
+        
+        # ⭐ เพิ่ม parameter target_survivability with default
+        if target_survivability is None:
+            target_survivability = self.config.get('target_survivability', 20000)
+        
+        if survivability >= target_survivability * 1.25:  # 125% of target
             return "EXCELLENT"
-        elif survivability >= 22000:
+        elif survivability >= target_survivability * 1.1:  # 110% of target
             return "VERY_GOOD"
-        elif survivability >= 20000:
+        elif survivability >= target_survivability:        # 100% of target
             return "GOOD"
-        elif survivability >= 18000:
+        elif survivability >= target_survivability * 0.9:  # 90% of target
             return "ACCEPTABLE"
         else:
-           return "LIMITED"
-            
+            return "LIMITED"
+                
     def assess_risk_level(self, account_balance: float, max_drawdown_value: float) -> str:
         """Assess overall risk level"""
         risk_ratio = max_drawdown_value / account_balance

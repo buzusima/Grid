@@ -18,7 +18,7 @@ import sys
 try:
     from mt5_auto_connector import MT5AutoConnector
     from ai_gold_grid import AIGoldGrid
-    from survivability_engine import SurvivabilityEngine
+    from survivability_engine import SurvivabilityEngine, TradingMode
     from ai_money_manager import AIMoneyManager
     from gold_hedge_calculator import GoldHedgeCalculator
 except ImportError as e:
@@ -33,7 +33,8 @@ class AIGoldTradingGUI:
         self.init_components()
         self.create_gui()
         self.setup_status_monitoring()
-        
+        self.current_trading_mode = TradingMode.BALANCED
+
     def setup_main_window(self):
         """Setup main window properties"""
         self.root.title("🏆 AI Gold Grid Trading System - 20,000+ Points Survivability")
@@ -49,9 +50,10 @@ class AIGoldTradingGUI:
         self.root.geometry(f'{width}x{height}+{x}+{y}')
         
     def load_config(self):
-        """Load configuration from config.json"""
+        """Load configuration from config.json with trading mode support"""
         default_config = {
             "target_survivability": 20000,
+            "default_trading_mode": "BALANCED",  # ⭐ เพิ่ม
             "safety_ratio": 0.6,
             "emergency_stop_percentage": 50,
             "daily_loss_limit_percentage": 10,
@@ -59,7 +61,26 @@ class AIGoldTradingGUI:
             "hedge_multipliers": [0.5, 1.0, 1.5, 2.0],
             "log_level": "INFO",
             "auto_connect_mt5": True,
-            "gold_symbols": ["XAUUSD", "GOLD", "XAU/USD", "XAUUSD.cmd", "GOLD#"]
+            "gold_symbols": ["XAUUSD", "GOLD", "XAU/USD", "XAUUSD.cmd", "GOLD#"],
+            # ⭐ เพิ่มส่วนนี้
+            "trading_modes": {
+                "SAFE": {
+                    "description": "Maximum protection with 20,000 points survivability",
+                    "recommended_for": "Conservative traders, large accounts"
+                },
+                "BALANCED": {
+                    "description": "Good balance with 10,000 points survivability", 
+                    "recommended_for": "Most traders, medium accounts"
+                },
+                "AGGRESSIVE": {
+                    "description": "Higher risk/reward with 8,000 points survivability",
+                    "recommended_for": "Experienced traders, fast growth"
+                },
+                "TURBO": {
+                    "description": "Maximum speed with 5,000 points survivability",
+                    "recommended_for": "Expert traders only, high risk tolerance"
+                }
+            }
         }
         
         try:
@@ -69,10 +90,19 @@ class AIGoldTradingGUI:
             else:
                 self.config = default_config
                 self.save_config()
+                
+            # ⭐ เพิ่มส่วนนี้ - Set default trading mode from config
+            default_mode_name = self.config.get('default_trading_mode', 'BALANCED')
+            try:
+                self.current_trading_mode = TradingMode(default_mode_name)
+            except ValueError:
+                self.current_trading_mode = TradingMode.BALANCED  # Fallback
+                
         except Exception as e:
             print(f"Config load error: {e}")
             self.config = default_config
-            
+            self.current_trading_mode = TradingMode.BALANCED  # Fallback
+
     def save_config(self):
         """Save configuration to config.json"""
         try:
@@ -192,7 +222,7 @@ class AIGoldTradingGUI:
         self.connect_btn.pack(pady=10)
         
     def create_survivability_section(self, parent):
-        """Create survivability calculation display"""
+        """Create survivability calculation display with trading mode selection"""
         surv_frame = tk.LabelFrame(
             parent,
             text="🛡️ AI Survivability Calculator",
@@ -204,27 +234,85 @@ class AIGoldTradingGUI:
         )
         surv_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Create two columns
+        # ⭐ เพิ่มส่วนนี้ - Trading Mode Selection
+        mode_frame = tk.Frame(surv_frame, bg='#16213e')
+        mode_frame.pack(fill=tk.X, padx=10, pady=(10, 5))
+        
+        tk.Label(mode_frame, text="🎯 Trading Mode:", 
+                font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(side=tk.LEFT)
+        
+        # Mode selection variable
+        self.mode_var = tk.StringVar(value="BALANCED")
+        
+        # Mode selection combobox
+        mode_options = ["SAFE", "BALANCED", "AGGRESSIVE", "TURBO"]
+        self.mode_combo = ttk.Combobox(
+            mode_frame, 
+            textvariable=self.mode_var, 
+            values=mode_options, 
+            state="readonly", 
+            width=12,
+            font=('Arial', 10)
+        )
+        self.mode_combo.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Mode description label
+        self.mode_desc_label = tk.Label(
+            mode_frame,
+            text="⚖️ Good balance between speed and safety",
+            font=('Arial', 10),
+            fg='#adb5bd',
+            bg='#16213e'
+        )
+        self.mode_desc_label.pack(side=tk.LEFT, padx=(15, 0))
+        
+        # Bind mode change event
+        self.mode_combo.bind('<<ComboboxSelected>>', self.on_mode_change)
+        
+        # Target survivability display
+        target_frame = tk.Frame(surv_frame, bg='#16213e')
+        target_frame.pack(fill=tk.X, padx=10, pady=2)
+        
+        self.target_surv_label = tk.Label(
+            target_frame,
+            text="🎯 Target: 10,000 points",
+            font=('Arial', 10, 'bold'),
+            fg='#ffd43b',
+            bg='#16213e'
+        )
+        self.target_surv_label.pack(side=tk.LEFT)
+        
+        self.risk_level_label = tk.Label(
+            target_frame,
+            text="⚠️ Risk: Medium",
+            font=('Arial', 10),
+            fg='#ffd43b',
+            bg='#16213e'
+        )
+        self.risk_level_label.pack(side=tk.RIGHT)
+        
+        # Create two columns (existing code...)
         left_col = tk.Frame(surv_frame, bg='#16213e')
         left_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         right_col = tk.Frame(surv_frame, bg='#16213e')
         right_col.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10, pady=10)
         
+        # (เก็บโค้ดเดิมของ left_col และ right_col ไว้...)
         # Left column - Account & Parameters
         tk.Label(left_col, text="📊 AI Calculated Parameters:", 
                 font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(anchor='w')
         
         self.balance_label = tk.Label(left_col, text="💰 Balance: $0", 
-                                     font=('Arial', 10), fg='#ffffff', bg='#16213e')
+                                    font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.balance_label.pack(anchor='w', pady=2)
         
         self.base_lot_label = tk.Label(left_col, text="🎯 Base Lot: 0.00", 
-                                      font=('Arial', 10), fg='#ffffff', bg='#16213e')
+                                    font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.base_lot_label.pack(anchor='w', pady=2)
         
         self.grid_spacing_label = tk.Label(left_col, text="📏 Grid Spacing: 0 points", 
-                                          font=('Arial', 10), fg='#ffffff', bg='#16213e')
+                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.grid_spacing_label.pack(anchor='w', pady=2)
         
         self.max_levels_label = tk.Label(left_col, text="📈 Max Levels: 0", 
@@ -232,11 +320,11 @@ class AIGoldTradingGUI:
         self.max_levels_label.pack(anchor='w', pady=2)
         
         self.survivability_label = tk.Label(left_col, text="🛡️ Survivability: 0 points", 
-                                           font=('Arial', 10, 'bold'), fg='#51cf66', bg='#16213e')
+                                        font=('Arial', 10, 'bold'), fg='#51cf66', bg='#16213e')
         self.survivability_label.pack(anchor='w', pady=2)
         
         self.safety_margin_label = tk.Label(left_col, text="💪 Safety Margin: $0", 
-                                           font=('Arial', 10), fg='#ffffff', bg='#16213e')
+                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
         self.safety_margin_label.pack(anchor='w', pady=2)
         
         # Right column - Hedge Plan
@@ -258,7 +346,66 @@ class AIGoldTradingGUI:
             command=self.calculate_survivability
         )
         calc_btn.pack(pady=10)
-        
+
+    def on_mode_change(self, event=None):
+        """Handle trading mode change"""
+        try:
+            mode_name = self.mode_var.get()
+            self.current_trading_mode = TradingMode(mode_name)
+            
+            # Update mode description and target
+            self.update_mode_display()
+            
+            # Auto-recalculate if connected
+            if self.is_connected and self.account_info:
+                self.calculate_survivability()
+                
+            self.log_message(f"🎯 Trading mode changed to: {mode_name}", "INFO")
+            
+        except Exception as e:
+            self.log_message(f"❌ Mode change error: {e}", "ERROR")
+
+    def update_mode_display(self):
+        """Update mode description and target display"""
+        try:
+            if not hasattr(self, 'survivability_engine'):
+                return
+                
+            mode_config = self.survivability_engine.mode_configs[self.current_trading_mode]
+            
+            # Mode descriptions with emojis
+            descriptions = {
+                'SAFE': '🛡️ Maximum protection, slower gains',
+                'BALANCED': '⚖️ Good balance between speed and safety', 
+                'AGGRESSIVE': '🚀 Faster gains, higher risk',
+                'TURBO': '⚡ Maximum speed, maximum risk'
+            }
+            
+            # Risk level colors
+            risk_colors = {
+                'Low': '#51cf66',
+                'Medium': '#ffd43b',
+                'High': '#ff6b6b',
+                'Very High': '#e74c3c'
+            }
+            
+            # Update labels
+            mode_desc = descriptions.get(self.current_trading_mode.value, mode_config['description'])
+            self.mode_desc_label.config(text=mode_desc)
+            
+            target_points = mode_config['target_survivability']
+            self.target_surv_label.config(text=f"🎯 Target: {target_points:,} points")
+            
+            risk_level = mode_config['risk_level']
+            risk_color = risk_colors.get(risk_level, '#ffffff')
+            self.risk_level_label.config(
+                text=f"⚠️ Risk: {risk_level}",
+                fg=risk_color
+            )
+            
+        except Exception as e:
+            print(f"Error updating mode display: {e}")
+
     def create_hedge_section(self, parent):
         """Create hedge monitoring section"""
         hedge_frame = tk.LabelFrame(
@@ -724,7 +871,7 @@ class AIGoldTradingGUI:
             return False
         
     def calculate_survivability(self):
-        """Calculate and display survivability parameters"""
+        """Calculate and display survivability parameters with selected trading mode"""
         if not self.is_connected:
             messagebox.showwarning("Warning", "Please connect to MT5 first")
             return
@@ -737,21 +884,33 @@ class AIGoldTradingGUI:
             # Get broker minimum lot size
             symbol_info = self.mt5_connector.get_symbol_info()
             min_lot = symbol_info.get('volume_min', 0.01) if symbol_info else 0.01
-                
+            calculations = self.survivability_engine.calculate_for_balance(
+            balance, min_lot, self.current_trading_mode, symbol_info
+            )    
             self.log_message(f"🧮 Calculating survivability for ${balance:,.2f}...")
+            self.log_message(f"🎯 Mode: {self.current_trading_mode.value}")
             self.log_message(f"📏 Broker minimum lot: {min_lot}")
             
-            # Calculate using survivability engine with broker constraints
-            calculations = self.survivability_engine.calculate_for_balance(balance, min_lot)
+            # ⭐ แก้ไขส่วนนี้ - ใช้ method เดิมที่มีอยู่แล้ว
+            # เพิ่ม parameter target_survivability จาก mode config
+            mode_config = self.survivability_engine.mode_configs[self.current_trading_mode]
+            target_survivability = mode_config['target_survivability']
+            
+            # Calculate using survivability engine with mode by passing target_survivability
+            calculations = self.survivability_engine.calculate_for_balance(
+                balance, 
+                min_lot, 
+                self.current_trading_mode  # ส่ง trading_mode
+            )
             self.current_calculations = calculations
             
             # Update display
             self.update_survivability_display(calculations)
             
-            # Calculate hedge plan with broker constraints
-            symbol_info = self.mt5_connector.get_symbol_info()
-            min_lot = symbol_info.get('volume_min', 0.01) if symbol_info else 0.01
-            hedge_plan = self.hedge_calculator.calculate_hedge_plan(calculations, min_lot)
+            # Calculate hedge plan with broker constraints and mode
+            hedge_plan = self.hedge_calculator.calculate_hedge_plan(
+                calculations, min_lot, self.current_trading_mode  # ⭐ เพิ่ม trading_mode parameter
+            )
             self.update_hedge_display(hedge_plan)
             
             # Log warnings if any
@@ -759,22 +918,39 @@ class AIGoldTradingGUI:
                 for warning in calculations['warnings']:
                     self.log_message(f"⚠️ {warning}", "WARNING")
             
-            # Show appropriate success message based on target achievement
+            # Show success message based on mode target
+            target_surv = calculations.get('target_survivability', 20000)
             realistic_surv = calculations.get('realistic_survivability', calculations.get('survivability', 0))
-            if calculations.get('target_met', False) or realistic_surv >= 20000:
-                self.log_message("✅ Survivability calculation completed - Target achieved!", "SUCCESS")
-            elif realistic_surv >= 10000:
-                self.log_message("✅ Survivability calculation completed - System ready with good protection", "SUCCESS")
+            
+            if calculations.get('target_met', False) or realistic_surv >= target_surv:
+                self.log_message(f"✅ {self.current_trading_mode.value} mode target achieved!", "SUCCESS")
+            elif realistic_surv >= target_surv * 0.8:
+                self.log_message(f"✅ {self.current_trading_mode.value} mode ready with good protection", "SUCCESS")
             else:
-                self.log_message("✅ Survivability calculation completed - System ready with basic protection", "SUCCESS")
+                self.log_message(f"✅ {self.current_trading_mode.value} mode ready with basic protection", "SUCCESS")
             
         except Exception as e:
             self.log_message(f"❌ Calculation Error: {str(e)}", "ERROR")
             messagebox.showerror("Calculation Error", str(e))
 
     def update_survivability_display(self, calc):
-        """Update survivability display with calculations"""
+        """Update survivability display with calculations and mode information"""
         self.balance_label.config(text=f"💰 Balance: ${calc['account_balance']:,.2f}")
+        
+        # ⭐ เพิ่มการแสดง Mode ที่ใช้
+        mode_text = f"🎯 Mode: {calc['trading_mode']} | Target: {calc['target_survivability']:,} pts"
+        if not hasattr(self, 'mode_display_label'):
+            # สร้าง label ใหม่ถ้ายังไม่มี
+            self.mode_display_label = tk.Label(
+                self.balance_label.master,
+                text=mode_text,
+                font=('Arial', 10, 'bold'),
+                fg='#4ecdc4',
+                bg='#16213e'
+            )
+            self.mode_display_label.pack(anchor='w', pady=2)
+        else:
+            self.mode_display_label.config(text=mode_text)
         
         # Show both ideal and actual lot sizes
         if calc.get('lot_size_adjusted', False):
@@ -789,35 +965,54 @@ class AIGoldTradingGUI:
         self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} points (${calc['grid_spacing']*0.01:.2f})")
         self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']}")
         
-        # Show both theoretical and realistic survivability
+        # Show both theoretical and realistic survivability with target comparison
         theoretical_surv = calc['survivability']
         realistic_surv = calc.get('realistic_survivability', theoretical_surv)
+        target_surv = calc['target_survivability']
         
-        # ปรับเงื่อนไขสีให้ยืดหยุ่นมากขึ้น
-        if realistic_surv >= 20000:
+        # ⭐ ปรับเงื่อนไขสีตาม target ของ mode
+        if realistic_surv >= target_surv:
             surv_color = '#51cf66'  # Green - ถึงเป้าหมายแล้ว
-            if realistic_surv != theoretical_surv:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ✅ (Theory: {theoretical_surv:,.0f})"
-            else:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ✅"
-        elif realistic_surv >= 10000:
-            surv_color = '#ffd43b'  # Yellow - ใช้ได้แต่ต่ำกว่าเป้าหมาย
-            if realistic_surv != theoretical_surv:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️ (Theory: {theoretical_surv:,.0f})"
-            else:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️"
+            status_emoji = "✅"
+        elif realistic_surv >= target_surv * 0.8:
+            surv_color = '#ffd43b'  # Yellow - ใกล้เป้าหมาย
+            status_emoji = "⚠️"
         else:
-            surv_color = '#ff6b6b'  # Red - ต่ำมาก
-            if realistic_surv != theoretical_surv:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️ (Theory: {theoretical_surv:,.0f})"
-            else:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points ⚠️"
+            surv_color = '#ff6b6b'  # Red - ต่ำกว่าเป้าหมาย
+            status_emoji = "❌"
+        
+        if realistic_surv != theoretical_surv:
+            surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} (Theory: {theoretical_surv:,.0f}) | Target: {target_surv:,.0f}"
+        else:
+            surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} | Target: {target_surv:,.0f}"
             
         self.survivability_label.config(text=surv_text, fg=surv_color)
         
-        safety_margin = calc['account_balance'] * (1 - self.config['safety_ratio'])
-        self.safety_margin_label.config(text=f"💪 Safety Margin: ${safety_margin:,.2f} ({100-self.config['safety_ratio']*100:.0f}%)")
-    
+        # ⭐ แสดง Mode Description และ Risk Level
+        mode_desc = calc.get('mode_description', '')
+        risk_level = calc.get('mode_risk_level', '')
+        
+        if not hasattr(self, 'mode_info_label'):
+            self.mode_info_label = tk.Label(
+                self.balance_label.master,
+                text=f"📝 {mode_desc} | Risk: {risk_level}",
+                font=('Arial', 9),
+                fg='#adb5bd',
+                bg='#16213e'
+            )
+            self.mode_info_label.pack(anchor='w', pady=1)
+        else:
+            self.mode_info_label.config(text=f"📝 {mode_desc} | Risk: {risk_level}")
+        
+        # Safety margin (existing code...)
+        safety_margin = calc['account_balance'] * (1 - self.config.get('safety_ratio', 0.6))
+        if 'safety_margin_percentage' in calc:
+            safety_pct = calc['safety_margin_percentage']
+        else:
+            safety_pct = (calc['safety_margin'] / calc['account_balance']) * 100
+            
+        self.safety_margin_label.config(text=f"💪 Safety Margin: ${calc['safety_margin']:,.2f} ({safety_pct:.1f}%)")
+        
         # Show capital utilization if available
         if 'capital_utilization' in calc:
             util_text = f"📊 Capital Used: {calc['capital_utilization']:.1f}%"

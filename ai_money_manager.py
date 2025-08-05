@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
+from survivability_engine import TradingMode
 
 class RiskLevel(Enum):
     CONSERVATIVE = "CONSERVATIVE"
@@ -69,6 +70,32 @@ class AIMoneyManager:
         self.auto_adjust_enabled = config.get('auto_adjust_enabled', True)
         self.adjustment_frequency = config.get('adjustment_frequency_hours', 24)
         self.last_adjustment = datetime.now()
+        self.mode_adjustments = {
+        TradingMode.SAFE: {
+            'risk_multiplier': 0.7,      # ลดความเสี่ยง 30%
+            'lot_adjustment': 0.8,       # ลดไม้ 20%
+            'profit_target_adj': 0.8,    # เป้ากำไรต่ำลง 20%
+            'compound_factor_adj': 0.8   # compound ช้าลง
+        },
+        TradingMode.BALANCED: {
+            'risk_multiplier': 1.0,      # ปกติ
+            'lot_adjustment': 1.0,       # ปกติ
+            'profit_target_adj': 1.0,    # ปกติ
+            'compound_factor_adj': 1.0   # ปกติ
+        },
+        TradingMode.AGGRESSIVE: {
+            'risk_multiplier': 1.4,      # เพิ่มความเสี่ยง 40%
+            'lot_adjustment': 1.3,       # เพิ่มไม้ 30%
+            'profit_target_adj': 1.4,    # เป้ากำไรสูงขึ้น 40%
+            'compound_factor_adj': 1.3   # compound เร็วขึ้น
+        },
+        TradingMode.TURBO: {
+            'risk_multiplier': 1.8,      # เพิ่มความเสี่ยง 80%
+            'lot_adjustment': 1.6,       # เพิ่มไม้ 60%
+            'profit_target_adj': 1.8,    # เป้ากำไรสูงขึ้น 80%
+            'compound_factor_adj': 1.6   # compound เร็วมาก
+        }
+    }
         
     def initialize_risk_profiles(self) -> Dict[RiskLevel, MoneyManagementProfile]:
         """Initialize predefined risk management profiles"""
@@ -119,46 +146,54 @@ class AIMoneyManager:
             return AccountTier.MICRO
             
     def calculate_optimal_money_management(self, 
-                                         account_balance: float,
-                                         current_equity: float,
-                                         risk_level: RiskLevel = RiskLevel.MODERATE) -> Dict:
+                                        account_balance: float,
+                                        current_equity: float,
+                                        risk_level: RiskLevel = RiskLevel.MODERATE,
+                                        trading_mode: TradingMode = TradingMode.BALANCED) -> Dict:
         """
-        Calculate optimal money management parameters using AI
+        Calculate optimal money management parameters using AI with trading mode support
         """
         try:
             print(f"🧠 AI Money Manager calculating for ${account_balance:,.2f}...")
+            print(f"🎯 Trading Mode: {trading_mode.value}")
             
             # Determine account tier and adjust parameters
             account_tier = self.determine_account_tier(account_balance)
             profile = self.risk_profiles[risk_level]
             
+            # ⭐ เพิ่มส่วนนี้ - Get mode adjustments
+            mode_adj = self.mode_adjustments[trading_mode]
+            
             # Tier-based adjustments
             tier_adjustments = self.get_tier_adjustments(account_tier)
             
-            # Calculate base parameters
-            max_risk_amount = account_balance * (profile.max_risk_percentage / 100)
+            # Calculate base parameters with mode adjustments
+            max_risk_amount = account_balance * (profile.max_risk_percentage / 100) * mode_adj['risk_multiplier']
             usable_capital = account_balance * (1 - profile.safety_margin)
             
-            # AI-enhanced lot sizing
-            base_lot = self.calculate_ai_lot_size(
+            # AI-enhanced lot sizing with mode
+            base_lot = self.calculate_ai_lot_size_with_mode(
                 usable_capital, 
                 account_tier, 
-                profile.base_lot_multiplier
+                profile.base_lot_multiplier,
+                mode_adj
             )
             
-            # Dynamic grid parameters
-            grid_params = self.calculate_dynamic_grid_parameters(
+            # Dynamic grid parameters with mode
+            grid_params = self.calculate_dynamic_grid_parameters_with_mode(
                 usable_capital,
                 base_lot,
                 profile.grid_spacing_factor,
-                tier_adjustments
+                tier_adjustments,
+                mode_adj
             )
             
-            # Risk management parameters
-            risk_params = self.calculate_risk_parameters(
+            # Risk management parameters with mode
+            risk_params = self.calculate_risk_parameters_with_mode(
                 account_balance,
                 current_equity,
-                profile
+                profile,
+                mode_adj
             )
             
             # Performance-based adjustments
@@ -167,8 +202,10 @@ class AIMoneyManager:
                 base_lot *= performance_adjustments.get('lot_multiplier', 1.0)
                 grid_params['spacing'] *= performance_adjustments.get('spacing_multiplier', 1.0)
                 
-            # Compile results
+            # Compile results with mode information
             money_mgmt_result = {
+                'trading_mode': trading_mode.value,  # ⭐ เพิ่ม
+                'mode_adjustments': mode_adj,        # ⭐ เพิ่ม
                 'account_tier': account_tier.value,
                 'risk_level': risk_level.value,
                 'account_balance': account_balance,
@@ -179,15 +216,15 @@ class AIMoneyManager:
                 'base_lot_size': round(base_lot, 3),
                 'grid_spacing': int(grid_params['spacing']),
                 'max_positions': grid_params['max_positions'],
-                'position_sizing': self.calculate_position_sizing_ladder(base_lot),
+                'position_sizing': self.calculate_position_sizing_ladder_with_mode(base_lot, mode_adj),
                 'risk_parameters': risk_params,
                 'stop_loss_level': account_balance * (1 - profile.stop_loss_percentage / 100),
-                'take_profit_level': account_balance * (1 + profile.take_profit_percentage / 100),
+                'take_profit_level': account_balance * (1 + profile.take_profit_percentage / 100 * mode_adj['profit_target_adj']),
                 'daily_loss_limit': account_balance * (self.max_daily_loss / 100),
                 'weekly_loss_limit': account_balance * (self.max_weekly_loss / 100),
                 'monthly_loss_limit': account_balance * (self.max_monthly_loss / 100),
-                'compound_settings': self.calculate_compound_settings(account_balance, profile),
-                'adjustment_recommendations': self.generate_adjustment_recommendations(account_balance, current_equity),
+                'compound_settings': self.calculate_compound_settings_with_mode(account_balance, profile, mode_adj),
+                'adjustment_recommendations': self.generate_adjustment_recommendations_with_mode(account_balance, current_equity, trading_mode),
                 'ai_confidence': self.calculate_ai_confidence(),
                 'timestamp': datetime.now().isoformat()
             }
@@ -196,7 +233,8 @@ class AIMoneyManager:
             self.store_calculation(money_mgmt_result)
             
             print(f"✅ AI Money Management completed:")
-            print(f"   🎯 Tier: {account_tier.value}")
+            print(f"   🎯 Mode: {trading_mode.value}")
+            print(f"   🏦 Tier: {account_tier.value}")
             print(f"   💰 Base Lot: {base_lot:.3f}")
             print(f"   📏 Grid Spacing: {grid_params['spacing']} points")
             print(f"   🛡️ Max Risk: ${max_risk_amount:,.2f}")
@@ -207,7 +245,166 @@ class AIMoneyManager:
         except Exception as e:
             print(f"❌ AI Money Management error: {e}")
             raise
+
+    def calculate_ai_lot_size_with_mode(self, usable_capital: float, tier: AccountTier, 
+                                    base_multiplier: float, mode_adj: Dict) -> float:
+        """AI-enhanced lot size calculation with trading mode adjustments"""
+        
+        # Base calculation (same as before)
+        tier_adj = self.get_tier_adjustments(tier)
+        
+        # Account for gold point value ($1 per point for 1 lot)
+        target_risk_per_level = 0.015  # 1.5% risk per level
+        
+        # Calculate lot size based on target risk
+        avg_grid_spacing = 300
+        max_affordable_lot = (usable_capital * target_risk_per_level) / avg_grid_spacing
+        
+        # Apply tier, profile, and mode multipliers
+        calculated_lot = (max_affordable_lot * 
+                        base_multiplier * 
+                        tier_adj['lot_multiplier'] * 
+                        mode_adj['lot_adjustment'])  # ⭐ เพิ่ม mode adjustment
+        
+        # Ensure minimum and maximum bounds
+        min_lot = 0.001
+        max_lot = min(10.0, usable_capital / 5000)  # Conservative maximum
+        
+        final_lot = max(min_lot, min(calculated_lot, max_lot))
+        
+        # Round to appropriate step
+        if final_lot >= 1.0:
+            return round(final_lot, 1)
+        elif final_lot >= 0.1:
+            return round(final_lot, 2)
+        else:
+            return round(final_lot, 3)
+        
+    def calculate_dynamic_grid_parameters_with_mode(self, usable_capital: float, base_lot: float, 
+                                                spacing_factor: float, tier_adjustments: Dict, 
+                                                mode_adj: Dict) -> Dict:
+        """Calculate dynamic grid parameters with trading mode adjustments"""
+        
+        # Base spacing calculation (same as before)
+        if usable_capital >= 50000:
+            base_spacing = 200
+        elif usable_capital >= 20000:
+            base_spacing = 250
+        elif usable_capital >= 10000:
+            base_spacing = 300
+        elif usable_capital >= 5000:
+            base_spacing = 400
+        else:
+            base_spacing = 500
             
+        # Apply factors including mode adjustments
+        # Mode with higher risk = tighter spacing = more frequent trades
+        mode_spacing_factor = 1.0
+        if 'risk_multiplier' in mode_adj:
+            # Higher risk = tighter spacing (inverse relationship)
+            mode_spacing_factor = 1.0 / mode_adj['risk_multiplier']
+        
+        adjusted_spacing = (base_spacing * 
+                        spacing_factor * 
+                        tier_adjustments['spacing_multiplier'] * 
+                        mode_spacing_factor)  # ⭐ เพิ่ม mode factor
+        
+        # Calculate maximum positions based on capital and spacing
+        cost_per_position = base_lot * adjusted_spacing * 1.0
+        max_affordable_positions = usable_capital / (cost_per_position * 2)
+        
+        # Adjust max positions by mode
+        mode_max_positions = tier_adjustments['max_positions']
+        if 'risk_multiplier' in mode_adj:
+            mode_max_positions = int(mode_max_positions * mode_adj['risk_multiplier'])
+        
+        max_positions = min(
+            int(max_affordable_positions),
+            mode_max_positions,
+            100  # Absolute maximum
+        )
+        
+        return {
+            'spacing': int(adjusted_spacing),
+            'max_positions': max_positions,
+            'total_grid_range': int(adjusted_spacing) * max_positions
+        }
+
+    def calculate_position_sizing_ladder_with_mode(self, base_lot: float, mode_adj: Dict) -> Dict:
+        """Calculate position sizing ladder with mode adjustments"""
+        ladder = {}
+        
+        # Base multipliers
+        base_multipliers = [1.0, 1.0, 1.2, 1.2, 1.5, 1.5, 1.8, 1.8, 2.0, 2.0]
+        
+        # Adjust multipliers based on mode
+        lot_adjustment = mode_adj['lot_adjustment']
+        adjusted_multipliers = [mult * lot_adjustment for mult in base_multipliers]
+        
+        for i, mult in enumerate(adjusted_multipliers):
+            level = i + 1
+            lot_size = base_lot * mult
+            ladder[f"level_{level}"] = {
+                'lot_size': round(lot_size, 3),
+                'multiplier': mult,
+                'cumulative_lots': round(sum(base_lot * adjusted_multipliers[j] for j in range(i + 1)), 3),
+                'mode_adjusted': True  # ⭐ เพิ่มข้อมูลว่าถูก adjust แล้ว
+            }
+            
+        return ladder
+    
+    def generate_adjustment_recommendations_with_mode(self, balance: float, equity: float, 
+                                                    trading_mode: TradingMode) -> List[str]:
+        """Generate AI-powered adjustment recommendations with mode consideration"""
+        recommendations = []
+        
+        # Balance vs Equity analysis
+        drawdown_pct = ((balance - equity) / balance) * 100 if balance > 0 else 0
+        
+        # Mode-specific recommendations
+        mode_thresholds = {
+            TradingMode.SAFE: {'warning': 10, 'critical': 20},
+            TradingMode.BALANCED: {'warning': 15, 'critical': 25},
+            TradingMode.AGGRESSIVE: {'warning': 20, 'critical': 30},
+            TradingMode.TURBO: {'warning': 25, 'critical': 35}
+        }
+        
+        thresholds = mode_thresholds[trading_mode]
+        
+        if drawdown_pct > thresholds['critical']:
+            recommendations.append(f"🚨 CRITICAL: Drawdown {drawdown_pct:.1f}% exceeds {trading_mode.value} mode limit")
+            recommendations.append("Consider switching to SAFE mode or emergency stop")
+        elif drawdown_pct > thresholds['warning']:
+            recommendations.append(f"⚠️ WARNING: High drawdown {drawdown_pct:.1f}% for {trading_mode.value} mode")
+            recommendations.append("Monitor closely or consider more conservative mode")
+        elif drawdown_pct < 5:
+            if trading_mode == TradingMode.SAFE:
+                recommendations.append("Performance stable - consider BALANCED mode for faster growth")
+            elif trading_mode == TradingMode.BALANCED:
+                recommendations.append("Good performance - consider AGGRESSIVE mode if comfortable with risk")
+            
+        # Account growth recommendations with mode context
+        if equity > balance * 1.1:
+            recommendations.append(f"📈 Strong growth in {trading_mode.value} mode - consider compounding gains")
+            if trading_mode in [TradingMode.SAFE, TradingMode.BALANCED]:
+                recommendations.append("Account ready for higher risk mode if desired")
+        elif equity < balance * 0.9:
+            recommendations.append(f"📉 Account pressure in {trading_mode.value} mode")
+            if trading_mode in [TradingMode.AGGRESSIVE, TradingMode.TURBO]:
+                recommendations.append("Consider switching to more conservative mode")
+                
+        # Mode-specific advice
+        mode_advice = {
+            TradingMode.SAFE: "Focus on capital preservation and steady growth",
+            TradingMode.BALANCED: "Monitor for opportunities to optimize risk/reward",
+            TradingMode.AGGRESSIVE: "Watch for quick profit opportunities and manage risk actively",
+            TradingMode.TURBO: "Requires constant monitoring and quick decision making"
+        }
+        
+        recommendations.append(f"💡 {trading_mode.value} Mode Tip: {mode_advice[trading_mode]}")
+        
+        return recommendations
+
     def get_tier_adjustments(self, tier: AccountTier) -> Dict:
         """Get tier-specific adjustments"""
         adjustments = {
