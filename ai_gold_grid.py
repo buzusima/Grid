@@ -15,6 +15,13 @@ import threading
 import json
 import os
 import random 
+try:
+    from smart_profit_manager import SmartProfitManager
+    SMART_PROFIT_AVAILABLE = True
+    print("✅ Smart Profit Manager imported successfully")
+except ImportError as e:
+    print(f"⚠️ Smart Profit Manager not available: {e}")
+    SMART_PROFIT_AVAILABLE = False
 
 class GridDirection(Enum):
     BUY_GRID = "BUY_GRID"
@@ -50,7 +57,7 @@ class AIGoldGrid:
         self.mt5_connector = mt5_connector
         self.survivability_params = survivability_params
         self.config = config
-        
+                
         # Trading parameters from survivability engine
         self.base_lot = survivability_params['base_lot']
         self.grid_spacing = survivability_params['grid_spacing']
@@ -120,15 +127,39 @@ class AIGoldGrid:
         self.min_lot = self.symbol_info.get('volume_min', 0.01)
         self.lot_step = self.symbol_info.get('volume_step', 0.01)
         self.point_value = self.symbol_info.get('point', 0.01)
+
+        self.near_zone_levels = 5      
+        self.medium_zone_levels = 15   
+        self.far_zone_levels = 30      
         
-        print(f"🤖 AI Gold Grid initialized for {self.gold_symbol}")
-        print(f"   🎯 Base Lot: {self.base_lot}")
-        print(f"   📏 Grid Spacing: {self.grid_spacing} points")
-        print(f"   📊 Max Levels: {self.max_levels}")
-        print(f"   🛡️ Realistic Survivability: {self.survivability:,.0f} points")
-        print(f"   ⚙️ Broker Min Lot: {self.min_lot}")
-        print(f"   🔄 Filling Mode: {self.filling_mode_name}")
-        print(f"   🎯 Fixed Magic Number: {self.magic_number} (Account-based)")
+        # Target order distribution
+        self.calculate_rebalancing_targets()
+        
+        # Rebalancing control
+        self.last_rebalance = datetime.now()
+        self.last_cleanup = datetime.now()
+
+        # Initialize Smart Profit Manager
+        if SMART_PROFIT_AVAILABLE:
+            try:
+                self.smart_profit_manager = SmartProfitManager(self, config)
+                self.last_profit_check = datetime.now()
+                self.smart_profit_enabled = True
+                print("🧠 Smart Profit Manager initialized successfully")
+            except Exception as e:
+                print(f"❌ Smart Profit Manager init error: {e}")
+                self.smart_profit_enabled = False
+        else:
+            self.smart_profit_enabled = False
+        
+        # print(f"🤖 AI Gold Grid initialized for {self.gold_symbol}")
+        # print(f"   🎯 Base Lot: {self.base_lot}")
+        # print(f"   📏 Grid Spacing: {self.grid_spacing} points")
+        # print(f"   📊 Max Levels: {self.max_levels}")
+        # print(f"   🛡️ Realistic Survivability: {self.survivability:,.0f} points")
+        # print(f"   ⚙️ Broker Min Lot: {self.min_lot}")
+        # print(f"   🔄 Filling Mode: {self.filling_mode_name}")
+        # print(f"   🎯 Fixed Magic Number: {self.magic_number} (Account-based)")
 
     def save_grid_state(self):
         """Save current grid state for recovery"""
@@ -761,7 +792,7 @@ class AIGoldGrid:
                 self.price_history = self.price_history[-1000:]
                 
     def check_filled_orders(self):
-        """Check for filled pending orders and convert to positions - REAL TRADING"""
+        """Check for filled pending orders and convert to positions - ENHANCED VERSION"""
         
         try:
             # Get current orders and positions with our magic number
@@ -778,8 +809,34 @@ class AIGoldGrid:
             # Check for newly filled orders
             for order_id, grid_level in list(self.pending_orders.items()):
                 if order_id not in active_order_ids:
-                    # Order has been filled or cancelled
+                    # Order has been filled or cancelled - enhanced detection
+                    
+                    # Method 1: Find by comment (original method)
                     position = self.find_position_by_magic_and_comment(f"AIGrid_{grid_level.level_id}")
+                    
+                    # Method 2: If not found, try broader search by magic + timing
+                    if not position:
+                        time.sleep(0.2)  # Wait for MT5 to update
+                        recent_positions = [pos for pos in our_positions 
+                                            if abs(pos.price_open - grid_level.price) < 0.5 and  # Close price match
+                                            abs(pos.volume - grid_level.lot_size) < 0.001 and  # Exact volume match
+                                            datetime.fromtimestamp(pos.time) > (datetime.now() - timedelta(seconds=30))]  # Recent
+                        
+                        if recent_positions:
+                            position = recent_positions[0]  # Take the first match
+                            print(f"🔍 Position found by price/volume matching: {position.ticket}")
+                    
+                    # Method 3: Check if position exists by price range (most lenient)
+                    if not position:
+                        price_tolerance = 1.0  # 1 dollar tolerance for slippage
+                        matching_positions = [pos for pos in our_positions 
+                                            if abs(pos.price_open - grid_level.price) <= price_tolerance and
+                                                pos.volume == grid_level.lot_size and
+                                                "HEDGE" not in pos.comment]  # Exclude hedge positions
+                        
+                        if matching_positions:
+                            position = matching_positions[0]
+                            print(f"🔍 Position found by price tolerance: {position.ticket}")
                     
                     if position:
                         # Order was filled and became a position
@@ -788,34 +845,54 @@ class AIGoldGrid:
                         grid_level.entry_time = datetime.now()
                         
                         # Store actual entry price (may differ from order price due to slippage)
-                        grid_level.price = position.price_open
+                        actual_entry = position.price_open
+                        slippage = abs(actual_entry - grid_level.price)
+                        grid_level.price = actual_entry
                         
                         self.active_positions[position.ticket] = grid_level
                         del self.pending_orders[order_id]
                         
                         self.trades_opened += 1
-                        print(f"✅ Grid level activated: {grid_level.level_id} @ {position.price_open} ({grid_level.lot_size} lots)")
                         
-                        # Immediately place replacement order for this level
+                        if slippage > 0.1:
+                            print(f"✅ Grid level activated: {grid_level.level_id} @ {actual_entry:.2f} ({grid_level.lot_size} lots) [Slippage: ${slippage:.2f}]")
+                        else:
+                            print(f"✅ Grid level activated: {grid_level.level_id} @ {actual_entry:.2f} ({grid_level.lot_size} lots)")
+                        
+                        # Place replacement order for this level
                         self.replace_filled_level(grid_level)
                         
                     else:
-                        # Order was cancelled or rejected
+                        # Order was truly cancelled or rejected - ENHANCED HANDLING
+                        current_price = self.get_current_price()
+                        price_distance = abs(grid_level.price - current_price)
+                        
                         grid_level.status = PositionStatus.CANCELLED
                         del self.pending_orders[order_id]
-                        print(f"❌ Grid order cancelled/rejected: {grid_level.level_id}")
                         
-                        # Try to place the order again
-                        retry_result = self.place_pending_order(grid_level)
-                        if retry_result:
-                            grid_level.order_id = retry_result
-                            grid_level.status = PositionStatus.PENDING
-                            self.pending_orders[retry_result] = grid_level
-                            print(f"🔄 Retried placing order: {grid_level.level_id}")
+                        print(f"❌ Grid order cancelled/rejected: {grid_level.level_id} @ {grid_level.price:.2f}")
+                        print(f"   Current price: {current_price:.2f}, Distance: {price_distance:.2f}")
                         
+                        # 🔥 CRITICAL FIX: Don't retry at same price - it will fail again!
+                        # Only retry if price is still reasonable distance from market
+                        min_safe_distance = self.grid_spacing * self.point_value * 0.5  # 50% of grid spacing
+                        
+                        if price_distance >= min_safe_distance:
+                            print(f"🔄 Price still valid - will be handled by grid extension logic")
+                            # Let the grid extension system handle this later
+                            # Don't immediate retry to avoid "Invalid price" errors
+                        else:
+                            print(f"⚠️ Price too close to market - skipping retry (will extend grid elsewhere)")
+                            # Mark as cancelled and let system create new levels elsewhere
+                        
+                        # Remove from grid_levels if it's no longer viable
+                        if price_distance < min_safe_distance:
+                            self.grid_levels = [gl for gl in self.grid_levels if gl.level_id != grid_level.level_id]
+                            print(f"🗑️ Removed unviable grid level: {grid_level.level_id}")
+                            
         except Exception as e:
             print(f"❌ Error checking filled orders: {e}")
-            
+
     def find_position_by_magic_and_comment(self, comment: str):
         """Find position by magic number and comment"""
         try:
@@ -829,77 +906,8 @@ class AIGoldGrid:
         return None
         
     def replace_filled_level(self, filled_level: GridLevel):
-        """Auto-adaptive replacement based on account balance"""
-        
-        try:
-            # Get current balance
-            account_info = self.mt5_connector.get_account_info()
-            balance = account_info.get('balance', 1000) if account_info else 1000
-            current_price = self.get_current_price()
-            
-            print(f"📊 {filled_level.direction} @ {filled_level.price} filled (Balance: ${balance:,.0f})")
-            
-            # Auto-determine strategy based on balance
-            if balance >= 25000:
-                opposite_chance = 0.80
-                tier = "PREMIUM"
-                max_opposite = 20
-                lot_multiplier = 0.9
-            elif balance >= 10000:
-                opposite_chance = 0.65  
-                tier = "LARGE"
-                max_opposite = 16
-                lot_multiplier = 0.8
-            elif balance >= 3000:
-                opposite_chance = 0.45
-                tier = "MEDIUM" 
-                max_opposite = 12
-                lot_multiplier = 0.7
-            elif balance >= 1000:
-                opposite_chance = 0.25
-                tier = "SMALL"
-                max_opposite = 8
-                lot_multiplier = 0.6
-            else:
-                opposite_chance = 0.10
-                tier = "MICRO"
-                max_opposite = 5
-                lot_multiplier = 0.5
-                
-            print(f"🎯 Strategy: {tier} - Opposite chance: {opposite_chance:.0%}")
-            
-            # Simple trend detection
-            trend_adjustment = 1.0
-            if len(self.price_history) >= 10:
-                recent_prices = [p['price'] for p in self.price_history[-10:]]
-                price_change = abs(recent_prices[-1] - recent_prices[0])
-                if price_change > self.grid_spacing * 3:  # Strong trend
-                    trend_adjustment = 0.5  # Reduce opposite orders
-                    print(f"⚠️ Strong trend detected - reducing opposite chance")
-            
-            adjusted_opposite_chance = opposite_chance * trend_adjustment
-            
-            # Decision: Opposite or Extension?
-            if random.random() < adjusted_opposite_chance:
-                # Place opposite order for profit-taking
-                opposite_direction = "BUY" if filled_level.direction == "SELL" else "SELL"
-                
-                # Check if too many opposite orders already
-                existing_opposite = [l for l in self.grid_levels 
-                                if l.direction == opposite_direction and 
-                                l.status == PositionStatus.PENDING]
-                
-                if len(existing_opposite) >= max_opposite:
-                    print(f"📊 Max {opposite_direction} orders reached, extending instead")
-                    self.place_extension_order(filled_level, current_price)
-                else:
-                    self.place_opposite_profit_order(filled_level, lot_multiplier)
-            else:
-                # Place extension order  
-                self.place_extension_order(filled_level, current_price)
-                
-        except Exception as e:
-            print(f"❌ Replacement error: {e}")
+        """Enhanced replacement with smart positioning"""
+        self.smart_replacement_on_close(filled_level)
 
     def place_opposite_profit_order(self, filled_level: GridLevel, lot_multiplier: float):
         """Place opposite order for profit-taking"""
@@ -1206,6 +1214,8 @@ class AIGoldGrid:
                 if grid_level.position_id in self.active_positions:
                     del self.active_positions[grid_level.position_id]
                 
+                self.smart_replacement_on_close(grid_level)
+
                 return True
                 
             else:
@@ -1817,7 +1827,7 @@ class AIGoldGrid:
             print(f"❌ Error displaying statistics: {e}")
 
     def run_trading_loop(self):
-        """Main trading loop - called continuously while trading is active"""
+        """Main trading loop with Smart Profit Management - Enhanced Version"""
         
         loop_count = 0
         market_check_interval = 60
@@ -1868,7 +1878,9 @@ class AIGoldGrid:
                 if loop_count % 120 == 0:  # Every 2 minutes
                     self.check_and_place_smart_hedge()
                 
-                # ===== REGULAR TRADING LOGIC =====
+                # 🔄 AUTO GRID REBALANCING (ทุก 2 นาที) - เพิ่มตรงนี้
+                if loop_count % 120 == 0:  # Every 2 minutes
+                    self.gentle_auto_rebalancing()
                 
                 # Update current price and price history
                 self.update_current_price()
@@ -1881,6 +1893,14 @@ class AIGoldGrid:
                     # Update position PnL (every loop)
                     self.update_positions_pnl()
                     
+                    # 🧠 SMART PROFIT MANAGEMENT (ทุก 5 วินาที)
+                    if (hasattr(self, 'smart_profit_enabled') and self.smart_profit_enabled and 
+                        loop_count % 5 == 0):
+                        try:
+                            self.smart_profit_manager.run_smart_profit_management()
+                        except Exception as smart_error:
+                            print(f"❌ Smart profit management error: {smart_error}")
+                    
                     # Update performance metrics (every 10 loops = ~10 seconds)
                     if loop_count % 10 == 0:
                         self.update_performance_metrics()
@@ -1892,6 +1912,14 @@ class AIGoldGrid:
                     # Market closed - still update PnL for existing positions
                     self.update_positions_pnl()
                     
+                    # 🧠 SMART PROFIT MANAGEMENT (even when market closed - for existing positions)
+                    if (hasattr(self, 'smart_profit_enabled') and self.smart_profit_enabled and 
+                        loop_count % 10 == 0):  # Every 10 seconds when market closed
+                        try:
+                            self.smart_profit_manager.run_smart_profit_management()
+                        except Exception as smart_error:
+                            print(f"❌ Smart profit management error (market closed): {smart_error}")
+                    
                     # Monitor conditions only when market closed
                     if loop_count % 300 == 0:
                         self.check_emergency_conditions()
@@ -1902,7 +1930,20 @@ class AIGoldGrid:
                     market_emoji = "🟢" if last_market_status else "🔴"
                     pending_count = len(self.pending_orders)
                     hedge_count = 1 if self.has_active_hedge() else 0
-                    print(f"📊 Status: {market_emoji} Market, {status['active_positions']} positions, {pending_count} pending, {hedge_count} hedge, PnL: ${status['total_pnl']:.2f}, Drawdown: {status['current_drawdown']:.0f}pts")
+                    
+                    # 🧠 เพิ่ม Smart Profit Status ใน log
+                    smart_status = ""
+                    if (hasattr(self, 'smart_profit_enabled') and self.smart_profit_enabled):
+                        try:
+                            profit_status = self.smart_profit_manager.get_profit_management_status()
+                            risk_pct = profit_status.get('risk_percentage', 0)
+                            trailing_count = profit_status.get('trailing_stops_active', 0)
+                            strategy = profit_status.get('strategy', 'N/A')
+                            smart_status = f", Smart: {strategy}, Risk: {risk_pct:.1f}%, Trailing: {trailing_count}"
+                        except Exception as e:
+                            smart_status = ", Smart: Error"
+                    
+                    print(f"📊 Status: {market_emoji} Market, {status['active_positions']} positions, {pending_count} pending, {hedge_count} hedge, PnL: ${status['total_pnl']:.2f}, Drawdown: {status['current_drawdown']:.0f}pts{smart_status}")
                 
                 self.last_update = datetime.now()
                 time.sleep(1)
@@ -2149,6 +2190,317 @@ class AIGoldGrid:
             
         except Exception as e:
             print(f"❌ Error closing hedge positions: {e}")
+
+    def calculate_rebalancing_targets(self):
+        """คำนวณเป้าหมาย orders ตามขนาดเงินทุน"""
+        
+        account_info = self.mt5_connector.get_account_info()
+        balance = account_info.get('balance', 1000) if account_info else 1000
+        
+        # Base targets
+        if balance >= 50000:
+            # เงินทุนใหญ่มาก - coverage เยอะ
+            self.target_orders = {
+                'near_buy': 10, 'near_sell': 10,
+                'medium_buy': 8, 'medium_sell': 8, 
+                'far_buy': 4, 'far_sell': 4
+            }
+        elif balance >= 25000:
+            # เงินทุนใหญ่ - coverage ปานกลาง
+            self.target_orders = {
+                'near_buy': 8, 'near_sell': 8,
+                'medium_buy': 6, 'medium_sell': 6,
+                'far_buy': 3, 'far_sell': 3
+            }
+        elif balance >= 10000:
+            # เงินทุนกลาง - coverage มาตรฐาน
+            self.target_orders = {
+                'near_buy': 6, 'near_sell': 6,
+                'medium_buy': 4, 'medium_sell': 4,
+                'far_buy': 2, 'far_sell': 2
+            }
+        elif balance >= 5000:
+            # เงินทุนเล็ก - coverage น้อย
+            self.target_orders = {
+                'near_buy': 4, 'near_sell': 4,
+                'medium_buy': 3, 'medium_sell': 3,
+                'far_buy': 2, 'far_sell': 2
+            }
+        else:
+            # เงินทุนจิ๋ว - coverage ขั้นต่ำ
+            self.target_orders = {
+                'near_buy': 3, 'near_sell': 3,
+                'medium_buy': 2, 'medium_sell': 2,
+                'far_buy': 1, 'far_sell': 1
+            }
+        
+        print(f"🎯 Rebalancing targets for ${balance:,.0f}: {self.target_orders}")
+
+    def analyze_current_grid_distribution(self) -> Dict:
+        """วิเคราะห์การกระจายตัวของ orders ปัจจุบัน"""
+        
+        current_price = self.get_current_price()
+        
+        # Smart percentage-based zones
+        if current_price >= 3000:  # Gold high range
+            near_pct, medium_pct, far_pct = 0.004, 0.02, 0.06
+        elif current_price >= 2000:  # Gold medium range  
+            near_pct, medium_pct, far_pct = 0.005, 0.025, 0.07
+        else:  # Gold low range
+            near_pct, medium_pct, far_pct = 0.006, 0.03, 0.08
+        
+        # Convert to points
+        near_zone = (current_price * near_pct) / self.point_value
+        medium_zone = (current_price * medium_pct) / self.point_value
+        far_zone = (current_price * far_pct) / self.point_value
+        
+        # Count orders in each zone
+        distribution = {
+            'near_buy': 0, 'near_sell': 0,
+            'medium_buy': 0, 'medium_sell': 0,
+            'far_buy': 0, 'far_sell': 0,
+            'very_far_buy': 0, 'very_far_sell': 0  # >far_zone
+        }
+        
+        for grid_level in self.pending_orders.values():
+            distance = abs(grid_level.price - current_price)
+            distance_points = distance / self.point_value
+            
+            # Categorize by distance and direction
+            if grid_level.direction == "BUY":
+                if distance_points <= near_zone:
+                    distribution['near_buy'] += 1
+                elif distance_points <= medium_zone:
+                    distribution['medium_buy'] += 1
+                elif distance_points <= far_zone:
+                    distribution['far_buy'] += 1
+                else:
+                    distribution['very_far_buy'] += 1
+            else:  # SELL
+                if distance_points <= near_zone:
+                    distribution['near_sell'] += 1
+                elif distance_points <= medium_zone:
+                    distribution['medium_sell'] += 1
+                elif distance_points <= far_zone:
+                    distribution['far_sell'] += 1
+                else:
+                    distribution['very_far_sell'] += 1
+        
+        return {
+            'distribution': distribution,
+            'current_price': current_price,
+            'total_orders': len(self.pending_orders),
+            'zones': {
+                'near': near_zone,
+                'medium': medium_zone, 
+                'far': far_zone
+            }
+        }
+
+    def gentle_auto_rebalancing(self):
+        """Gentle Auto Rebalancing - ปรับทีละน้อย ไม่รบกวนระบบ"""
+        
+        try:
+            # เช็คว่าผ่านมา 2 นาทีแล้วไหม
+            if (datetime.now() - self.last_rebalance).total_seconds() < 120:
+                return
+                
+            current_analysis = self.analyze_current_grid_distribution()
+            distribution = current_analysis['distribution']
+            current_price = current_analysis['current_price']
+            
+            print(f"🔄 Gentle rebalancing at ${current_price:.2f}")
+            print(f"   Current: Near({distribution['near_buy']}B/{distribution['near_sell']}S), Medium({distribution['medium_buy']}B/{distribution['medium_sell']}S)")
+            
+            changes_made = 0
+            
+            # 1. ลบ orders ที่ไกลมากๆ (>far_zone)
+            very_far_removed = self.remove_very_far_orders(current_price)
+            changes_made += very_far_removed
+            
+            # 2. เพิ่ม orders ในโซนใกล้ถ้าไม่พอ
+            near_added = self.add_near_zone_orders(current_price, distribution)
+            changes_made += near_added
+            
+            # 3. ปรับ medium zone ถ้าจำเป็น
+            medium_adjusted = self.adjust_medium_zone_orders(current_price, distribution)
+            changes_made += medium_adjusted
+            
+            self.last_rebalance = datetime.now()
+            
+            if changes_made > 0:
+                print(f"✅ Gentle rebalancing completed: {changes_made} changes")
+            
+        except Exception as e:
+            print(f"❌ Gentle rebalancing error: {e}")
+
+    def remove_very_far_orders(self, current_price: float) -> int:
+        """ลบ orders ที่ไกลมากๆ (>far_zone)"""
+        
+        removed_count = 0
+        very_far_threshold = self.far_zone_levels * self.grid_spacing  # 9000 points
+        
+        for order_id, grid_level in list(self.pending_orders.items()):
+            distance = abs(grid_level.price - current_price)
+            distance_points = distance / self.point_value
+            
+            # ลบถ้าไกลเกิน threshold และเก่าเกิน 1 ชั่วโมง
+            if (distance_points > very_far_threshold and 
+                hasattr(grid_level, 'entry_time') and grid_level.entry_time and
+                (datetime.now() - grid_level.entry_time).total_seconds() > 3600):
+                
+                if self.cancel_single_order(order_id):
+                    del self.pending_orders[order_id]
+                    grid_level.status = PositionStatus.CANCELLED
+                    removed_count += 1
+                    print(f"   🗑️ Removed very far order: {grid_level.level_id} @ {grid_level.price:.2f} ({distance_points:.0f}pts)")
+        
+        return removed_count
+
+    def add_near_zone_orders(self, current_price: float, distribution: Dict) -> int:
+        """เพิ่ม orders ในโซนใกล้ถ้าไม่เพียงพอ"""
+        
+        added_count = 0
+        near_zone = self.near_zone_levels * self.grid_spacing
+        
+        # เช็ค BUY orders ในโซนใกล้
+        buy_deficit = self.target_orders['near_buy'] - distribution['near_buy']
+        if buy_deficit > 0:
+            # เพิ่ม BUY orders ทีละ 1-2 ตัว
+            to_add = min(buy_deficit, 2)  # ไม่เกิน 2 orders ต่อรอบ
+            
+            for i in range(to_add):
+                # หาตำแหน่งที่เหมาะสม
+                level = i + distribution['near_buy'] + 1
+                buy_price = current_price - (level * self.grid_spacing * self.point_value)
+                
+                if self.add_single_grid_order("BUY", buy_price, f"NEAR_BUY_{int(time.time())}_{i}"):
+                    added_count += 1
+        
+        # เช็ค SELL orders ในโซนใกล้  
+        sell_deficit = self.target_orders['near_sell'] - distribution['near_sell']
+        if sell_deficit > 0:
+            to_add = min(sell_deficit, 2)
+            
+            for i in range(to_add):
+                level = i + distribution['near_sell'] + 1
+                sell_price = current_price + (level * self.grid_spacing * self.point_value)
+                
+                if self.add_single_grid_order("SELL", sell_price, f"NEAR_SELL_{int(time.time())}_{i}"):
+                    added_count += 1
+        
+        return added_count
+
+    def adjust_medium_zone_orders(self, current_price: float, distribution: Dict) -> int:
+        """ปรับ orders ในโซน medium ถ้าจำเป็น"""
+        
+        adjusted_count = 0
+        
+        # ถ้า medium zone มี orders น้อยเกินไป และ near zone เต็มแล้ว
+        buy_medium_deficit = self.target_orders['medium_buy'] - distribution['medium_buy']
+        sell_medium_deficit = self.target_orders['medium_sell'] - distribution['medium_sell']
+        
+        if (buy_medium_deficit > 0 and distribution['near_buy'] >= self.target_orders['near_buy']):
+            # เพิ่ม 1 BUY order ใน medium zone
+            level = distribution['near_buy'] + distribution['medium_buy'] + 5  # ห่างจาก near zone
+            buy_price = current_price - (level * self.grid_spacing * self.point_value)
+            
+            if self.add_single_grid_order("BUY", buy_price, f"MED_BUY_{int(time.time())}"):
+                adjusted_count += 1
+        
+        if (sell_medium_deficit > 0 and distribution['near_sell'] >= self.target_orders['near_sell']):
+            level = distribution['near_sell'] + distribution['medium_sell'] + 5
+            sell_price = current_price + (level * self.grid_spacing * self.point_value)
+            
+            if self.add_single_grid_order("SELL", sell_price, f"MED_SELL_{int(time.time())}"):
+                adjusted_count += 1
+        
+        return adjusted_count
+
+    def add_single_grid_order(self, direction: str, price: float, level_id: str) -> bool:
+        """เพิ่ม order เดียว"""
+        
+        try:
+            # เช็คว่าไม่ใกล้ orders อื่นเกินไป
+            min_distance = self.grid_spacing * self.point_value * 0.8  # 80% ของ grid spacing
+            
+            for existing_level in self.pending_orders.values():
+                if (existing_level.direction == direction and 
+                    abs(existing_level.price - price) < min_distance):
+                    return False  # ใกล้เกินไป
+            
+            # สร้าง grid level ใหม่
+            new_level = GridLevel(
+                level_id=level_id,
+                price=round(price, 5),
+                lot_size=self.calculate_level_lot_size(1),  # ใช้ lot size พื้นฐาน
+                direction=direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            # วาง order
+            order_result = self.place_pending_order(new_level)
+            if order_result:
+                new_level.order_id = order_result
+                self.grid_levels.append(new_level)
+                self.pending_orders[order_result] = new_level
+                print(f"   ✅ Added {direction} order: {level_id} @ {price:.2f}")
+                return True
+            
+        except Exception as e:
+            print(f"   ❌ Failed to add order: {e}")
+            
+        return False
+
+    def smart_replacement_on_close(self, closed_position: GridLevel):
+        """Smart Replacement เมื่อปิด position - วางใกล้ราคาปัจจุบัน"""
+        
+        try:
+            current_price = self.get_current_price()
+            
+            # แทนที่จะวาง order ที่ราคาเดิม
+            # วางในโซนใกล้ราคาปัจจุบัน
+            
+            if closed_position.direction == "BUY":
+                # BUY position ปิดแล้ว -> วาง BUY order ใหม่ใกล้ current price
+                # หาตำแหน่งที่เหมาะสมใกล้ราคาปัจจุบัน
+                target_levels = [2, 3, 4, 5]  # ลองวางที่ level 2-5 ใกล้ current
+                
+                for level in target_levels:
+                    new_price = current_price - (level * self.grid_spacing * self.point_value)
+                    
+                    # เช็คว่าไม่มี order ใกล้ๆ แล้ว
+                    if not self.has_nearby_order("BUY", new_price):
+                        self.add_single_grid_order("BUY", new_price, f"REPL_BUY_{int(time.time())}")
+                        print(f"🔄 Smart replacement: BUY @ {new_price:.2f} (was @ {closed_position.price:.2f})")
+                        break
+                        
+            else:  # SELL position
+                target_levels = [2, 3, 4, 5]
+                
+                for level in target_levels:
+                    new_price = current_price + (level * self.grid_spacing * self.point_value)
+                    
+                    if not self.has_nearby_order("SELL", new_price):
+                        self.add_single_grid_order("SELL", new_price, f"REPL_SELL_{int(time.time())}")
+                        print(f"🔄 Smart replacement: SELL @ {new_price:.2f} (was @ {closed_position.price:.2f})")
+                        break
+        
+        except Exception as e:
+            print(f"❌ Smart replacement error: {e}")
+
+    def has_nearby_order(self, direction: str, price: float) -> bool:
+        """เช็คว่ามี order ใกล้ๆ ราคานี้แล้วหรือไม่"""
+        
+        min_distance = self.grid_spacing * self.point_value * 0.5  # 50% ของ grid spacing
+        
+        for grid_level in self.pending_orders.values():
+            if (grid_level.direction == direction and 
+                abs(grid_level.price - price) < min_distance):
+                return True
+        
+        return False
 
     def get_current_price(self) -> float:
         """Get current price from MT5"""

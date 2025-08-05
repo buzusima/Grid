@@ -4,9 +4,9 @@
   "base_lot": 0.01,
   "grid_spacing": 600,
   "max_levels": 12,
-  "starting_price": 3367.98,
+  "starting_price": 3373.65,
   "survivability": 0,
   "gold_symbol": "XAUUSD",
-  "created_timestamp": "2025-08-04T19:22:37.651047",
+  "created_timestamp": "2025-08-04T22:14:06.212449",
   "version": "1.0"
 }

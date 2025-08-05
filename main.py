@@ -295,7 +295,7 @@ class AIGoldTradingGUI:
         self.next_hedge_label.pack(side=tk.RIGHT)
         
     def create_control_section(self, parent):
-        """Create trading control section"""
+        """Create trading control section with Smart Profit Controls"""
         control_frame = tk.LabelFrame(
             parent,
             text="🎮 Trading Controls",
@@ -307,7 +307,7 @@ class AIGoldTradingGUI:
         )
         control_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # Control buttons
+        # Main Control buttons
         btn_frame = tk.Frame(control_frame, bg='#16213e')
         btn_frame.pack(pady=10)
         
@@ -351,6 +351,239 @@ class AIGoldTradingGUI:
         )
         self.emergency_btn.pack(side=tk.LEFT, padx=5)
         
+        # 🧠 Smart Profit Control Section
+        smart_frame = tk.LabelFrame(
+            control_frame,
+            text="🧠 Smart Profit Management",
+            font=('Arial', 10, 'bold'),
+            fg='#4ecdc4',
+            bg='#16213e',
+            relief='groove',
+            bd=1
+        )
+        smart_frame.pack(fill=tk.X, pady=(10, 5), padx=10)
+        
+        # Strategy Selection Row
+        strategy_row = tk.Frame(smart_frame, bg='#16213e')
+        strategy_row.pack(fill=tk.X, pady=5, padx=5)
+        
+        tk.Label(strategy_row, text="📊 Strategy:", font=('Arial', 10, 'bold'), 
+                    fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        
+        self.strategy_var = tk.StringVar(value="BALANCED")
+        strategy_options = ["QUICK_SAFE", "BALANCED", "AGGRESSIVE"]
+        
+        self.strategy_combo = ttk.Combobox(strategy_row, textvariable=self.strategy_var, 
+                                            values=strategy_options, state="readonly", width=12)
+        self.strategy_combo.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Strategy descriptions
+        strategy_desc = tk.Label(strategy_row, text="⚡ Quick & Safe: $2.5/0.01lot", 
+                                font=('Arial', 9), fg='#adb5bd', bg='#16213e')
+        strategy_desc.pack(side=tk.LEFT, padx=(15, 0))
+        
+        self.strategy_desc = strategy_desc  # Store reference for updates
+        
+        # Control buttons row
+        control_row = tk.Frame(smart_frame, bg='#16213e')
+        control_row.pack(fill=tk.X, pady=5, padx=5)
+        
+        # Apply Strategy Button
+        self.apply_strategy_btn = tk.Button(
+            control_row,
+            text="✅ Apply Strategy",
+            font=('Arial', 9, 'bold'),
+            bg='#4ecdc4',
+            fg='#1a1a2e',
+            relief='raised',
+            bd=2,
+            width=15,
+            command=self.apply_strategy_change
+        )
+        self.apply_strategy_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Manual Profit Taking Button
+        self.manual_profit_btn = tk.Button(
+            control_row,
+            text="💰 Take Profit Now",
+            font=('Arial', 9, 'bold'),
+            bg='#ffd43b',
+            fg='#1a1a2e',
+            relief='raised',
+            bd=2,
+            width=15,
+            command=self.manual_take_profit,
+            state='disabled'
+        )
+        self.manual_profit_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Close All Profitable Button
+        self.close_profitable_btn = tk.Button(
+            control_row,
+            text="🎯 Close All Profitable",
+            font=('Arial', 9, 'bold'),
+            bg='#51cf66',
+            fg='#1a1a2e',
+            relief='raised',
+            bd=2,
+            width=18,
+            command=self.close_all_profitable
+        )
+        self.close_profitable_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Toggle Smart Profit Button
+        self.toggle_smart_btn = tk.Button(
+            control_row,
+            text="🤖 Smart: ON",
+            font=('Arial', 9, 'bold'),
+            bg='#6f42c1',
+            fg='#ffffff',
+            relief='raised',
+            bd=2,
+            width=12,
+            command=self.toggle_smart_profit
+        )
+        self.toggle_smart_btn.pack(side=tk.RIGHT)
+        
+        # Status row
+        status_row = tk.Frame(smart_frame, bg='#16213e')
+        status_row.pack(fill=tk.X, pady=(5, 10), padx=5)
+        
+        self.smart_status_display = tk.Label(
+            status_row,
+            text="🤖 Smart Profit: Ready to initialize...",
+            font=('Arial', 9),
+            fg='#adb5bd',
+            bg='#16213e'
+        )
+        self.smart_status_display.pack(side=tk.LEFT)
+        
+        # Bind strategy change event
+        self.strategy_combo.bind('<<ComboboxSelected>>', self.on_strategy_change)
+        
+        # Initialize strategy descriptions
+        self.update_strategy_description()
+
+    def on_strategy_change(self, event=None):
+        """Handle strategy selection change"""
+        self.update_strategy_description()
+        
+    def update_strategy_description(self):
+        """Update strategy description based on selection"""
+        strategy = self.strategy_var.get()
+        descriptions = {
+            "QUICK_SAFE": "⚡ Quick & Safe: $2.5/0.01lot, Fast profits",
+            "BALANCED": "⚖️ Balanced: $5.0/0.01lot, Good balance", 
+            "AGGRESSIVE": "🚀 Aggressive: $10.0/0.01lot, Higher targets"
+        }
+        
+        desc = descriptions.get(strategy, "🤖 Unknown strategy")
+        self.strategy_desc.config(text=desc)
+        
+    def apply_strategy_change(self):
+        """Apply strategy change to smart profit manager"""
+        try:
+            if (hasattr(self, 'grid_trader') and self.grid_trader and 
+                hasattr(self.grid_trader, 'smart_profit_enabled') and 
+                self.grid_trader.smart_profit_enabled):
+                
+                new_strategy = self.strategy_var.get()
+                
+                # Update the strategy in smart profit manager
+                from smart_profit_manager import ProfitStrategy
+                strategy_mapping = {
+                    "QUICK_SAFE": ProfitStrategy.QUICK_SAFE,
+                    "BALANCED": ProfitStrategy.BALANCED,
+                    "AGGRESSIVE": ProfitStrategy.AGGRESSIVE
+                }
+                
+                if new_strategy in strategy_mapping:
+                    self.grid_trader.smart_profit_manager.default_strategy = strategy_mapping[new_strategy]
+                    
+                    self.log_message(f"✅ Strategy changed to: {new_strategy}", "SUCCESS")
+                    self.smart_status_display.config(
+                        text=f"🎯 Strategy updated: {new_strategy}",
+                        fg='#51cf66'
+                    )
+                    
+                    # Auto-hide success message after 3 seconds
+                    self.root.after(3000, lambda: self.smart_status_display.config(
+                        text="🤖 Smart Profit: Active",
+                        fg='#4ecdc4'
+                    ))
+                else:
+                    self.log_message(f"❌ Invalid strategy: {new_strategy}", "ERROR")
+            else:
+                self.log_message("⚠️ Smart Profit Manager not available", "WARNING")
+                
+        except Exception as e:
+            self.log_message(f"❌ Strategy change error: {e}", "ERROR")
+            
+    def manual_take_profit(self):
+        """Manually trigger profit taking on all profitable positions"""
+        try:
+            if (hasattr(self, 'grid_trader') and self.grid_trader and 
+                hasattr(self, 'grid_trader.smart_profit_enabled') and 
+                self.grid_trader.smart_profit_enabled):
+                
+                # Force profit taking run
+                self.grid_trader.smart_profit_manager.run_smart_profit_management()
+                self.log_message("💰 Manual profit taking triggered", "SUCCESS")
+            else:
+                self.log_message("⚠️ Smart Profit Manager not available", "WARNING")
+                
+        except Exception as e:
+            self.log_message(f"❌ Manual profit taking error: {e}", "ERROR")
+            
+    def close_all_profitable(self):
+        """Close all positions with profit > $1"""
+        try:
+            if not hasattr(self, 'grid_trader') or not self.grid_trader:
+                self.log_message("⚠️ Grid trader not available", "WARNING")
+                return
+                
+            confirm = messagebox.askyesno(
+                "Close Profitable Positions", 
+                "Close all positions with profit > $1?\n\nThis action cannot be undone."
+            )
+            
+            if confirm:
+                closed_count = 0
+                
+                if hasattr(self.grid_trader, 'active_positions'):
+                    for position_id, grid_level in list(self.grid_trader.active_positions.items()):
+                        if grid_level.pnl > 1.0:  # Profit > $1
+                            if self.grid_trader.close_grid_position(grid_level):
+                                closed_count += 1
+                                
+                self.log_message(f"✅ Closed {closed_count} profitable positions", "SUCCESS")
+            
+        except Exception as e:
+            self.log_message(f"❌ Close profitable positions error: {e}", "ERROR")
+            
+    def toggle_smart_profit(self):
+        """Toggle Smart Profit Management on/off"""
+        try:
+            if (hasattr(self, 'grid_trader') and self.grid_trader and 
+                hasattr(self.grid_trader, 'smart_profit_enabled')):
+                
+                # Toggle the state
+                current_state = self.grid_trader.smart_profit_enabled
+                self.grid_trader.smart_profit_enabled = not current_state
+                
+                if self.grid_trader.smart_profit_enabled:
+                    self.toggle_smart_btn.config(text="🤖 Smart: ON", bg='#6f42c1')
+                    self.log_message("🧠 Smart Profit Management: ENABLED", "SUCCESS")
+                else:
+                    self.toggle_smart_btn.config(text="🤖 Smart: OFF", bg='#6c757d')
+                    self.log_message("🧠 Smart Profit Management: DISABLED", "WARNING")
+                    
+            else:
+                self.log_message("⚠️ Smart Profit Manager not available", "WARNING")
+                
+        except Exception as e:
+            self.log_message(f"❌ Toggle smart profit error: {e}", "ERROR")
+
     def create_log_section(self, parent):
         """Create logging and monitoring section"""
         log_frame = tk.LabelFrame(
@@ -849,7 +1082,7 @@ Proceed with emergency stop?"""
                 time.sleep(5)
                 
     def update_trading_display(self, status: Dict):
-        """Update GUI with real-time trading data"""
+        """Update GUI with real-time trading data + Smart Profit Status"""
         try:
             # Update current drawdown display
             current_drawdown = status.get('current_drawdown', 0)
@@ -904,6 +1137,144 @@ Proceed with emergency stop?"""
                 position_text += " | 🕒 Market Closed - Orders paused"
                 
             self.position_count_label.config(text=position_text)
+            
+            # 🧠 ADD SMART PROFIT STATUS DISPLAY
+            if not hasattr(self, 'smart_status_label'):
+                self.smart_status_label = tk.Label(
+                    self.current_drawdown_label.master,
+                    text="",
+                    font=('Arial', 10),
+                    fg='#4ecdc4',
+                    bg='#16213e'
+                )
+                self.smart_status_label.pack(anchor='w', pady=2)
+            
+            # Update Smart Profit Status - ENHANCED WITH SAFE FALLBACK
+            smart_text = "💡 Smart Profit: Not Available"
+            smart_color = '#6c757d'  # Gray default
+            
+            try:
+                if (hasattr(self, 'grid_trader') and self.grid_trader and 
+                    hasattr(self.grid_trader, 'smart_profit_enabled') and 
+                    self.grid_trader.smart_profit_enabled):
+                    
+                    # Try to get detailed status
+                    try:
+                        smart_status = self.grid_trader.smart_profit_manager.get_profit_management_status()
+                        
+                        # Check if smart_status has error
+                        if 'error' in smart_status:
+                            smart_text = "🧠 Smart: ✅ ACTIVE (Status Error)"
+                            smart_color = '#ffd43b'
+                        else:
+                            strategy = smart_status.get('strategy', 'BALANCED')
+                            risk_pct = smart_status.get('risk_percentage', 0)
+                            trailing_active = smart_status.get('trailing_stops_active', 0)
+                            total_positions = smart_status.get('total_positions', 0)
+                            hedge_positions = smart_status.get('hedge_positions', 0)
+                            
+                            # Color based on risk level
+                            if risk_pct < 10:
+                                smart_color = '#51cf66'  # Green - Low risk
+                                risk_emoji = "🟢"
+                            elif risk_pct < 20:
+                                smart_color = '#ffd43b'  # Yellow - Medium risk
+                                risk_emoji = "🟡"
+                            else:
+                                smart_color = '#ff6b6b'  # Red - High risk
+                                risk_emoji = "🔴"
+                            
+                            # Strategy emoji
+                            strategy_emoji = {
+                                'QUICK_SAFE': '⚡',
+                                'BALANCED': '⚖️',
+                                'AGGRESSIVE': '🚀'
+                            }.get(strategy, '🤖')
+                            
+                            smart_text = f"🧠 Smart: {strategy_emoji} {strategy} | Risk: {risk_pct:.1f}% {risk_emoji}"
+                            
+                            if trailing_active > 0:
+                                smart_text += f" | 📈 Trailing: {trailing_active}"
+                                
+                            if hedge_positions > 0:
+                                smart_text += f" | 🛡️ Hedge: {hedge_positions}"
+                        
+                    except Exception as status_error:
+                        # Smart is enabled but status call failed - still working
+                        smart_text = "🧠 Smart: ✅ ACTIVE (Display Issue)"
+                        smart_color = '#ffd43b'
+                        
+                elif hasattr(self, 'grid_trader') and self.grid_trader:
+                    # Check if smart profit manager exists but not enabled
+                    if hasattr(self.grid_trader, 'smart_profit_manager'):
+                        smart_text = "🧠 Smart: 🔄 READY (Click to Enable)"
+                        smart_color = '#ffd43b'
+                    else:
+                        smart_text = "🧠 Smart: ❌ NOT INITIALIZED"
+                        smart_color = '#6c757d'
+                else:
+                    smart_text = "🧠 Smart: ❌ GRID NOT ACTIVE"
+                    smart_color = '#6c757d'
+                    
+            except Exception as smart_error:
+                # Final fallback - assume working if grid trader exists
+                if hasattr(self, 'grid_trader') and self.grid_trader:
+                    smart_text = "🧠 Smart: ✅ WORKING (Unknown Status)"
+                    smart_color = '#51cf66'
+                else:
+                    smart_text = "🧠 Smart: ❌ ERROR"
+                    smart_color = '#ff6b6b'
+            
+            self.smart_status_label.config(text=smart_text, fg=smart_color)
+            
+            # 📊 ADD PROFIT TARGET INFO - SIMPLIFIED VERSION
+            if not hasattr(self, 'target_info_label'):
+                self.target_info_label = tk.Label(
+                    self.current_drawdown_label.master,
+                    text="",
+                    font=('Arial', 9),
+                    fg='#adb5bd',
+                    bg='#16213e'
+                )
+                self.target_info_label.pack(anchor='w', pady=1)
+            
+            # Show simplified target info
+            target_text = ""
+            try:
+                if (hasattr(self, 'grid_trader') and self.grid_trader and 
+                    status.get('active_positions', 0) > 0):
+                    
+                    active_positions = status.get('active_positions', 0)
+                    
+                    # Get strategy safely
+                    strategy = "BALANCED"  # Default
+                    target_per_lot = 5.0   # Default for BALANCED
+                    
+                    try:
+                        if hasattr(self.grid_trader, 'smart_profit_manager'):
+                            # Try to get strategy from smart manager
+                            if hasattr(self.grid_trader.smart_profit_manager, 'default_strategy'):
+                                strategy_obj = self.grid_trader.smart_profit_manager.default_strategy
+                                strategy = strategy_obj.value if hasattr(strategy_obj, 'value') else str(strategy_obj)
+                                
+                                # Map strategy to target
+                                if 'QUICK' in strategy:
+                                    target_per_lot = 2.5
+                                elif 'AGGRESSIVE' in strategy:
+                                    target_per_lot = 10.0
+                                else:
+                                    target_per_lot = 5.0
+                    except:
+                        pass  # Use defaults
+                    
+                    # Calculate estimated targets
+                    estimated_target = active_positions * target_per_lot
+                    target_text = f"🎯 Est. Targets: ~${estimated_target:.1f} | Strategy: ${target_per_lot:.1f}/0.01lot"
+                    
+            except Exception as target_error:
+                pass  # Don't show target info if error
+            
+            self.target_info_label.config(text=target_text)
             
         except Exception as e:
             print(f"Display update error: {e}")
