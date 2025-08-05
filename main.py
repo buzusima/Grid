@@ -1302,6 +1302,8 @@ Proceed with emergency stop?"""
             except Exception as e:
                 print(f"Monitor error: {e}")
                 time.sleep(5)
+
+    
                 
     def update_trading_display(self, status: Dict):
         """Update GUI with real-time trading data + Smart Profit Status"""

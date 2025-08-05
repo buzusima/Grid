@@ -663,57 +663,76 @@ class AIGoldGrid:
             print(f"❌ Error checking market status: {e}")
             return False
             
-    # แก้ไขใน create_grid_levels() method
     def create_grid_levels(self, direction: GridDirection):
-        """Create grid level structure with Smart Grid spacing"""
+        """Create grid level structure NEAR current price ONLY - ไม่วางไม้ไกลๆ"""
         self.grid_levels = []
         current_time = datetime.now()
         
-        # 🚀 Smart Grid spacing - ใกล้ current price
+        # 🎯 ใช้ราคาปัจจุบันจริงๆ
+        current_price = self.get_current_price()
+        if not current_price:
+            print("❌ Cannot get current price")
+            return
+            
+        self.starting_price = current_price
+        print(f"💰 Creating grid NEAR current price: ${current_price:.2f}")
+        
+        # 🚀 Smart Grid - วางใกล้ๆ เท่านั้น
         account_balance = self.survivability_params.get('account_balance', 0)
         if account_balance >= 10000:
-            smart_spacing = 80   # Ultra tight
+            smart_spacing = 100  # 100 points spacing
+            max_range = 800      # ไม่เกิน 800 points จาก current
+            max_levels = 8       # 8 levels แต่ละด้าน
         elif account_balance >= 5000:
-            smart_spacing = 100  # Tight สำหรับ $5,000+
+            smart_spacing = 120  
+            max_range = 1000     # ไม่เกิน 1000 points
+            max_levels = 8
         elif account_balance >= 3000:
-            smart_spacing = 120  # Medium
+            smart_spacing = 150  
+            max_range = 1200     # ไม่เกิน 1200 points
+            max_levels = 8
         else:
-            smart_spacing = 150  # Conservative
+            smart_spacing = 200  
+            max_range = 1500     # ไม่เกิน 1500 points (เล็กที่สุด)
+            max_levels = 7
         
-        print(f"🚀 Smart Grid spacing: {smart_spacing} points (Account: ${account_balance:,.0f})")
-        
-        # 🎯 วาง grid ใกล้ current price
-        current_price = self.mt5_connector.get_current_price()
-        if current_price:
-            self.starting_price = current_price['bid']  # ใช้ current price
-            print(f"💰 Starting from current price: {self.starting_price}")
+        print(f"🚀 Smart Grid Config:")
+        print(f"   💰 Balance: ${account_balance:,.0f}")
+        print(f"   📏 Spacing: {smart_spacing} points")
+        print(f"   📊 Max Range: ±{max_range} points from current")
+        print(f"   🎯 Max Levels: {max_levels} each side")
         
         # Override grid spacing
         self.grid_spacing = smart_spacing
         
         if direction == GridDirection.BIDIRECTIONAL:
-            # สร้าง BUY levels ใกล้ๆ current price
-            for i in range(1, min(self.max_levels + 1, 15)):  # จำกัดไม่เกิน 15 levels
-                buy_price = self.starting_price - (i * self.grid_spacing * self.point_value)
-                # เช็คว่าไม่ไกลเกิน 1,500 points
-                if abs(buy_price - self.starting_price) <= 1500 * self.point_value:
+            # สร้าง BUY levels ใกล้ current price เท่านั้น
+            for i in range(1, max_levels + 1):
+                buy_price = current_price - (i * smart_spacing * self.point_value)
+                
+                # ✅ เช็คว่าไม่ไกลเกิน max_range
+                distance_from_current = abs(buy_price - current_price) / self.point_value
+                if distance_from_current <= max_range:
                     buy_level = GridLevel(
-                        level_id=f"SMART_BUY_{i}",
-                        price=round(buy_price, 2),  # ลด decimal places
+                        level_id=f"NEAR_BUY_{i}",
+                        price=round(buy_price, 2),
                         lot_size=self.calculate_level_lot_size(i),
                         direction="BUY",
                         status=PositionStatus.PENDING,
                         entry_time=current_time
                     )
                     self.grid_levels.append(buy_level)
+                    print(f"   📉 BUY Level {i}: ${buy_price:.2f} ({distance_from_current:.0f} pts)")
+            
+            # สร้าง SELL levels ใกล้ current price เท่านั้น
+            for i in range(1, max_levels + 1):
+                sell_price = current_price + (i * smart_spacing * self.point_value)
                 
-            # สร้าง SELL levels ใกล้ๆ current price
-            for i in range(1, min(self.max_levels + 1, 15)):
-                sell_price = self.starting_price + (i * self.grid_spacing * self.point_value)
-                # เช็คว่าไม่ไกลเกิน 1,500 points
-                if abs(sell_price - self.starting_price) <= 1500 * self.point_value:
+                # ✅ เช็คว่าไม่ไกลเกิน max_range
+                distance_from_current = abs(sell_price - current_price) / self.point_value
+                if distance_from_current <= max_range:
                     sell_level = GridLevel(
-                        level_id=f"SMART_SELL_{i}",
+                        level_id=f"NEAR_SELL_{i}",
                         price=round(sell_price, 2),
                         lot_size=self.calculate_level_lot_size(i),
                         direction="SELL",
@@ -721,9 +740,16 @@ class AIGoldGrid:
                         entry_time=current_time
                     )
                     self.grid_levels.append(sell_level)
+                    print(f"   📈 SELL Level {i}: ${sell_price:.2f} ({distance_from_current:.0f} pts)")
         
-        print(f"✅ Created {len(self.grid_levels)} smart grid levels")
-        print(f"   Range: {min(level.price for level in self.grid_levels):.2f} - {max(level.price for level in self.grid_levels):.2f}")
+        print(f"✅ Created {len(self.grid_levels)} NEARBY grid levels only")
+        if self.grid_levels:
+            min_price = min(level.price for level in self.grid_levels)
+            max_price = max(level.price for level in self.grid_levels)
+            total_range = (max_price - min_price) / self.point_value
+            print(f"   📊 Range: ${min_price:.2f} - ${max_price:.2f} ({total_range:.0f} points total)")
+        else:
+            print("   ⚠️ No grid levels created!")
 
     def calculate_level_lot_size(self, level: int) -> float:
         """Calculate lot size for specific grid level with broker validation"""
@@ -949,7 +975,361 @@ class AIGoldGrid:
             
         except Exception as e:
             print(f"❌ Grid update error: {e}")
+    
+    def analyze_position_imbalance_and_hedge(self):
+        """วิเคราะห์ความไม่สมดุลและทำ Auto Hedge Protection - Enhanced"""
+        try:
+            # ตรวจสอบ market status ก่อน
+            if not self.is_market_open():
+                print("🕒 Market closed - skipping hedge analysis")
+                return
+                
+            # รวบรวม positions (เฉพาะ non-hedge positions)
+            buy_positions = []
+            sell_positions = []
             
+            for pos_id, grid_level in self.active_positions.items():
+                # ข้าม hedge positions เดิม
+                if "HEDGE" in grid_level.level_id:
+                    continue
+                    
+                if grid_level.direction == "BUY":
+                    buy_positions.append(grid_level)
+                else:
+                    sell_positions.append(grid_level)
+            
+            # เงื่อนไข: ต้องมีความไม่สมดุล
+            buy_count = len(buy_positions)
+            sell_count = len(sell_positions)
+            
+            print(f"📊 Position Analysis: {buy_count} BUY, {sell_count} SELL (excluding existing hedges)")
+            
+            # ✅ เงื่อนไขที่เข้มงวดขึ้น
+            min_positions = 4  # เพิ่มจาก 3 เป็น 4
+            min_difference = 3  # เพิ่มจาก 2 เป็น 3
+            
+            if buy_count >= min_positions and buy_count >= sell_count + min_difference:
+                print(f"🔴 BUY heavily imbalanced: {buy_count} vs {sell_count}")
+                self.create_buy_hedge_protection(buy_positions)
+                
+            elif sell_count >= min_positions and sell_count >= buy_count + min_difference:
+                print(f"🔴 SELL heavily imbalanced: {sell_count} vs {buy_count}")
+                self.create_sell_hedge_protection(sell_positions)
+                
+            else:
+                print("⚖️ Positions balanced or not severe enough for hedge")
+                
+        except Exception as e:
+            print(f"❌ Enhanced hedge analysis error: {e}")
+
+    def create_buy_hedge_protection(self, buy_positions: List):
+        """สร้าง Hedge Protection สำหรับ BUY positions เยอะ"""
+        try:
+            # หา BUY position ที่ราคาต่ำสุด (ขาดทุนมากสุด)
+            worst_buy = min(buy_positions, key=lambda x: x.price)
+            current_price = self.get_current_price()
+            
+            # คำนวณระยะห่างและขาดทุน
+            distance_points = (current_price - worst_buy.price) / self.point_value
+            potential_loss = worst_buy.lot_size * distance_points
+            
+            print(f"🔴 BUY Heavy - Worst BUY: ${worst_buy.price:.2f} ({distance_points:.0f} pts, Loss: ${potential_loss:.2f})")
+            
+            # เงื่อนไข: ต้องขาดทุนเกิน $10 หรือ 500 points
+            if distance_points > 500 or potential_loss > 10:
+                
+                # สร้าง SELL Hedge ที่ราคาปัจจุบัน + buffer
+                hedge_price = current_price + (50 * self.point_value)  # +50 points buffer
+                hedge_lot = worst_buy.lot_size * 0.8  # 80% ของ lot ที่แย่สุด
+                
+                # ตรวจสอบว่ามี Hedge ใกล้ๆ แล้วไหม
+                if not self.has_nearby_hedge("SELL", hedge_price):
+                    success = self.place_hedge_protection_order("SELL", hedge_price, hedge_lot, f"BUY_HEDGE_{worst_buy.level_id}")
+                    
+                    if success:
+                        print(f"🛡️ BUY Hedge placed: SELL {hedge_lot:.3f} @ ${hedge_price:.2f}")
+                        print(f"   Protecting worst BUY @ ${worst_buy.price:.2f}")
+                    else:
+                        print("❌ Failed to place BUY hedge")
+            else:
+                print("💚 BUY positions healthy - no hedge needed")
+                
+        except Exception as e:
+            print(f"❌ BUY hedge protection error: {e}")
+
+    def create_sell_hedge_protection(self, sell_positions: List):
+        """สร้าง Hedge Protection สำหรับ SELL positions เยอะ"""
+        try:
+            # หา SELL position ที่ราคาสูงสุด (ขาดทุนมากสุด)
+            worst_sell = max(sell_positions, key=lambda x: x.price)
+            current_price = self.get_current_price()
+            
+            # คำนวณระยะห่างและขาดทุน
+            distance_points = (worst_sell.price - current_price) / self.point_value
+            potential_loss = worst_sell.lot_size * distance_points
+            
+            print(f"🔴 SELL Heavy - Worst SELL: ${worst_sell.price:.2f} ({distance_points:.0f} pts, Loss: ${potential_loss:.2f})")
+            
+            # เงื่อนไข: ต้องขาดทุนเกิน $10 หรือ 500 points
+            if distance_points > 500 or potential_loss > 10:
+                
+                # สร้าง BUY Hedge ที่ราคาปัจจุบัน - buffer
+                hedge_price = current_price - (50 * self.point_value)  # -50 points buffer
+                hedge_lot = worst_sell.lot_size * 0.8  # 80% ของ lot ที่แย่สุด
+                
+                # ตรวจสอบว่ามี Hedge ใกล้ๆ แล้วไหม
+                if not self.has_nearby_hedge("BUY", hedge_price):
+                    success = self.place_hedge_protection_order("BUY", hedge_price, hedge_lot, f"SELL_HEDGE_{worst_sell.level_id}")
+                    
+                    if success:
+                        print(f"🛡️ SELL Hedge placed: BUY {hedge_lot:.3f} @ ${hedge_price:.2f}")
+                        print(f"   Protecting worst SELL @ ${worst_sell.price:.2f}")
+                    else:
+                        print("❌ Failed to place SELL hedge")
+            else:
+                print("💚 SELL positions healthy - no hedge needed")
+                
+        except Exception as e:
+            print(f"❌ SELL hedge protection error: {e}")
+
+    def has_nearby_hedge(self, direction: str, price: float) -> bool:
+        """เช็คว่ามี Hedge Order ใกล้ๆ แล้วไหม"""
+        try:
+            min_distance = 200 * self.point_value  # 200 points distance
+            
+            # เช็ค pending orders
+            for grid_level in self.pending_orders.values():
+                if (grid_level.direction == direction and 
+                    "HEDGE" in grid_level.level_id and
+                    abs(grid_level.price - price) < min_distance):
+                    return True
+                    
+            # เช็ค active positions ที่เป็น hedge
+            for grid_level in self.active_positions.values():
+                if (grid_level.direction == direction and 
+                    "HEDGE" in grid_level.level_id and
+                    abs(grid_level.price - price) < min_distance):
+                    return True
+                    
+            return False
+            
+        except Exception as e:
+            print(f"❌ Hedge check error: {e}")
+            return True  # ถ้า error ให้ถือว่ามี hedge แล้ว (ป้องกัน)
+
+    def place_hedge_protection_order(self, direction: str, price: float, lot_size: float, hedge_id: str) -> bool:
+        """วาง Hedge Protection Order - Enhanced Version"""
+        try:
+            print(f"🛡️ Attempting hedge: {direction} {lot_size:.3f} @ ${price:.2f}")
+            
+            # ✅ 1. ตรวจสอบและปรับ lot size
+            original_lot = lot_size
+            lot_size = max(lot_size, self.min_lot)
+            lot_size = round(lot_size / self.lot_step) * self.lot_step
+            
+            if lot_size != original_lot:
+                print(f"   📏 Lot adjusted: {original_lot:.3f} → {lot_size:.3f}")
+            
+            # ✅ 2. ตรวจสอบราคาปัจจุบันและปรับ hedge price
+            current_price = self.get_current_price()
+            if not current_price:
+                print("   ❌ Cannot get current price")
+                return False
+            
+            # ปรับราคา hedge ให้เหมาะสมกับตลาดปัจจุบัน
+            min_distance = 30 * self.point_value  # อย่างน้อย 30 points จาก current
+            
+            if direction == "BUY":
+                # BUY hedge ต้องต่ำกว่า current price
+                max_buy_price = current_price - min_distance
+                if price > max_buy_price:
+                    price = max_buy_price
+                    print(f"   📉 BUY price adjusted to ${price:.2f}")
+            else:
+                # SELL hedge ต้องสูงกว่า current price  
+                min_sell_price = current_price + min_distance
+                if price < min_sell_price:
+                    price = min_sell_price
+                    print(f"   📈 SELL price adjusted to ${price:.2f}")
+            
+            # ✅ 3. ลองวาง Market Order แทน Pending Order (สำหรับ hedge)
+            success = self.place_hedge_market_order(direction, lot_size, hedge_id)
+            if success:
+                return True
+            
+            # ✅ 4. ถ้า Market Order ไม่ได้ ลอง Pending Order
+            print("   🔄 Market order failed, trying pending order...")
+            
+            # สร้าง Grid Level สำหรับ Hedge
+            hedge_level = GridLevel(
+                level_id=hedge_id,
+                price=round(price, 2),
+                lot_size=lot_size,
+                direction=direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            # ✅ 5. วาง Pending Order พร้อม retry logic
+            order_result = self.place_pending_order_with_retry(hedge_level)
+            if order_result:
+                hedge_level.order_id = order_result
+                self.grid_levels.append(hedge_level)
+                self.pending_orders[order_result] = hedge_level
+                
+                print(f"   ✅ Hedge pending order: {hedge_id} (Order #{order_result})")
+                return True
+            else:
+                print(f"   ❌ All hedge order attempts failed: {hedge_id}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Hedge order placement error: {e}")
+            return False
+    
+    def place_hedge_market_order(self, direction: str, lot_size: float, hedge_id: str) -> bool:
+        """วาง Market Order สำหรับ Hedge (ได้ราคาทันที)"""
+        try:
+            # Get current tick
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                print("   ❌ No tick data for market hedge")
+                return False
+            
+            # Determine order type and price
+            if direction == "BUY":
+                order_type = mt5.ORDER_TYPE_BUY
+                price = tick.ask
+            else:
+                order_type = mt5.ORDER_TYPE_SELL  
+                price = tick.bid
+            
+            # Market order request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": self.gold_symbol,
+                "volume": lot_size,
+                "type": order_type,
+                "price": price,
+                "deviation": 50,  # Higher deviation for hedge
+                "magic": self.magic_number,
+                "comment": f"HEDGE_MARKET_{hedge_id}",
+                "type_filling": self.order_filling_mode
+            }
+            
+            print(f"   🎯 Market hedge: {direction} {lot_size:.3f} @ ${price:.2f}")
+            
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"   ✅ Market hedge executed: Position #{result.order}")
+                
+                # สร้าง grid level สำหรับ track market hedge
+                hedge_level = GridLevel(
+                    level_id=hedge_id,
+                    price=price,
+                    lot_size=lot_size,
+                    direction=direction,
+                    status=PositionStatus.ACTIVE,
+                    position_id=result.order,
+                    entry_time=datetime.now()
+                )
+                
+                self.grid_levels.append(hedge_level)
+                self.active_positions[result.order] = hedge_level
+                
+                return True
+            else:
+                error_msg = f"Market hedge failed - Code: {result.retcode if result else 'None'}"
+                if result:
+                    error_msg += f", Comment: {result.comment}"
+                print(f"   ⚠️ {error_msg}")
+                return False
+                
+        except Exception as e:
+            print(f"   ❌ Market hedge error: {e}")
+            return False
+
+    def place_pending_order_with_retry(self, grid_level: GridLevel) -> Optional[int]:
+        """วาง Pending Order พร้อม retry หลายครั้ง"""
+        
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                print(f"   🔄 Hedge order attempt {retry_count + 1}/{max_retries}")
+                
+                # ใช้ method เดิมที่มีอยู่แล้ว
+                order_result = self.place_pending_order(grid_level)
+                
+                if order_result:
+                    print(f"   ✅ Hedge order successful on attempt {retry_count + 1}")
+                    return order_result
+                else:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        print(f"   ⚠️ Attempt {retry_count} failed, retrying...")
+                        time.sleep(1)  # รอ 1 วินาทีก่อน retry
+                        
+                        # ปรับราคาเล็กน้อยสำหรับ retry
+                        if grid_level.direction == "BUY":
+                            grid_level.price -= 10 * self.point_value  # ลดราคา 10 points
+                        else:
+                            grid_level.price += 10 * self.point_value  # เพิ่มราคา 10 points
+                            
+                        grid_level.price = round(grid_level.price, 2)
+                        print(f"   📝 Price adjusted to ${grid_level.price:.2f} for retry")
+                        
+            except Exception as e:
+                print(f"   ❌ Retry {retry_count + 1} error: {e}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    time.sleep(2)  # รอนานขึ้นถ้า error
+        
+        print(f"   ❌ All {max_retries} hedge order attempts failed")
+        return None
+
+    def monitor_hedge_effectiveness(self):
+        """ตรวจสอบประสิทธิภาพของ Hedge"""
+        try:
+            hedge_positions = []
+            normal_positions = []
+            
+            # แยก positions
+            for grid_level in self.active_positions.values():
+                if "HEDGE" in grid_level.level_id:
+                    hedge_positions.append(grid_level)
+                else:
+                    normal_positions.append(grid_level)
+            
+            if hedge_positions:
+                total_hedge_pnl = sum(pos.pnl for pos in hedge_positions)
+                total_normal_pnl = sum(pos.pnl for pos in normal_positions)
+                net_pnl = total_hedge_pnl + total_normal_pnl
+                
+                print(f"🛡️ Hedge Status: {len(hedge_positions)} hedges")
+                print(f"   Hedge PnL: ${total_hedge_pnl:.2f}")
+                print(f"   Normal PnL: ${total_normal_pnl:.2f}")
+                print(f"   Net PnL: ${net_pnl:.2f}")
+                
+                # ถ้า hedge ทำกำไรแล้ว และ normal positions ลดขาดทุน -> ปิด hedge
+                if total_hedge_pnl > 5 and total_normal_pnl > -50:
+                    self.close_profitable_hedges(hedge_positions)
+            
+        except Exception as e:
+            print(f"❌ Hedge monitoring error: {e}")
+
+    def close_profitable_hedges(self, hedge_positions: List):
+        """ปิด Hedge ที่ทำกำไรแล้ว"""
+        try:
+            for hedge_pos in hedge_positions:
+                if hedge_pos.pnl > 3:  # กำไรเกิน $3
+                    if self.close_grid_position(hedge_pos):
+                        print(f"💰 Closed profitable hedge: {hedge_pos.level_id} (+${hedge_pos.pnl:.2f})")
+                        
+        except Exception as e:
+            print(f"❌ Close hedge error: {e}")
+
     def update_current_price(self):
         """Update current gold price and store history"""
         
@@ -2052,10 +2432,10 @@ class AIGoldGrid:
                 if loop_count % 300 == 0:
                     self.check_grid_triggers()
                 
-                # 🛡️ SMART HEDGE CHECK (ทุก 2 นาที)
-                if loop_count % 120 == 0:  # Every 2 minutes
-                    self.check_and_place_smart_hedge()
-                
+                if loop_count % 180 == 0:  # Every 3 minutes
+                    self.analyze_position_imbalance_and_hedge()
+                    self.monitor_hedge_effectiveness()
+
                 # 🔄 AUTO GRID REBALANCING (ทุก 2 นาที) - เพิ่มตรงนี้
                 if loop_count % 120 == 0:  # Every 2 minutes
                     self.gentle_auto_rebalancing()
