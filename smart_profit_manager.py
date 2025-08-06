@@ -653,8 +653,6 @@ class SmartProfitManager:
             status_emoji = "📈" if total_pnl >= 0 else "📉"
             risk_emoji = "🟢" if risk_pct < 10 else "🟡" if risk_pct < 20 else "🔴"
             
-            print(f"{status_emoji} Smart Portfolio: {total_positions} pos, {hedge_positions} hedge, PnL: ${total_pnl:.2f}, Risk: {risk_pct:.1f}% {risk_emoji}")
-            
         except Exception as e:
             print(f"❌ Portfolio logging error: {e}")
             
