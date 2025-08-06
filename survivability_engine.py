@@ -462,93 +462,189 @@ class SurvivabilityEngine:
         
     def calculate_realistic_survivability_metrics(self, actual_lot: float, grid_spacing: int, 
                                                 usable_capital: float, max_levels: int) -> Dict:
-        """Calculate realistic survivability for Smart Grid (No Hedge Cost)"""
+        """Calculate realistic survivability แก้ไขให้ถูกต้อง"""
         
-        # 🚀 Smart Grid - No hedge cost calculation
-        point_value_per_lot = 1.0  # $1 per point for 0.01 lot gold
-        cost_per_point = (actual_lot / 0.01) * point_value_per_lot
-        cost_per_level = grid_spacing * cost_per_point
-        
-        # 🚀 Reduced margin requirements (no hedge reserves needed)
-        margin_per_level = actual_lot * 300  # ลดจาก 500 เป็น 300
-        base_cost_per_level = cost_per_level + margin_per_level
-        
-        # 🚀 Smart Grid efficiency factor
-        smart_grid_efficiency = 1.3  # ประหยัด 30% เพราะ:
-        # - ไม่มี hedge cost
-        # - Auto-balancing ลด risk
-        # - Faster profit turnover
-        
-        effective_cost_per_level = base_cost_per_level / smart_grid_efficiency
-        
-        # Debug
-        print(f"🚀 Smart Grid Realistic Calculation:")
-        print(f"   Actual Lot: {actual_lot}")
-        print(f"   Grid Spacing: {grid_spacing}")
-        print(f"   Max Levels: {max_levels}")
-        print(f"   Base Cost per Level: ${base_cost_per_level:.2f}")
-        print(f"   Smart Grid Efficiency: {smart_grid_efficiency}x")
-        print(f"   Effective Cost per Level: ${effective_cost_per_level:.2f}")
-        print(f"   Usable Capital: ${usable_capital:.2f}")
-        
-        # 🚀 Smart Grid can use more capital (95% instead of 80%)
-        max_affordable_levels = (usable_capital * 0.95) / effective_cost_per_level
-        
-        # 🚀 Higher safety threshold for Smart Grid
-        realistic_levels = min(max_levels, int(max_affordable_levels * 0.9))  # 90% safety
-        realistic_levels = max(realistic_levels, 8)  # อย่างน้อย 8 levels
-        
-        # Calculate realistic survivability in points
-        realistic_points = realistic_levels * grid_spacing
-        
-        print(f"   Max Affordable Levels: {max_affordable_levels:.1f}")
-        print(f"   Realistic Levels: {realistic_levels}")
-        print(f"   Realistic Survivability: {realistic_points:,.0f} points")
-        
-        # Capital utilization (based on effective cost)
-        total_effective_cost = realistic_levels * effective_cost_per_level
-        capital_utilization = (total_effective_cost / usable_capital) * 100
-        
-        # 🚀 Smart Grid specific warnings
-        warnings = []
-        
-        # Dynamic target based on account size
-        if usable_capital >= 10000:
-            target_for_account = 8000
-        elif usable_capital >= 5000:
-            target_for_account = 5000
-        elif usable_capital >= 3000:
-            target_for_account = 3000
-        else:
-            target_for_account = 2000
-        
-        if realistic_points < target_for_account:
-            shortage = target_for_account - realistic_points
-            warnings.append(f"Survivability {shortage:,.0f} points below recommended for Smart Grid")
-        
-        if actual_lot == 0.01:
-            warnings.append("Using minimum lot - consider account upgrade for better performance")
+        try:
+            print(f"🔍 REALISTIC SURVIVABILITY CALCULATION:")
+            print(f"   Account Balance: ${usable_capital / 0.6:.2f}")
+            print(f"   Usable Capital: ${usable_capital:.2f}")
+            print(f"   Actual Lot: {actual_lot:.3f}")
+            print(f"   Grid Spacing: {grid_spacing} points")
+            print(f"   Max Theoretical Levels: {max_levels}")
             
-        if capital_utilization > 85:  # เพิ่มจาก 90 เป็น 85
-            warnings.append("High capital utilization - Smart Grid optimized but monitor closely")
+            # ✅ FIX 1: คำนวณต้นทุนจริงของทองคำ
+            # สำหรับทองคำ: 1 point = $0.01 สำหรับ 0.01 lot
+            point_value_per_lot = 1.0  # $1 per point for 0.01 lot
+            cost_per_point = (actual_lot / 0.01) * point_value_per_lot
+            cost_per_level = grid_spacing * cost_per_point
             
-        if realistic_levels < 12:  # เพิ่มจาก 10 เป็น 12
-            warnings.append("Limited grid density - Smart Grid works best with 15+ levels")
+            # ✅ FIX 2: Margin requirement ที่สมจริง (ลดลง)
+            # เดิมใช้ 500, แก้เป็น 200-300 ให้สมจริงกว่า
+            margin_per_level = actual_lot * 200  # ลดจาก 500 เป็น 200
+            base_cost_per_level = cost_per_level + margin_per_level
+            
+            print(f"   💰 Cost per level: ${cost_per_level:.2f}")
+            print(f"   💳 Margin per level: ${margin_per_level:.2f}")
+            print(f"   📊 Total cost per level: ${base_cost_per_level:.2f}")
+            
+            # ✅ FIX 3: Smart Grid efficiency (แต่ไม่เกินจริง)
+            # เดิมใช้ 1.3x แต่ควรเป็น 1.1-1.15x เท่านั้น
+            smart_grid_efficiency = 1.15  # ลดจาก 1.3 เป็น 1.15
+            effective_cost_per_level = base_cost_per_level / smart_grid_efficiency
+            
+            print(f"   ⚡ Smart Grid Efficiency: {smart_grid_efficiency:.2f}x")
+            print(f"   💵 Effective cost per level: ${effective_cost_per_level:.2f}")
+            
+            # ✅ FIX 4: ใช้เงินทุนได้สูงสุด 85% (ไม่ใช่ 95%)
+            max_affordable_levels = (usable_capital * 0.85) / effective_cost_per_level
+            
+            # ✅ FIX 5: Safety margin 90% (ไม่ใช่ 90%)
+            realistic_levels = min(max_levels, int(max_affordable_levels * 0.85))
+            realistic_levels = max(realistic_levels, 5)  # อย่างน้อย 5 levels
+            
+            # คำนวณ realistic survivability
+            realistic_points = realistic_levels * grid_spacing
+            
+            print(f"   📈 Max affordable levels: {max_affordable_levels:.1f}")
+            print(f"   🎯 Realistic levels (85% safety): {realistic_levels}")
+            print(f"   🛡️ Realistic survivability: {realistic_points:,.0f} points")
+            
+            # ✅ FIX 6: Capital utilization ที่ถูกต้อง
+            total_effective_cost = realistic_levels * effective_cost_per_level
+            capital_utilization = (total_effective_cost / (usable_capital / 0.6)) * 100  # ใช้ total balance
+            
+            print(f"   💰 Total effective cost: ${total_effective_cost:.2f}")
+            print(f"   📊 Capital utilization: {capital_utilization:.1f}%")
+            
+            # ✅ FIX 7: Warnings ที่สมเหตุสมผล
+            warnings = []
+            
+            # Dynamic target based on trading mode
+            mode_targets = {
+                'SAFE': 20000,
+                'BALANCED': 10000, 
+                'AGGRESSIVE': 8000,
+                'TURBO': 5000
+            }
+            
+            # ตรวจสอบว่าใช้ mode ไหน (จาก config หรือ parameter)
+            trading_mode = getattr(self, 'current_trading_mode', 'BALANCED')
+            if hasattr(trading_mode, 'value'):
+                mode_name = trading_mode.value
+            else:
+                mode_name = str(trading_mode)
+                
+            target_for_mode = mode_targets.get(mode_name, 10000)
+            
+            if realistic_points < target_for_mode:
+                shortage = target_for_mode - realistic_points
+                warnings.append(f"Survivability {shortage:,.0f} points below {mode_name} target ({target_for_mode:,})")
+            
+            if actual_lot <= 0.01:
+                warnings.append("Using minimum lot - consider account upgrade for better survivability")
+                
+            if capital_utilization > 90:
+                warnings.append("High capital utilization - consider reducing lot size or increasing balance")
+                
+            if realistic_levels < 8:
+                warnings.append("Very limited grid levels - survivability may be insufficient")
+            
+            # เพิ่ม warning สำหรับ TURBO mode
+            if mode_name == 'TURBO' and realistic_points < 3000:
+                warnings.append("⚠️ TURBO mode with low survivability - high risk!")
+                
+            if realistic_points >= target_for_mode:
+                warnings.append(f"✅ {mode_name} mode target achieved - good survivability")
+                
+            return {
+                'realistic_points': realistic_points,
+                'cost_per_level': round(effective_cost_per_level, 2),
+                'max_affordable_levels': int(max_affordable_levels),
+                'capital_utilization': round(capital_utilization, 1),
+                'smart_grid_efficiency': smart_grid_efficiency,
+                'capital_saved': round((base_cost_per_level - effective_cost_per_level) * realistic_levels, 2),
+                'warnings': warnings,
+                # เพิ่มข้อมูล debug
+                'debug_info': {
+                    'usable_capital': usable_capital,
+                    'total_balance': usable_capital / 0.6,
+                    'total_effective_cost': total_effective_cost,
+                    'target_for_mode': target_for_mode,
+                    'mode_name': mode_name
+                }
+            }
+            
+        except Exception as e:
+            print(f"❌ Realistic survivability calculation error: {e}")
+            # Return safe fallback values
+            fallback_levels = max(5, min(max_levels, 8))
+            return {
+                'realistic_points': fallback_levels * grid_spacing,
+                'cost_per_level': 300.0,  # Safe estimate
+                'max_affordable_levels': fallback_levels,
+                'capital_utilization': 80.0,  # Safe estimate
+                'smart_grid_efficiency': 1.0,
+                'capital_saved': 0.0,
+                'warnings': [f"Calculation error: {str(e)}", "Using safe fallback values"]
+            }
+
+    # ✅ เพิ่ม method ตรวจสอบความถูกต้อง
+    def validate_survivability_calculation(self, account_balance: float, results: Dict) -> Dict:
+        """ตรวจสอบความถูกต้องของการคำนวณ"""
         
-        # 🚀 เพิ่ม Smart Grid benefits info
-        if realistic_points >= target_for_account:
-            warnings.append("✅ Smart Grid optimized - No hedge costs, Auto-balancing active")
-            
-        return {
-            'realistic_points': realistic_points,
-            'cost_per_level': round(effective_cost_per_level, 2),
-            'max_affordable_levels': int(max_affordable_levels),
-            'capital_utilization': round(capital_utilization, 1),
-            'smart_grid_efficiency': smart_grid_efficiency,
-            'capital_saved': round((base_cost_per_level - effective_cost_per_level) * realistic_levels, 2),
-            'warnings': warnings
+        validation_results = {
+            'is_valid': True,
+            'errors': [],
+            'warnings': [],
+            'recommendations': []
         }
         
+        try:
+            realistic_surv = results.get('realistic_survivability', 0)
+            theoretical_surv = results.get('survivability', 0)
+            capital_util = results.get('capital_utilization', 0)
+            target_surv = results.get('target_survivability', 10000)
+            
+            # ตรวจสอบ capital utilization
+            if capital_util > 100:
+                validation_results['errors'].append(f"Capital over-utilization: {capital_util:.1f}% > 100%")
+                validation_results['is_valid'] = False
+                
+            if capital_util > 90:
+                validation_results['warnings'].append(f"High capital utilization: {capital_util:.1f}%")
+                
+            # ตรวจสอบ survivability gap
+            surv_ratio = realistic_surv / theoretical_surv if theoretical_surv > 0 else 0
+            if surv_ratio < 0.4:  # น้อยกว่า 40%
+                validation_results['errors'].append(f"Large survivability gap: realistic {surv_ratio*100:.1f}% of theoretical")
+                validation_results['is_valid'] = False
+                
+            # ตรวจสอบเป้าหมาย
+            target_achievement = realistic_surv / target_surv if target_surv > 0 else 0
+            if target_achievement < 0.6:  # น้อยกว่า 60% ของเป้า
+                validation_results['warnings'].append(f"Below target: {target_achievement*100:.1f}% of {target_surv:,} points")
+                
+            # คำแนะนำ
+            if not validation_results['is_valid']:
+                validation_results['recommendations'].extend([
+                    "Consider increasing account balance",
+                    "Or switch to more conservative trading mode", 
+                    "Or reduce base lot size"
+                ])
+                
+            if capital_util > 85:
+                validation_results['recommendations'].append("Reduce position sizing for better safety margin")
+                
+            if realistic_surv < 3000:
+                validation_results['recommendations'].append("Survivability too low - high risk of account loss")
+                
+            return validation_results
+            
+        except Exception as e:
+            validation_results['errors'].append(f"Validation error: {e}")
+            validation_results['is_valid'] = False
+            return validation_results
+            
     def calculate_max_drawdown_value_realistic(self, actual_lot: float, max_levels: int, grid_spacing: int) -> float:
         """Calculate maximum drawdown value with realistic lot sizes"""
         

@@ -81,7 +81,18 @@ class SmartProfitManager:
             self.default_strategy = ProfitStrategy.BALANCED
         else:
             self.default_strategy = ProfitStrategy.QUICK_SAFE
-            
+       
+        self.recovery_enabled = config.get('portfolio_recovery', {}).get('enabled', True)
+        self.recovery_trigger_loss = config.get('portfolio_recovery', {}).get('trigger_loss', -50)
+        self.recovery_auto_mode = config.get('portfolio_recovery', {}).get('auto_mode', False)
+        self.recovery_active = False
+        self.recovery_start_time = None
+        self.recovery_initial_pnl = 0
+        
+        print(f"💊 Portfolio Recovery System:")
+        print(f"   Enabled: {self.recovery_enabled}")
+        print(f"   Trigger Loss: ${abs(self.recovery_trigger_loss)}")
+        print(f"   Auto Mode: {self.recovery_auto_mode}")    
         print(f"🧠 Smart Profit Manager initialized:")
         print(f"   💰 Balance: ${balance:,.0f}")
         print(f"   🎯 Strategy: {self.default_strategy.value}")
@@ -622,7 +633,11 @@ class SmartProfitManager:
             # 7. Log portfolio status periodically
             if len(portfolio_analysis.get('grid_positions', [])) > 0:
                 self.log_portfolio_status(portfolio_analysis)
-                
+            
+            # ✅Portfolio Recovery (Optional)
+            if self.recovery_enabled:
+                self.check_and_run_recovery(portfolio_analysis)    
+        
         except Exception as e:
             print(f"❌ Smart profit management error: {e}")
             
@@ -659,6 +674,384 @@ class SmartProfitManager:
                                            if hasattr(pos, 'trailing_stop_price') and pos.trailing_stop_price is not None),
                 'last_update': datetime.now().isoformat()
             }
+            
+        except Exception as e:
+            return {'error': str(e)}
+
+    def check_and_run_recovery(self, portfolio_analysis: Dict):
+        """ตรวจสอบและเรียกใช้ Recovery System"""
+        try:
+            total_pnl = portfolio_analysis.get('total_pnl', 0)
+            
+            # เช็คเงื่อนไข trigger
+            should_trigger = (
+                total_pnl <= self.recovery_trigger_loss and  # ขาดทุนเกินกำหนด
+                not self.recovery_active and                 # ยังไม่ active
+                len(portfolio_analysis.get('grid_positions', [])) > 0  # มี positions
+            )
+            
+            if should_trigger:
+                if self.recovery_auto_mode:
+                    self.start_portfolio_recovery(portfolio_analysis)
+                else:
+                    print(f"💊 Recovery trigger: PnL ${total_pnl:.2f} < ${self.recovery_trigger_loss}")
+                    print(f"   Use manual recovery or enable auto_mode")
+            
+            # ถ้า recovery active อยู่ ให้ติดตามผล
+            elif self.recovery_active:
+                self.monitor_recovery_progress(portfolio_analysis)
+                
+        except Exception as e:
+            print(f"❌ Recovery check error: {e}")
+
+    def start_portfolio_recovery(self, portfolio_analysis: Dict):
+        """เริ่ม Portfolio Recovery Process"""
+        try:
+            print(f"💊 === PORTFOLIO RECOVERY STARTED ===")
+            
+            self.recovery_active = True
+            self.recovery_start_time = datetime.now()
+            self.recovery_initial_pnl = portfolio_analysis.get('total_pnl', 0)
+            
+            print(f"   Initial PnL: ${self.recovery_initial_pnl:.2f}")
+            print(f"   Target: Break-even or positive")
+            
+            # วิเคราะห์โอกาสในการ recovery
+            recovery_plan = self.analyze_recovery_opportunities(portfolio_analysis)
+            
+            if recovery_plan['viable']:
+                self.execute_recovery_plan(recovery_plan)
+            else:
+                print(f"   ⚠️ No viable recovery options found")
+                self.recovery_active = False
+                
+        except Exception as e:
+            print(f"❌ Recovery start error: {e}")
+            self.recovery_active = False
+
+    def analyze_recovery_opportunities(self, portfolio_analysis: Dict) -> Dict:
+        """วิเคราะห์โอกาสในการกู้คืน portfolio"""
+        try:
+            positions = portfolio_analysis.get('grid_positions', [])
+            
+            # แยก positions ตามสถานะ
+            losing_positions = [p for p in positions if p.pnl < -1]  # ขาดทุน > $1
+            profitable_positions = [p for p in positions if p.pnl > 1]  # กำไร > $1
+            neutral_positions = [p for p in positions if -1 <= p.pnl <= 1]  # ใกล้เคียง
+            
+            total_loss = sum(p.pnl for p in losing_positions)
+            total_profit = sum(p.pnl for p in profitable_positions)
+            net_pnl = total_loss + total_profit
+            
+            print(f"   📊 Recovery Analysis:")
+            print(f"      Losing: {len(losing_positions)} positions (${total_loss:.2f})")
+            print(f"      Profitable: {len(profitable_positions)} positions (+${total_profit:.2f})")
+            print(f"      Neutral: {len(neutral_positions)} positions")
+            print(f"      Net PnL: ${net_pnl:.2f}")
+            
+            # หาคู่ positions ที่สามารถปิดพร้อมกันได้กำไร
+            optimal_pairs = self.find_optimal_pairs(losing_positions, profitable_positions)
+            
+            # คำนวณ hedge opportunities
+            hedge_opportunities = self.calculate_hedge_recovery(losing_positions)
+            
+            recovery_plan = {
+                'viable': len(optimal_pairs) > 0 or len(hedge_opportunities) > 0,
+                'optimal_pairs': optimal_pairs,
+                'hedge_opportunities': hedge_opportunities,
+                'total_recovery_potential': sum(pair['net_profit'] for pair in optimal_pairs),
+                'losing_positions': losing_positions,
+                'profitable_positions': profitable_positions
+            }
+            
+            print(f"   🎯 Recovery Plan:")
+            print(f"      Optimal pairs: {len(optimal_pairs)}")
+            print(f"      Recovery potential: ${recovery_plan['total_recovery_potential']:.2f}")
+            print(f"      Viable: {recovery_plan['viable']}")
+            
+            return recovery_plan
+            
+        except Exception as e:
+            print(f"❌ Recovery analysis error: {e}")
+            return {'viable': False}
+
+    def find_optimal_pairs(self, losing_positions: List, profitable_positions: List) -> List[Dict]:
+        """หาคู่ positions ที่ปิดแล้วได้กำไรสุทธิ"""
+        try:
+            optimal_pairs = []
+            
+            # สำเนา list เพื่อไม่ให้กระทบต้นฉบับ
+            remaining_losing = losing_positions.copy()
+            remaining_profitable = profitable_positions.copy()
+            
+            for losing_pos in remaining_losing:
+                for profitable_pos in remaining_profitable:
+                    # คำนวณกำไรสุทธิถ้าปิดคู่นี้
+                    net_profit = losing_pos.pnl + profitable_pos.pnl
+                    
+                    # เลือกเฉพาะคู่ที่ได้กำไรสุทธิ > $2
+                    if net_profit > 2:
+                        pair_info = {
+                            'losing_position': losing_pos,
+                            'profitable_position': profitable_pos,
+                            'losing_pnl': losing_pos.pnl,
+                            'profitable_pnl': profitable_pos.pnl,
+                            'net_profit': net_profit,
+                            'priority_score': net_profit + abs(losing_pos.pnl)  # ยิ่งขาดทุนมาก priority สูง
+                        }
+                        optimal_pairs.append(pair_info)
+            
+            # เรียงตาม priority score (สูงสุดก่อน)
+            optimal_pairs.sort(key=lambda x: x['priority_score'], reverse=True)
+            
+            # เลือกเฉพาะคู่ที่ไม่ซ้ำกัน (greedy selection)
+            selected_pairs = []
+            used_positions = set()
+            
+            for pair in optimal_pairs:
+                losing_id = pair['losing_position'].position_id
+                profitable_id = pair['profitable_position'].position_id
+                
+                if losing_id not in used_positions and profitable_id not in used_positions:
+                    selected_pairs.append(pair)
+                    used_positions.add(losing_id)
+                    used_positions.add(profitable_id)
+            
+            print(f"      Found {len(selected_pairs)} optimal pairs:")
+            for i, pair in enumerate(selected_pairs[:3]):  # แสดง 3 อันดับแรก
+                print(f"         {i+1}. Loss ${pair['losing_pnl']:.2f} + Profit ${pair['profitable_pnl']:.2f} = Net +${pair['net_profit']:.2f}")
+            
+            return selected_pairs
+            
+        except Exception as e:
+            print(f"❌ Pair finding error: {e}")
+            return []
+
+    def calculate_hedge_recovery(self, losing_positions: List) -> List[Dict]:
+        """คำนวณโอกาสใช้ hedge เพื่อ recovery"""
+        try:
+            hedge_opportunities = []
+            
+            # จัดกลุ่มตาม direction
+            losing_buys = [p for p in losing_positions if p.direction == "BUY"]
+            losing_sells = [p for p in losing_positions if p.direction == "SELL"]
+            
+            current_price = self.grid_system.get_current_price()
+            
+            # Hedge สำหรับ BUY positions ที่ขาดทุน
+            if losing_buys:
+                total_buy_loss = sum(p.pnl for p in losing_buys)
+                total_buy_lots = sum(p.lot_size for p in losing_buys)
+                
+                # คำนวณ SELL hedge ที่ต้องการ
+                hedge_lot_size = total_buy_lots * 0.8  # 80% hedge
+                hedge_price = current_price + (50 * 0.01)  # +50 points
+                
+                hedge_opportunity = {
+                    'type': 'SELL_HEDGE',
+                    'target_positions': losing_buys,
+                    'hedge_direction': 'SELL',
+                    'hedge_lot_size': hedge_lot_size,
+                    'hedge_price': hedge_price,
+                    'target_loss': total_buy_loss,
+                    'estimated_recovery': abs(total_buy_loss) * 0.7  # คาดว่าได้คืน 70%
+                }
+                hedge_opportunities.append(hedge_opportunity)
+            
+            # Hedge สำหรับ SELL positions ที่ขาดทุน
+            if losing_sells:
+                total_sell_loss = sum(p.pnl for p in losing_sells)
+                total_sell_lots = sum(p.lot_size for p in losing_sells)
+                
+                hedge_lot_size = total_sell_lots * 0.8
+                hedge_price = current_price - (50 * 0.01)  # -50 points
+                
+                hedge_opportunity = {
+                    'type': 'BUY_HEDGE',
+                    'target_positions': losing_sells,
+                    'hedge_direction': 'BUY',
+                    'hedge_lot_size': hedge_lot_size,
+                    'hedge_price': hedge_price,
+                    'target_loss': total_sell_loss,
+                    'estimated_recovery': abs(total_sell_loss) * 0.7
+                }
+                hedge_opportunities.append(hedge_opportunity)
+            
+            if hedge_opportunities:
+                print(f"      Found {len(hedge_opportunities)} hedge opportunities:")
+                for opp in hedge_opportunities:
+                    print(f"         {opp['type']}: {opp['hedge_lot_size']:.3f} lots @ ${opp['hedge_price']:.2f}")
+                    print(f"            Target recovery: ${opp['estimated_recovery']:.2f}")
+            
+            return hedge_opportunities
+            
+        except Exception as e:
+            print(f"❌ Hedge calculation error: {e}")
+            return []
+
+    def execute_recovery_plan(self, recovery_plan: Dict):
+        """ดำเนินการตาม recovery plan"""
+        try:
+            executed_actions = 0
+            
+            # 1. ดำเนินการ optimal pairs ก่อน (ความเสี่ยงต่ำ)
+            for pair in recovery_plan['optimal_pairs'][:2]:  # ทำ 2 คู่แรกก่อน
+                success = self.execute_pair_close(pair)
+                if success:
+                    executed_actions += 1
+                    print(f"   ✅ Executed pair close: Net +${pair['net_profit']:.2f}")
+                else:
+                    print(f"   ❌ Failed to close pair")
+            
+            # 2. ถ้า pairs ไม่พอ ใช้ hedge strategy
+            if executed_actions == 0 and recovery_plan['hedge_opportunities']:
+                hedge_opp = recovery_plan['hedge_opportunities'][0]  # เลือกตัวแรก
+                success = self.execute_hedge_recovery(hedge_opp)
+                if success:
+                    executed_actions += 1
+                    print(f"   ✅ Executed hedge recovery: {hedge_opp['type']}")
+            
+            if executed_actions > 0:
+                print(f"   🎯 Recovery actions executed: {executed_actions}")
+            else:
+                print(f"   ⚠️ No recovery actions could be executed")
+                self.recovery_active = False
+                
+        except Exception as e:
+            print(f"❌ Recovery execution error: {e}")
+            self.recovery_active = False
+
+    def execute_pair_close(self, pair: Dict) -> bool:
+        """ปิด position คู่พร้อมกัน"""
+        try:
+            losing_pos = pair['losing_position']
+            profitable_pos = pair['profitable_position']
+            
+            # ปิด position แรก
+            success1 = self.close_single_position(losing_pos)
+            if not success1:
+                return False
+            
+            # รอสักครู่
+            time.sleep(0.5)
+            
+            # ปิด position ที่สอง
+            success2 = self.close_single_position(profitable_pos)
+            if not success2:
+                print(f"   ⚠️ Warning: First position closed but second failed")
+                return False
+            
+            print(f"   💰 Pair closed: ${losing_pos.pnl:.2f} + ${profitable_pos.pnl:.2f} = +${pair['net_profit']:.2f}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Pair close error: {e}")
+            return False
+
+    def close_single_position(self, position) -> bool:
+        """ปิด position เดียว (ใช้ function เดิม)"""
+        try:
+            # ใช้ method เดิมจาก smart profit manager
+            return self.execute_smart_close(
+                position, 
+                CloseReason.PORTFOLIO_RISK,  # ใช้ reason ที่มีอยู่แล้ว
+                {'close_percentage': 100}
+            )
+        except Exception as e:
+            print(f"❌ Single position close error: {e}")
+            return False
+
+    def execute_hedge_recovery(self, hedge_opp: Dict) -> bool:
+        """วาง hedge order เพื่อ recovery"""
+        try:
+            # ใช้ method ที่มีอยู่แล้วใน grid system
+            success = self.grid_system.place_hedge_order(
+                hedge_opp['hedge_direction'],
+                hedge_opp['hedge_lot_size']
+            )
+            
+            if success:
+                print(f"   🛡️ Hedge placed: {hedge_opp['hedge_direction']} {hedge_opp['hedge_lot_size']:.3f} lots")
+                return True
+            else:
+                print(f"   ❌ Failed to place hedge")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Hedge execution error: {e}")
+            return False
+
+    def monitor_recovery_progress(self, portfolio_analysis: Dict):
+        """ติดตาม progress ของ recovery"""
+        try:
+            current_pnl = portfolio_analysis.get('total_pnl', 0)
+            recovery_pnl = current_pnl - self.recovery_initial_pnl
+            
+            # เช็คว่า recovery สำเร็จหรือยัง
+            if current_pnl >= -5:  # เกือบ break-even หรือกำไร
+                print(f"💊 === PORTFOLIO RECOVERY SUCCESSFUL ===")
+                print(f"   Initial PnL: ${self.recovery_initial_pnl:.2f}")
+                print(f"   Current PnL: ${current_pnl:.2f}")
+                print(f"   Recovery Gain: +${recovery_pnl:.2f}")
+                
+                self.recovery_active = False
+                self.recovery_start_time = None
+                
+            # เช็ค timeout (30 นาที)
+            elif self.recovery_start_time:
+                elapsed = (datetime.now() - self.recovery_start_time).total_seconds() / 60
+                if elapsed > 30:
+                    print(f"💊 Recovery timeout after {elapsed:.1f} minutes")
+                    print(f"   Recovery gain: +${recovery_pnl:.2f}")
+                    self.recovery_active = False
+                    
+            # แสดงความคืบหน้าทุก 5 นาที
+            elif self.recovery_start_time:
+                elapsed = (datetime.now() - self.recovery_start_time).total_seconds() / 60
+                if int(elapsed) % 5 == 0:  # ทุก 5 นาที
+                    print(f"💊 Recovery progress: {elapsed:.1f}min, PnL: ${current_pnl:.2f}, Gain: +${recovery_pnl:.2f}")
+                    
+        except Exception as e:
+            print(f"❌ Recovery monitoring error: {e}")
+
+    def manual_trigger_recovery(self):
+        """Manual trigger สำหรับ GUI"""
+        try:
+            if self.recovery_active:
+                print(f"💊 Recovery already active")
+                return False
+                
+            portfolio_analysis = self.analyze_portfolio_positions()
+            if 'error' in portfolio_analysis:
+                print(f"💊 Cannot analyze portfolio for recovery")
+                return False
+                
+            self.start_portfolio_recovery(portfolio_analysis)
+            return True
+            
+        except Exception as e:
+            print(f"❌ Manual recovery trigger error: {e}")
+            return False
+
+    def get_recovery_status(self) -> Dict:
+        """ดึงสถานะ recovery สำหรับ GUI"""
+        try:
+            status = {
+                'enabled': self.recovery_enabled,
+                'active': self.recovery_active,
+                'trigger_loss': self.recovery_trigger_loss,
+                'auto_mode': self.recovery_auto_mode
+            }
+            
+            if self.recovery_active and self.recovery_start_time:
+                elapsed = (datetime.now() - self.recovery_start_time).total_seconds() / 60
+                status.update({
+                    'start_time': self.recovery_start_time.isoformat(),
+                    'elapsed_minutes': round(elapsed, 1),
+                    'initial_pnl': self.recovery_initial_pnl
+                })
+                
+            return status
             
         except Exception as e:
             return {'error': str(e)}

@@ -979,13 +979,14 @@ class AIGoldTradingGUI:
             messagebox.showerror("Calculation Error", str(e))
 
     def update_survivability_display(self, calc):
-        """Update survivability display with calculations and mode information"""
+        """Update survivability display - แก้ไขให้แสดงค่า real-time"""
+        
+        # แสดงข้อมูลพื้นฐาน (เหมือนเดิม)
         self.balance_label.config(text=f"💰 Balance: ${calc['account_balance']:,.2f}")
         
-        # ⭐ เพิ่มการแสดง Mode ที่ใช้
+        # แสดง mode และ target (เหมือนเดิม)
         mode_text = f"🎯 Mode: {calc['trading_mode']} | Target: {calc['target_survivability']:,} pts"
         if not hasattr(self, 'mode_display_label'):
-            # สร้าง label ใหม่ถ้ายังไม่มี
             self.mode_display_label = tk.Label(
                 self.balance_label.master,
                 text=mode_text,
@@ -997,93 +998,61 @@ class AIGoldTradingGUI:
         else:
             self.mode_display_label.config(text=mode_text)
         
-        # Show both ideal and actual lot sizes
-        if calc.get('lot_size_adjusted', False):
-            lot_text = f"🎯 Lot: {calc['base_lot']:.3f} (Ideal: {calc['ideal_base_lot']:.3f}) ⚠️"
-            lot_color = '#ffd43b'  # Yellow for warning
-        else:
-            lot_text = f"🎯 Base Lot: {calc['base_lot']:.3f}"
-            lot_color = '#ffffff'
+        # ✅ แก้ไขส่วนนี้ - แสดงค่า real-time ถ้ามี grid_trader
+        if hasattr(self, 'grid_trader') and self.grid_trader and self.is_trading:
+            # ใช้ข้อมูล real-time จาก grid_trader
+            realtime_stats = self.get_realtime_grid_stats()
             
-        self.base_lot_label.config(text=lot_text, fg=lot_color)
-        
-        self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} points (${calc['grid_spacing']*0.01:.2f})")
-        self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']}")
-        
-        # 🚀 เพิ่ม Smart Grid Status Display
-        if not hasattr(self, 'smart_grid_label'):
-            self.smart_grid_label = tk.Label(
-                self.balance_label.master,
-                text="",
-                font=('Arial', 10, 'bold'),
-                fg='#4ecdc4',
-                bg='#16213e'
-            )
-            self.smart_grid_label.pack(anchor='w', pady=2)
-        
-        # แสดงข้อมูล Smart Grid
-        smart_text = f"🚀 Smart Grid: {calc['grid_spacing']}pt spacing, Auto-Balance Portfolio, No Hedge Cost"
-        self.smart_grid_label.config(text=smart_text)
-        
-        # Show both theoretical and realistic survivability with target comparison
-        theoretical_surv = calc['survivability']
-        realistic_surv = calc.get('realistic_survivability', theoretical_surv)
-        target_surv = calc['target_survivability']
-        
-        # ⭐ ปรับเงื่อนไขสีตาม target ของ mode
-        if realistic_surv >= target_surv:
-            surv_color = '#51cf66'  # Green - ถึงเป้าหมายแล้ว
-            status_emoji = "✅"
-        elif realistic_surv >= target_surv * 0.8:
-            surv_color = '#ffd43b'  # Yellow - ใกล้เป้าหมาย
-            status_emoji = "⚠️"
-        else:
-            surv_color = '#ff6b6b'  # Red - ต่ำกว่าเป้าหมาย
-            status_emoji = "❌"
-        
-        if realistic_surv != theoretical_surv:
-            surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} (Theory: {theoretical_surv:,.0f}) | Target: {target_surv:,.0f}"
-        else:
-            surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} | Target: {target_surv:,.0f}"
+            # แสดง Base Lot (real-time)
+            actual_lot = realtime_stats.get('average_lot_size', calc['base_lot'])
+            lot_text = f"🎯 Base Lot: {actual_lot:.3f} (Active orders average)"
+            self.base_lot_label.config(text=lot_text, fg='#51cf66')  # เขียว = real-time
             
-        self.survivability_label.config(text=surv_text, fg=surv_color)
-        
-        # ⭐ แสดง Mode Description และ Risk Level
-        mode_desc = calc.get('mode_description', '')
-        risk_level = calc.get('mode_risk_level', '')
-        
-        if not hasattr(self, 'mode_info_label'):
-            self.mode_info_label = tk.Label(
-                self.balance_label.master,
-                text=f"📝 {mode_desc} | Risk: {risk_level}",
-                font=('Arial', 9),
-                fg='#adb5bd',
-                bg='#16213e'
-            )
-            self.mode_info_label.pack(anchor='w', pady=1)
-        else:
-            self.mode_info_label.config(text=f"📝 {mode_desc} | Risk: {risk_level}")
-        
-        # Safety margin (existing code...)
-        safety_margin = calc['account_balance'] * (1 - self.config.get('safety_ratio', 0.6))
-        if 'safety_margin_percentage' in calc:
-            safety_pct = calc['safety_margin_percentage']
-        else:
-            safety_pct = (calc['safety_margin'] / calc['account_balance']) * 100
+            # แสดง Grid Spacing (real-time)
+            actual_spacing = realtime_stats.get('actual_grid_spacing', calc['grid_spacing'])
+            spacing_text = f"📏 Grid Spacing: {actual_spacing} points (${actual_spacing*0.01:.2f}) - LIVE"
+            self.grid_spacing_label.config(text=spacing_text, fg='#51cf66')
             
-        self.safety_margin_label.config(text=f"💪 Safety Margin: ${calc['safety_margin']:,.2f} ({safety_pct:.1f}%)")
-        
-        # Show capital utilization if available
-        if 'capital_utilization' in calc:
-            util_text = f"📊 Capital Used: {calc['capital_utilization']:.1f}%"
-            if calc['capital_utilization'] > 90:
-                util_color = '#ff6b6b'  # Red for high utilization
-            elif calc['capital_utilization'] > 70:
-                util_color = '#ffd43b'  # Yellow for moderate
+            # แสดง Max Levels (real-time count)
+            actual_levels = realtime_stats.get('total_orders', calc['max_levels'])
+            levels_text = f"📈 Active Orders: {actual_levels} (Live count)"
+            self.max_levels_label.config(text=levels_text, fg='#51cf66')
+            
+            # ✅ แสดง Survivability (real-time)
+            actual_survivability = realtime_stats.get('actual_survivability', 0)
+            theoretical_survivability = calc['survivability']
+            target_surv = calc['target_survivability']
+            
+            if actual_survivability > 0:
+                # มีไม้จริง - แสดงค่า real-time
+                if actual_survivability >= target_surv:
+                    surv_color = '#51cf66'  # เขียว
+                    status_emoji = "✅"
+                elif actual_survivability >= target_surv * 0.7:
+                    surv_color = '#ffd43b'  # เหลือง
+                    status_emoji = "⚠️"
+                else:
+                    surv_color = '#ff6b6b'  # แดง
+                    status_emoji = "❌"
+                    
+                surv_text = f"🛡️ LIVE Survivability: {actual_survivability:,.0f} points {status_emoji} | Target: {target_surv:,}"
+                self.survivability_label.config(text=surv_text, fg=surv_color)
             else:
-                util_color = '#51cf66'  # Green for safe
+                # ยังไม่มีไม้ - แสดงค่า theoretical
+                surv_text = f"🛡️ Survivability: {theoretical_survivability:,.0f} points (Calculated) | Target: {target_surv:,}"
+                self.survivability_label.config(text=surv_text, fg='#adb5bd')  # เทา = ยังไม่มีข้อมูลจริง
             
-            # Add utilization label if not exists
+            # ✅ แสดง Capital Usage (real-time)
+            actual_capital_usage = realtime_stats.get('actual_capital_usage', calc.get('capital_utilization', 0))
+            if actual_capital_usage > 90:
+                util_color = '#ff6b6b'
+            elif actual_capital_usage > 70:
+                util_color = '#ffd43b'
+            else:
+                util_color = '#51cf66'
+                
+            util_text = f"📊 LIVE Capital Used: {actual_capital_usage:.1f}%"
+            
             if not hasattr(self, 'utilization_label'):
                 self.utilization_label = tk.Label(
                     self.max_levels_label.master, 
@@ -1095,39 +1064,109 @@ class AIGoldTradingGUI:
                 self.utilization_label.pack(anchor='w', pady=2)
             else:
                 self.utilization_label.config(text=util_text, fg=util_color)
-
-        # 🚀 เพิ่ม Smart Grid Benefits Display
-        if not hasattr(self, 'benefits_label'):
-            self.benefits_label = tk.Label(
-                self.balance_label.master,
-                text="",
-                font=('Arial', 9),
-                fg='#51cf66',
-                bg='#16213e'
-            )
-            self.benefits_label.pack(anchor='w', pady=1)
-        
-        # แสดงประโยชน์ของ Smart Grid
-        benefits_text = "💡 Benefits: 3x faster profits, Self-balancing, No hedge costs, Tighter grid"
-        self.benefits_label.config(text=benefits_text)
-
-        # 🚀 เพิ่ม Smart Grid Efficiency Display
-        if 'smart_grid_efficiency' in calc:
-            if not hasattr(self, 'efficiency_label'):
-                self.efficiency_label = tk.Label(
-                    self.balance_label.master,
-                    text="",
-                    font=('Arial', 9),
-                    fg='#4ecdc4',
-                    bg='#16213e'
-                )
-                self.efficiency_label.pack(anchor='w', pady=1)
+                
+        else:
+            # ยังไม่เริ่ม trading - แสดงค่า calculated
+            if calc.get('lot_size_adjusted', False):
+                lot_text = f"🎯 Lot: {calc['base_lot']:.3f} (Ideal: {calc['ideal_base_lot']:.3f}) ⚠️"
+                lot_color = '#ffd43b'
+            else:
+                lot_text = f"🎯 Base Lot: {calc['base_lot']:.3f} (Calculated)"
+                lot_color = '#ffffff'
+            self.base_lot_label.config(text=lot_text, fg=lot_color)
             
-            efficiency = calc['smart_grid_efficiency']
-            saved_amount = calc.get('capital_saved', 0)
-            efficiency_text = f"⚡ Smart Grid Efficiency: {efficiency:.1f}x | Capital Saved: ${saved_amount:.0f}"
-            self.efficiency_label.config(text=efficiency_text)
+            self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} points (${calc['grid_spacing']*0.01:.2f})")
+            self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']} (Planned)")
+            
+            # Survivability (calculated)
+            theoretical_surv = calc['survivability']
+            realistic_surv = calc.get('realistic_survivability', theoretical_surv)
+            target_surv = calc['target_survivability']
+            
+            if realistic_surv >= target_surv:
+                surv_color = '#51cf66'
+                status_emoji = "✅"
+            elif realistic_surv >= target_surv * 0.8:
+                surv_color = '#ffd43b'
+                status_emoji = "⚠️"
+            else:
+                surv_color = '#ff6b6b'
+                status_emoji = "❌"
+            
+            if realistic_surv != theoretical_surv:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} (Theory: {theoretical_surv:,.0f}) | Target: {target_surv:,.0f}"
+            else:
+                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} | Target: {target_surv:,.0f}"
+            
+            self.survivability_label.config(text=surv_text, fg=surv_color)
+        
+        # แสดง Safety Margin (เหมือนเดิม)
+        safety_pct = calc.get('safety_margin_percentage', 40)
+        self.safety_margin_label.config(text=f"💪 Safety Margin: ${calc['safety_margin']:,.2f} ({safety_pct:.1f}%)")
 
+    def get_realtime_grid_stats(self) -> Dict:
+        """ดึงสถิติ real-time จาก grid trader"""
+        
+        try:
+            if not hasattr(self, 'grid_trader') or not self.grid_trader:
+                return {}
+                
+            current_price = self.grid_trader.get_current_price()
+            
+            # นับไม้จริงที่วางอยู่
+            pending_orders = list(self.grid_trader.pending_orders.values())
+            active_positions = list(self.grid_trader.active_positions.values())
+            
+            if not pending_orders:
+                return {'total_orders': 0, 'actual_survivability': 0}
+            
+            # คำนวณ average lot size
+            total_lot = sum(order.lot_size for order in pending_orders)
+            avg_lot = total_lot / len(pending_orders) if pending_orders else 0
+            
+            # คำนวณ actual grid spacing
+            prices = sorted([order.price for order in pending_orders])
+            if len(prices) >= 2:
+                spacings = [prices[i+1] - prices[i] for i in range(len(prices)-1)]
+                avg_spacing_dollars = sum(spacings) / len(spacings)
+                actual_spacing = int(avg_spacing_dollars / 0.01)  # convert to points
+            else:
+                actual_spacing = self.grid_trader.grid_spacing
+            
+            # คำนวณ actual survivability
+            if len(prices) >= 2:
+                price_range = prices[-1] - prices[0]  # max - min
+                actual_survivability = int(price_range / 0.01)  # convert to points
+            else:
+                actual_survivability = 0
+            
+            # คำนวณ capital usage จริง
+            estimated_margin = total_lot * (200 / 0.01)  # $200 per 0.01 lot
+            account_info = self.grid_trader.mt5_connector.get_account_info()
+            balance = account_info.get('balance', 1000) if account_info else 1000
+            capital_usage = (estimated_margin / balance) * 100
+            
+            # สถิติเพิ่มเติม
+            buy_orders = [o for o in pending_orders if o.direction == "BUY"]
+            sell_orders = [o for o in pending_orders if o.direction == "SELL"]
+            
+            return {
+                'total_orders': len(pending_orders),
+                'active_positions': len(active_positions),
+                'buy_orders': len(buy_orders),
+                'sell_orders': len(sell_orders),
+                'average_lot_size': round(avg_lot, 3),
+                'actual_grid_spacing': actual_spacing,
+                'actual_survivability': actual_survivability,
+                'actual_capital_usage': round(capital_usage, 1),
+                'price_range_dollars': round(prices[-1] - prices[0], 2) if len(prices) >= 2 else 0,
+                'current_price': current_price
+            }
+            
+        except Exception as e:
+            print(f"❌ Real-time stats error: {e}")
+            return {}
+    
     def start_trading(self):
         """Start AI grid trading system - REAL TRADING"""
         if not self.is_connected:
@@ -1306,7 +1345,7 @@ Proceed with emergency stop?"""
     
                 
     def update_trading_display(self, status: Dict):
-        """Update GUI with real-time trading data + Smart Profit Status"""
+        """Update GUI with real-time trading data + Smart Profit Status + Live Grid Stats"""
         try:
             # Update current drawdown display
             current_drawdown = status.get('current_drawdown', 0)
@@ -1334,7 +1373,7 @@ Proceed with emergency stop?"""
                 else:
                     self.next_hedge_label.config(text="⏳ Next Hedge: Max Level")
             
-            # Update position counts and hedge status
+            # ✅ ENHANCED - Update position counts with LIVE GRID STATS
             if not hasattr(self, 'position_count_label'):
                 self.position_count_label = tk.Label(
                     self.current_drawdown_label.master,
@@ -1345,6 +1384,9 @@ Proceed with emergency stop?"""
                 )
                 self.position_count_label.pack(anchor='w', pady=2)
                 
+            # ✅ Get real-time grid statistics
+            realtime_stats = self.get_realtime_grid_stats()
+            
             # Check hedge status from grid trader
             hedge_status = ""
             try:
@@ -1355,14 +1397,37 @@ Proceed with emergency stop?"""
             except Exception as hedge_error:
                 # If hedge check fails, just continue without hedge status
                 pass
-                
-            position_text = f"📈 Positions: {status.get('active_positions', 0)} active, {status.get('pending_orders', 0)} pending{hedge_status}"
-            if not market_open:
-                position_text += " | 🕒 Market Closed - Orders paused"
-                
-            self.position_count_label.config(text=position_text)
             
-            # 🧠 ADD SMART PROFIT STATUS DISPLAY
+            # ✅ Display LIVE GRID STATS or fallback to basic stats
+            if realtime_stats and realtime_stats.get('total_orders', 0) > 0:
+                # Show detailed live stats
+                live_text = (f"📈 LIVE: {realtime_stats['total_orders']} orders "
+                            f"({realtime_stats['buy_orders']}B/{realtime_stats['sell_orders']}S), "
+                            f"{realtime_stats['active_positions']} positions, "
+                            f"Range: {realtime_stats['actual_survivability']:,}pts")
+                
+                # Color based on survivability level
+                if realtime_stats['actual_survivability'] < 2000:
+                    live_color = '#ff6b6b'  # Red - very low
+                elif realtime_stats['actual_survivability'] < 3000:
+                    live_color = '#ffd43b'  # Yellow - low  
+                elif realtime_stats['actual_survivability'] < 5000:
+                    live_color = '#4ecdc4'  # Cyan - good
+                else:
+                    live_color = '#51cf66'  # Green - excellent
+            else:
+                # Fallback to basic stats
+                live_text = f"📈 Positions: {status.get('active_positions', 0)} active, {status.get('pending_orders', 0)} pending"
+                live_color = '#ffffff'
+            
+            # Add hedge and market status
+            live_text += hedge_status
+            if not market_open:
+                live_text += " | 🕒 Market Closed - Orders paused"
+                
+            self.position_count_label.config(text=live_text, fg=live_color)
+            
+            # 🧠 SMART PROFIT STATUS DISPLAY (existing code - no changes)
             if not hasattr(self, 'smart_status_label'):
                 self.smart_status_label = tk.Label(
                     self.current_drawdown_label.master,
@@ -1451,7 +1516,7 @@ Proceed with emergency stop?"""
             
             self.smart_status_label.config(text=smart_text, fg=smart_color)
             
-            # 📊 ADD PROFIT TARGET INFO - SIMPLIFIED VERSION
+            # 📊 PROFIT TARGET INFO - SIMPLIFIED VERSION (existing code - no changes)
             if not hasattr(self, 'target_info_label'):
                 self.target_info_label = tk.Label(
                     self.current_drawdown_label.master,
