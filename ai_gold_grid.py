@@ -185,45 +185,6 @@ class AIGoldGrid:
             print(f"❌ Portfolio analysis error: {e}")
             return {}
 
-    def smart_grid_rebalancing(self):
-        """Smart Grid Rebalancing - แก้ไขให้วางไม้ใกล้ราคาปัจจุบัน"""
-        try:
-            exposure = self.analyze_portfolio_exposure()
-            if not exposure:
-                return
-                
-            current_price = self.get_current_price()
-            
-            # Debug current situation
-            print(f"📊 Smart Grid Rebalancing at ${current_price:.2f}")
-            print(f"   📈 BUY Exposure: {exposure['buy_exposure']:.3f} lots")
-            print(f"   📉 SELL Exposure: {exposure['sell_exposure']:.3f} lots") 
-            print(f"   ⚖️ Balance Ratio: {exposure['balance_ratio']:.2f}")
-            
-            # ✅ FIX: ใช้ระยะห่างใกล้ๆ แทนระยะไกล
-            if exposure['buy_exposure'] == 0 and exposure['sell_exposure'] == 0:
-                print(f"🆕 No positions - adding balanced nearby grid")
-                self.add_balanced_nearby_orders(current_price)
-                return
-            
-            # เกณฑ์ rebalancing (ยังเหมือนเดิม)
-            if exposure['balance_ratio'] > 1.5:
-                # BUY มากเกินไป → เพิ่ม SELL orders ใกล้ๆ
-                self.add_nearby_sell_orders(current_price, exposure['net_exposure'])
-                print(f"⚖️ Rebalancing: Adding nearby SELL orders")
-                
-            elif exposure['balance_ratio'] < 0.67:
-                # SELL มากเกินไป → เพิ่ม BUY orders ใกล้ๆ  
-                self.add_nearby_buy_orders(current_price, abs(exposure['net_exposure']))
-                print(f"⚖️ Rebalancing: Adding nearby BUY orders")
-                
-            elif exposure['is_balanced'] and len(self.pending_orders) < 10:
-                # สมดุลดี แต่ orders น้อย → เพิ่มทั้งสองด้านใกล้ๆ
-                self.add_balanced_nearby_orders(current_price)
-                print(f"📈 Grid expansion: Adding balanced nearby orders")
-                
-        except Exception as e:
-            print(f"❌ Smart rebalancing error: {e}")
 
 
     def add_strategic_sell_orders(self, current_price: float, imbalance_size: float):
@@ -768,92 +729,50 @@ class AIGoldGrid:
             return False
             
     def create_grid_levels(self, direction: GridDirection):
-        """Create grid level structure NEAR current price ONLY - ไม่วางไม้ไกลๆ"""
+        """AI Portfolio: วางไม้เริ่มต้นน้อยๆ แล้วให้ AI จัดการ"""
         self.grid_levels = []
         current_time = datetime.now()
         
-        # 🎯 ใช้ราคาปัจจุบันจริงๆ
         current_price = self.get_current_price()
         if not current_price:
             print("❌ Cannot get current price")
             return
             
         self.starting_price = current_price
-        print(f"💰 Creating grid NEAR current price: ${current_price:.2f}")
+        print(f"🧠 AI Portfolio: Starting with minimal positions at ${current_price:.2f}")
         
-        # 🚀 Smart Grid - วางใกล้ๆ เท่านั้น
-        account_balance = self.survivability_params.get('account_balance', 0)
-        if account_balance >= 10000:
-            smart_spacing = 100  # 100 points spacing
-            max_range = 800      # ไม่เกิน 800 points จาก current
-            max_levels = 8       # 8 levels แต่ละด้าน
-        elif account_balance >= 5000:
-            smart_spacing = 120  
-            max_range = 1000     # ไม่เกิน 1000 points
-            max_levels = 8
-        elif account_balance >= 3000:
-            smart_spacing = 150  
-            max_range = 1200     # ไม่เกิน 1200 points
-            max_levels = 8
-        else:
-            smart_spacing = 200  
-            max_range = 1500     # ไม่เกิน 1500 points (เล็กที่สุด)
-            max_levels = 7
-        
-        print(f"🚀 Smart Grid Config:")
-        print(f"   💰 Balance: ${account_balance:,.0f}")
-        print(f"   📏 Spacing: {smart_spacing} points")
-        print(f"   📊 Max Range: ±{max_range} points from current")
-        print(f"   🎯 Max Levels: {max_levels} each side")
-        
-        # Override grid spacing
-        self.grid_spacing = smart_spacing
-        
+        # 🧠 AI Portfolio: เริ่มแค่ 2 positions (1 BUY + 1 SELL)
         if direction == GridDirection.BIDIRECTIONAL:
-            # สร้าง BUY levels ใกล้ current price เท่านั้น
-            for i in range(1, max_levels + 1):
-                buy_price = current_price - (i * smart_spacing * self.point_value)
-                
-                # ✅ เช็คว่าไม่ไกลเกิน max_range
-                distance_from_current = abs(buy_price - current_price) / self.point_value
-                if distance_from_current <= max_range:
-                    buy_level = GridLevel(
-                        level_id=f"NEAR_BUY_{i}",
-                        price=round(buy_price, 2),
-                        lot_size=self.calculate_level_lot_size(i),
-                        direction="BUY",
-                        status=PositionStatus.PENDING,
-                        entry_time=current_time
-                    )
-                    self.grid_levels.append(buy_level)
-                    print(f"   📉 BUY Level {i}: ${buy_price:.2f} ({distance_from_current:.0f} pts)")
+            # BUY position ใกล้ๆ
+            buy_price = current_price - (300 * 0.01)
+            buy_level = GridLevel(
+            level_id=f"AI_BUY_1",
+            price=round(buy_price, 2),
+            lot_size=self.base_lot,
+            direction="BUY",
+            status=PositionStatus.PENDING,
+            entry_time=current_time
+            )
+            self.grid_levels.append(buy_level)
             
-            # สร้าง SELL levels ใกล้ current price เท่านั้น
-            for i in range(1, max_levels + 1):
-                sell_price = current_price + (i * smart_spacing * self.point_value)
-                
-                # ✅ เช็คว่าไม่ไกลเกิน max_range
-                distance_from_current = abs(sell_price - current_price) / self.point_value
-                if distance_from_current <= max_range:
-                    sell_level = GridLevel(
-                        level_id=f"NEAR_SELL_{i}",
-                        price=round(sell_price, 2),
-                        lot_size=self.calculate_level_lot_size(i),
-                        direction="SELL",
-                        status=PositionStatus.PENDING,
-                        entry_time=current_time
-                    )
-                    self.grid_levels.append(sell_level)
-                    print(f"   📈 SELL Level {i}: ${sell_price:.2f} ({distance_from_current:.0f} pts)")
+            # SELL position ใกล้ๆ  
+            sell_price = current_price + (300 * 0.01)
+            sell_level = GridLevel(
+            level_id=f"AI_SELL_1", 
+            price=round(sell_price, 2),
+            lot_size=self.base_lot,
+            direction="SELL",
+            status=PositionStatus.PENDING,
+            entry_time=current_time
+            )
+            self.grid_levels.append(sell_level)
+            
+            print(f"   📉 BUY: ${buy_price:.2f} ({self.base_lot:.3f} lots)")
+            print(f"   📈 SELL: ${sell_price:.2f} ({self.base_lot:.3f} lots)")
         
-        print(f"✅ Created {len(self.grid_levels)} NEARBY grid levels only")
-        if self.grid_levels:
-            min_price = min(level.price for level in self.grid_levels)
-            max_price = max(level.price for level in self.grid_levels)
-            total_range = (max_price - min_price) / self.point_value
-            print(f"   📊 Range: ${min_price:.2f} - ${max_price:.2f} ({total_range:.0f} points total)")
-        else:
-            print("   ⚠️ No grid levels created!")
+        print(f"🧠 AI Portfolio initialized: {len(self.grid_levels)} starting positions")
+        print(f"   🤖 AI will manage portfolio dynamically")
+
 
     def calculate_level_lot_size(self, level: int) -> float:
         """Calculate lot size for specific grid level with broker validation"""
@@ -1080,51 +999,6 @@ class AIGoldGrid:
         except Exception as e:
             print(f"❌ Grid update error: {e}")
     
-    def analyze_position_imbalance_and_hedge(self):
-        """วิเคราะห์ความไม่สมดุลและทำ Auto Hedge Protection - Enhanced"""
-        try:
-            # ตรวจสอบ market status ก่อน
-            if not self.is_market_open():
-                print("🕒 Market closed - skipping hedge analysis")
-                return
-                
-            # รวบรวม positions (เฉพาะ non-hedge positions)
-            buy_positions = []
-            sell_positions = []
-            
-            for pos_id, grid_level in self.active_positions.items():
-                # ข้าม hedge positions เดิม
-                if "HEDGE" in grid_level.level_id:
-                    continue
-                    
-                if grid_level.direction == "BUY":
-                    buy_positions.append(grid_level)
-                else:
-                    sell_positions.append(grid_level)
-            
-            # เงื่อนไข: ต้องมีความไม่สมดุล
-            buy_count = len(buy_positions)
-            sell_count = len(sell_positions)
-            
-            print(f"📊 Position Analysis: {buy_count} BUY, {sell_count} SELL (excluding existing hedges)")
-            
-            # ✅ เงื่อนไขที่เข้มงวดขึ้น
-            min_positions = 4  # เพิ่มจาก 3 เป็น 4
-            min_difference = 3  # เพิ่มจาก 2 เป็น 3
-            
-            if buy_count >= min_positions and buy_count >= sell_count + min_difference:
-                print(f"🔴 BUY heavily imbalanced: {buy_count} vs {sell_count}")
-                self.create_buy_hedge_protection(buy_positions)
-                
-            elif sell_count >= min_positions and sell_count >= buy_count + min_difference:
-                print(f"🔴 SELL heavily imbalanced: {sell_count} vs {buy_count}")
-                self.create_sell_hedge_protection(sell_positions)
-                
-            else:
-                print("⚖️ Positions balanced or not severe enough for hedge")
-                
-        except Exception as e:
-            print(f"❌ Enhanced hedge analysis error: {e}")
 
     def create_buy_hedge_protection(self, buy_positions: List):
         """สร้าง Hedge Protection สำหรับ BUY positions เยอะ"""
@@ -2504,140 +2378,120 @@ class AIGoldGrid:
             print(f"❌ Error displaying statistics: {e}")
 
     def run_trading_loop(self):
-        """Main trading loop with Smart Profit Management - Enhanced Version"""
+        """AI Portfolio Trading Loop - เรียบง่าย"""
         
         loop_count = 0
         market_check_interval = 60
         last_market_status = self.is_market_open()
-        last_maintenance = datetime.now()
         last_cleanup = datetime.now()
-        last_recovery_check = datetime.now()  # ✅ เพิ่ม
-
+        last_recovery_check = datetime.now()
 
         while self.trading_active and not self.emergency_stop_triggered:
             try:
                 loop_count += 1
                 
-                if (datetime.now() - last_recovery_check).total_seconds() >= 120:  # 2 minutes
+                # Recovery system check
+                if (datetime.now() - last_recovery_check).total_seconds() >= 120:
                     self.check_recovery_system_status()
                     last_recovery_check = datetime.now()
 
-                # Check market status periodically
+                # Market status check
                 if loop_count % market_check_interval == 0:
                     current_market_status = self.is_market_open()
                     
                     if current_market_status != last_market_status:
                         if current_market_status:
-                            print("🟢 Market opened - resuming order placement")
-                            self.place_pending_orders_for_inactive_levels()
+                            print("🟢 Market opened - AI portfolio active")
                         else:
-                            print("🔴 Market closed - pausing new orders (keeping positions)")
-                            
+                            print("🔴 Market closed - monitoring mode")
                         last_market_status = current_market_status
-                    elif loop_count % (market_check_interval * 10) == 0:
-                        if not current_market_status:
-                            print("🕒 Market still closed - monitoring existing positions only")
 
-                # ===== MAINTENANCE SCHEDULES =====
-                
-                # Daily cleanup (ทุก 24 ชั่วโมง)
+                # 🧹 Simple cleanup (ทุก 24 ชั่วโมง)
                 if (datetime.now() - last_cleanup).total_seconds() >= 24 * 3600:
-                    print("🧹 Running daily cleanup...")
                     removed = self.cleanup_far_orders()
-                    if removed > 0:
-                        self.ensure_sufficient_grid_coverage()
+                    print(f"🧹 Daily cleanup: {removed} far orders removed")
                     last_cleanup = datetime.now()
                 
-                # Weekly maintenance (ทุก 7 วัน)
-                if (datetime.now() - last_maintenance).total_seconds() >= 7 * 24 * 3600:
-                    self.weekly_maintenance()
-                    last_maintenance = datetime.now()
-                
-                # Grid extension check (ทุก 5 นาที)
-                if loop_count % 300 == 0:
-                    self.check_grid_triggers()
-                
-                if loop_count % 180 == 0:  # Every 3 minutes
-                    self.analyze_position_imbalance_and_hedge()
-                    self.monitor_hedge_effectiveness()
-
-                # 🔄 AUTO GRID REBALANCING (ทุก 2 นาที) - เพิ่มตรงนี้
-                if loop_count % 120 == 0:  # Every 2 minutes
-                    self.gentle_auto_rebalancing()
-                
-                if loop_count % 60 == 0:  # Every 1 minute
-                    self.smart_grid_rebalancing()
-                # Update current price and price history
+                # 🚀 Core AI Portfolio Management
                 self.update_current_price()
                 
-                # Only process trading logic if market is open
                 if last_market_status:
-                    # Check for filled orders (every loop)
+                    # 1. Check filled orders (every loop)
                     self.check_filled_orders()
                     
-                    # Update position PnL (every loop)
+                    # 2. Update PnL (every loop)
                     self.update_positions_pnl()
                     
-                    # 🧠 SMART PROFIT MANAGEMENT (ทุก 5 วินาที)
+                    # 3. 🧠 AI PORTFOLIO MANAGEMENT (ทุก 10 วินาที)
                     if (hasattr(self, 'smart_profit_enabled') and self.smart_profit_enabled and 
-                        loop_count % 5 == 0):
+                        loop_count % 10 == 0):
                         try:
                             self.smart_profit_manager.run_smart_profit_management()
                         except Exception as smart_error:
-                            print(f"❌ Smart profit management error: {smart_error}")
+                            print(f"❌ AI Portfolio error: {smart_error}")
                     
-                    # Update performance metrics (every 10 loops = ~10 seconds)
-                    if loop_count % 10 == 0:
+                    # 4. Performance metrics (ทุก 30 วินาที)
+                    if loop_count % 30 == 0:
                         self.update_performance_metrics()
                         
-                    # Monitor conditions only - no auto emergency stop
+                    # 5. Emergency monitoring (ทุก 60 วินาที)
                     if loop_count % 60 == 0:
                         self.check_emergency_conditions()
+                        
                 else:
-                    # Market closed - still update PnL for existing positions
+                    # Market closed - อัพเดท PnL อย่างเดียว
                     self.update_positions_pnl()
                     
-                    # 🧠 SMART PROFIT MANAGEMENT (even when market closed - for existing positions)
+                    # AI Portfolio ยังทำงานได้แม้ตลาดปิด
                     if (hasattr(self, 'smart_profit_enabled') and self.smart_profit_enabled and 
-                        loop_count % 10 == 0):  # Every 10 seconds when market closed
+                        loop_count % 30 == 0):
                         try:
                             self.smart_profit_manager.run_smart_profit_management()
                         except Exception as smart_error:
-                            print(f"❌ Smart profit management error (market closed): {smart_error}")
-                    
-                    # Monitor conditions only when market closed
-                    if loop_count % 300 == 0:
-                        self.check_emergency_conditions()
+                            print(f"❌ AI Portfolio error (market closed): {smart_error}")
                 
-                # Log status periodically (every 300 loops = ~5 minutes)
+                # Status logging (ทุก 5 นาที)
                 if loop_count % 300 == 0:
-                    status = self.get_grid_status()
-                    market_emoji = "🟢" if last_market_status else "🔴"
-                    pending_count = len(self.pending_orders)
-                    hedge_count = 1 if self.has_active_hedge() else 0
-                    
-                    # 🧠 เพิ่ม Smart Profit Status ใน log
-                    smart_status = ""
-                    if (hasattr(self, 'smart_profit_enabled') and self.smart_profit_enabled):
-                        try:
-                            profit_status = self.smart_profit_manager.get_profit_management_status()
-                            risk_pct = profit_status.get('risk_percentage', 0)
-                            trailing_count = profit_status.get('trailing_stops_active', 0)
-                            strategy = profit_status.get('strategy', 'N/A')
-                            smart_status = f", Smart: {strategy}, Risk: {risk_pct:.1f}%, Trailing: {trailing_count}"
-                        except Exception as e:
-                            smart_status = ", Smart: Error"
-                    
-                    print(f"📊 Status: {market_emoji} Market, {status['active_positions']} positions, {pending_count} pending, {hedge_count} hedge, PnL: ${status['total_pnl']:.2f}, Drawdown: {status['current_drawdown']:.0f}pts{smart_status}")
+                    self.log_ai_portfolio_status(last_market_status)
                 
                 self.last_update = datetime.now()
                 time.sleep(1)
                 
             except Exception as e:
-                print(f"❌ Trading loop error: {e}")
+                print(f"❌ AI Portfolio loop error: {e}")
                 time.sleep(5)
                 
-        print("🔴 Trading loop ended")
+        print("🔴 AI Portfolio trading loop ended")
+
+    def log_ai_portfolio_status(self, market_open):
+        """Log AI Portfolio status"""
+        try:
+            status = self.get_grid_status()
+            market_emoji = "🟢" if market_open else "🔴"
+            
+            # AI Portfolio specific metrics
+            active_positions = status['active_positions']
+            pending_orders = status['pending_orders']
+            total_pnl = status['total_pnl']
+            drawdown = status['current_drawdown']
+            
+            # Smart Profit Status
+            smart_status = ""
+            if (hasattr(self, 'smart_profit_enabled') and self.smart_profit_enabled):
+                try:
+                    ai_status = self.smart_profit_manager.get_profit_management_status()
+                    health = ai_status.get('portfolio_health', 50)
+                    pairs_found = ai_status.get('profitable_pairs_found', 0)
+                    hedges = ai_status.get('hedge_opportunities', 0)
+                    smart_status = f", AI Health: {health}%, Pairs: {pairs_found}, Hedges: {hedges}"
+                except Exception as e:
+                    smart_status = ", AI: Error"
+            
+            print(f"🧠 AI Portfolio: {market_emoji} Market, {active_positions} positions, {pending_orders} pending, PnL: ${total_pnl:.2f}{smart_status}")
+            
+        except Exception as e:
+            print(f"❌ AI Portfolio status log error: {e}")
+
 
     def check_recovery_system_status(self):
         """ตรวจสอบสถานะ Recovery System และแจ้งเตือน"""
@@ -2962,53 +2816,58 @@ class AIGoldGrid:
             print(f"❌ Hedge placement error: {e}")
             return False
             
-    def check_and_place_smart_hedge(self): 
-        return
-        """Smart hedge system for trend protection"""
+    def get_ai_portfolio_summary(self) -> Dict:
+        """สรุป AI Portfolio performance"""
+        
         try:
-            # Skip if no active positions
-            if len(self.active_positions) == 0:
-                return
+            if not hasattr(self, 'smart_profit_manager'):
+                return {'error': 'AI Portfolio not initialized'}
                 
-            # Calculate net exposure
-            net_exposure = self.calculate_net_exposure()
+            # Get AI status
+            ai_status = self.smart_profit_manager.get_profit_management_status()
+            grid_status = self.get_grid_status()
             
-            # Hedge threshold - เหมาะสำหรับเงินทุนน้อย
-            hedge_threshold = 0.03  # 0.03 lot threshold
+            return {
+                'ai_mode': 'ACTIVE' if self.smart_profit_enabled else 'INACTIVE',
+                'portfolio_health': ai_status.get('portfolio_health', 50),
+                'total_positions': grid_status['active_positions'],
+                'total_pnl': grid_status['total_pnl'],
+                'profitable_pairs_available': ai_status.get('profitable_pairs_found', 0),
+                'hedge_opportunities': ai_status.get('hedge_opportunities', 0),
+                'ai_actions_today': getattr(self, 'ai_actions_count', 0),
+                'last_ai_action': getattr(self, 'last_ai_action_time', 'None'),
+                'performance_score': self.calculate_ai_performance_score(ai_status, grid_status)
+            }
             
-            # Determine if hedge is needed
-            if abs(net_exposure) > hedge_threshold:
-                
-                # Check if already have hedge
-                if self.has_active_hedge():
-                    print(f"🛡️ Hedge already active, skipping")
-                    return
-                    
-                # Calculate hedge size (60% of net exposure)
-                hedge_ratio = 0.6
-                hedge_size = abs(net_exposure) * hedge_ratio
-                
-                # Determine hedge direction (opposite to net exposure)
-                hedge_direction = "BUY" if net_exposure > 0 else "SELL"
-                
-                # Place hedge order
-                success = self.place_hedge_order(hedge_direction, hedge_size)
-                
-                if success:
-                    print(f"🛡️ Smart hedge activated: {hedge_direction} {hedge_size:.3f} lots")
-                    print(f"📊 Protecting against net {net_exposure:.3f} lot exposure")
-                else:
-                    print(f"⚠️ Failed to place hedge for {net_exposure:.3f} exposure")
-                    
-            else:
-                # Check if should close existing hedge
-                if self.has_active_hedge() and abs(net_exposure) < hedge_threshold * 0.5:
-                    self.close_hedge_positions()
-                    print(f"🔄 Hedge closed - exposure normalized")
-                    
         except Exception as e:
-            print(f"❌ Smart hedge error: {e}")
+            return {'error': str(e)}
+
+    def calculate_ai_performance_score(self, ai_status, grid_status) -> int:
+        """คำนวณ AI performance score (0-100)"""
+        
+        try:
+            health = ai_status.get('portfolio_health', 50)
+            pnl = grid_status.get('total_pnl', 0)
+            positions = grid_status.get('active_positions', 0)
             
+            # Base score from portfolio health
+            score = health
+            
+            # Bonus for positive PnL
+            if pnl > 0:
+                score += min(20, pnl)  # Max 20 bonus points
+            
+            # Penalty for too many positions (inefficient)
+            if positions > 10:
+                score -= (positions - 10) * 2  # -2 points per excess position
+                
+            # Bounds
+            return max(0, min(int(score), 100))
+            
+        except Exception as e:
+            print(f"❌ AI performance score error: {e}")
+            return 50
+                
     def close_hedge_positions(self):
         """Close all hedge positions"""
         try:
@@ -3166,42 +3025,6 @@ class AIGoldGrid:
             }
         }
 
-    def gentle_auto_rebalancing(self):
-        """Gentle Auto Rebalancing - ปรับทีละน้อย ไม่รบกวนระบบ"""
-        
-        try:
-            # เช็คว่าผ่านมา 2 นาทีแล้วไหม
-            if (datetime.now() - self.last_rebalance).total_seconds() < 120:
-                return
-                
-            current_analysis = self.analyze_current_grid_distribution()
-            distribution = current_analysis['distribution']
-            current_price = current_analysis['current_price']
-            
-            print(f"🔄 Gentle rebalancing at ${current_price:.2f}")
-            print(f"   Current: Near({distribution['near_buy']}B/{distribution['near_sell']}S), Medium({distribution['medium_buy']}B/{distribution['medium_sell']}S)")
-            
-            changes_made = 0
-            
-            # 1. ลบ orders ที่ไกลมากๆ (>far_zone)
-            very_far_removed = self.remove_very_far_orders(current_price)
-            changes_made += very_far_removed
-            
-            # 2. เพิ่ม orders ในโซนใกล้ถ้าไม่พอ
-            near_added = self.add_near_zone_orders(current_price, distribution)
-            changes_made += near_added
-            
-            # 3. ปรับ medium zone ถ้าจำเป็น
-            medium_adjusted = self.adjust_medium_zone_orders(current_price, distribution)
-            changes_made += medium_adjusted
-            
-            self.last_rebalance = datetime.now()
-            
-            if changes_made > 0:
-                print(f"✅ Gentle rebalancing completed: {changes_made} changes")
-            
-        except Exception as e:
-            print(f"❌ Gentle rebalancing error: {e}")
 
     def remove_very_far_orders(self, current_price: float) -> int:
         """ลบ orders ที่ไกลมากๆ (>far_zone)"""
@@ -3371,9 +3194,8 @@ class AIGoldGrid:
             added_count = 0
             for distance_points in nearby_distances:
                 # คำนวณราคา BUY และ SELL
-                buy_price = current_price - (distance_points * 0.01)
-                sell_price = current_price + (distance_points * 0.01)
-                
+                buy_price = current_price - (300 * 0.01)  # แค่ 50 points
+                sell_price = current_price + (300 * 0.01)  # แค่ 50 points                
                 print(f"   📍 Checking pair @ BUY ${buy_price:.2f} / SELL ${sell_price:.2f}")
                 
                 # เพิ่ม BUY order

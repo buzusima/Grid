@@ -187,18 +187,18 @@ class SmartProfitManager:
         return False
     
     def analyze_portfolio_positions(self) -> Dict:
-        """Analyze entire portfolio including hedge positions"""
+        """AI Portfolio Analysis - ทับของเดิมเลย"""
         
         try:
             # Get all positions from MT5
             positions = mt5.positions_get(symbol=self.grid_system.gold_symbol)
             if not positions:
-                return {'total_positions': 0, 'analysis': 'No positions'}
+                return {'total_positions': 0, 'grid_positions': [], 'total_pnl': 0}
                 
             # Filter our positions
             our_positions = [pos for pos in positions if pos.magic == self.grid_system.magic_number]
             
-            # Categorize positions
+            # Create SmartPosition objects
             grid_positions = []
             hedge_positions = []
             
@@ -212,126 +212,237 @@ class SmartProfitManager:
                     current_price=pos.price_current,
                     entry_time=datetime.fromtimestamp(pos.time),
                     pnl=pos.profit,
-                    is_hedge="HEDGE" in pos.comment
+                    is_hedge="HEDGE" in pos.comment if hasattr(pos, 'comment') else False
                 )
                 
                 if smart_pos.is_hedge:
                     hedge_positions.append(smart_pos)
                 else:
                     grid_positions.append(smart_pos)
-                    
-            # Calculate portfolio metrics
+            
+            # Calculate metrics
             total_pnl = sum(pos.pnl for pos in grid_positions + hedge_positions)
-            total_lots = sum(pos.lot_size for pos in grid_positions)
-            hedge_lots = sum(pos.lot_size for pos in hedge_positions)
             
-            # Net exposure calculation
-            buy_lots = sum(pos.lot_size for pos in grid_positions if pos.direction == "BUY")
-            sell_lots = sum(pos.lot_size for pos in grid_positions if pos.direction == "SELL")
-            net_exposure = buy_lots - sell_lots
+            # Portfolio scoring
+            profitable_positions = [p for p in grid_positions if p.pnl > 0]
+            losing_positions = [p for p in grid_positions if p.pnl < 0]
             
-            # Hedge effectiveness
-            hedge_coverage = min(abs(hedge_lots / net_exposure) if net_exposure != 0 else 0, 1.0)
-            
-            # Risk assessment
-            account_info = self.grid_system.mt5_connector.get_account_info()
-            balance = account_info.get('balance', 1000) if account_info else 1000
-            risk_percentage = abs(total_pnl / balance) * 100 if balance > 0 else 0
+            print(f"📊 Portfolio: {len(grid_positions)} total, {len(profitable_positions)} profit, {len(losing_positions)} loss")
             
             return {
                 'total_positions': len(grid_positions),
-                'hedge_positions': len(hedge_positions),
+                'hedge_positions': len(hedge_positions), 
                 'total_pnl': round(total_pnl, 2),
-                'total_lots': round(total_lots, 3),
-                'hedge_lots': round(hedge_lots, 3),
-                'net_exposure': round(net_exposure, 3),
-                'hedge_coverage': round(hedge_coverage * 100, 1),
-                'risk_percentage': round(risk_percentage, 2),
                 'grid_positions': grid_positions,
                 'hedge_positions': hedge_positions,
-                'balance': balance
+                'profitable_count': len(profitable_positions),
+                'losing_count': len(losing_positions),
+                'balance': self.get_account_balance(),
+                'analysis_time': datetime.now().isoformat()
             }
             
         except Exception as e:
             print(f"❌ Portfolio analysis error: {e}")
             return {'error': str(e)}
+    
+    def get_account_balance(self) -> float:
+        """ดึง account balance"""
+        try:
+            account_info = self.grid_system.mt5_connector.get_account_info()
+            return account_info.get('balance', 1000) if account_info else 1000
+        except:
+            return 1000
+
+    def get_profit_management_status(self) -> Dict:
+        """AI Portfolio Status - ทับของเดิมเลย"""
+        
+        try:
+            portfolio = self.analyze_portfolio_positions()
             
-    def update_trailing_stops(self, portfolio_analysis: Dict):
-        """Update trailing stops for profitable positions"""
-        
-        if 'grid_positions' not in portfolio_analysis:
-            return
+            if 'error' in portfolio:
+                return {'error': portfolio['error']}
             
-        for position in portfolio_analysis['grid_positions']:
-            try:
-                # Skip if not profitable enough for trailing
-                if position.pnl < self.min_profit_for_trailing:
-                    continue
-                    
-                # Calculate trailing stop price
-                current_price = position.current_price
-                
-                if position.direction == "BUY":
-                    # BUY position - trailing stop below current price
-                    proposed_stop = current_price - (self.trailing_stop_distance * 0.01)
-                    
-                    # Update trailing stop if price moved favorably
-                    if (position.trailing_stop_price is None or 
-                        proposed_stop > position.trailing_stop_price):
-                        position.trailing_stop_price = proposed_stop
-                        print(f"📈 Updated BUY trailing stop: {position.position_id} @ {proposed_stop:.2f}")
-                        
-                else:  # SELL position
-                    # SELL position - trailing stop above current price
-                    proposed_stop = current_price + (self.trailing_stop_distance * 0.01)
-                    
-                    # Update trailing stop if price moved favorably
-                    if (position.trailing_stop_price is None or 
-                        proposed_stop < position.trailing_stop_price):
-                        position.trailing_stop_price = proposed_stop
-                        print(f"📉 Updated SELL trailing stop: {position.position_id} @ {proposed_stop:.2f}")
-                        
-                # Track maximum profit seen
-                position.max_profit_seen = max(position.max_profit_seen, position.pnl)
-                
-            except Exception as e:
-                print(f"❌ Trailing stop update error for {position.position_id}: {e}")
-                
-    def check_trailing_stop_triggers(self, portfolio_analysis: Dict) -> List[Tuple[SmartPosition, CloseReason]]:
-        """Check if any trailing stops should be triggered"""
-        
-        positions_to_close = []
-        
-        if 'grid_positions' not in portfolio_analysis:
-            return positions_to_close
+            positions = portfolio.get('grid_positions', [])
             
-        current_price = self.grid_system.get_current_price()
+            # AI Portfolio metrics
+            buy_positions = [p for p in positions if p.direction == "BUY"]
+            sell_positions = [p for p in positions if p.direction == "SELL"]
+            
+            # Find best opportunities
+            profitable_pairs = self.find_profitable_pairs(positions)
+            hedge_opportunities = self.find_hedge_opportunities(positions)
+            
+            # Portfolio health score (0-100)
+            health_score = self.calculate_portfolio_health_score(portfolio)
+            
+            return {
+                'strategy': f"AI_PORTFOLIO_{self.default_strategy.value}",
+                'total_positions': portfolio.get('total_positions', 0),
+                'buy_positions': len(buy_positions),
+                'sell_positions': len(sell_positions),
+                'hedge_positions': portfolio.get('hedge_positions', 0),
+                'total_pnl': portfolio.get('total_pnl', 0),
+                'profitable_pairs_found': len(profitable_pairs),
+                'hedge_opportunities': len(hedge_opportunities),
+                'portfolio_health': health_score,
+                'trailing_stops_active': 0,  # ไม่ใช้ trailing stops แล้ว
+                'risk_percentage': abs(portfolio.get('total_pnl', 0)) / portfolio.get('balance', 1000) * 100,
+                'ai_mode': 'ACTIVE',
+                'last_update': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {'error': str(e)}
+
+    def calculate_portfolio_health_score(self, portfolio) -> int:
+        """คำนวณ portfolio health score (0-100)"""
         
-        for position in portfolio_analysis['grid_positions']:
-            try:
-                if position.trailing_stop_price is None:
-                    continue
-                    
-                should_close = False
+        try:
+            total_pnl = portfolio.get('total_pnl', 0)
+            total_positions = portfolio.get('total_positions', 0)
+            profitable_count = portfolio.get('profitable_count', 0)
+            losing_count = portfolio.get('losing_count', 0)
+            balance = portfolio.get('balance', 1000)
+            
+            # Base score
+            health_score = 50
+            
+            # PnL factor
+            pnl_ratio = total_pnl / balance * 100
+            if pnl_ratio > 5:
+                health_score += 30  # Very good
+            elif pnl_ratio > 0:
+                health_score += 15  # Good
+            elif pnl_ratio > -5:
+                health_score += 0   # Neutral
+            elif pnl_ratio > -15:
+                health_score -= 20  # Bad
+            else:
+                health_score -= 40  # Very bad
+            
+            # Position balance factor
+            if total_positions > 0:
+                balance_ratio = abs(profitable_count - losing_count) / total_positions
+                if balance_ratio < 0.3:
+                    health_score += 20  # Well balanced
+                elif balance_ratio < 0.6:
+                    health_score += 10  # Moderately balanced
+                else:
+                    health_score -= 10  # Imbalanced
+            
+            # Bounds
+            health_score = max(0, min(health_score, 100))
+            
+            return int(health_score)
+            
+        except Exception as e:
+            print(f"❌ Health score calculation error: {e}")
+            return 50
+
+    def identify_profit_opportunities(self, portfolio_analysis: Dict) -> List:
+        """AI หาโอกาสทำกำไร - ทับของเดิมเลย"""
+        
+        opportunities = []
+        
+        try:
+            positions = portfolio_analysis.get('grid_positions', [])
+            total_pnl = portfolio_analysis.get('total_pnl', 0)
+            
+            # 1. หาคู่ที่ควรปิด
+            profitable_pairs = self.find_profitable_pairs(positions)
+            for pair in profitable_pairs:
+                opportunities.append({
+                    'type': 'PAIR_CLOSE',
+                    'priority': 'HIGH',
+                    'expected_profit': pair['net_profit'],
+                    'action': f"Close pair: {pair['losing_position'].position_id} + {pair['profit_position'].position_id}",
+                    'data': pair
+                })
+            
+            # 2. หา hedge opportunities
+            if total_pnl < -20:
+                hedge_ops = self.find_hedge_opportunities(positions)
+                for hedge in hedge_ops:
+                    opportunities.append({
+                        'type': 'HEDGE_PLACEMENT',
+                        'priority': 'MEDIUM', 
+                        'expected_profit': abs(hedge['target_loss']) * 0.3,  # คาดว่าจะลดขาดทุน 30%
+                        'action': f"Place {hedge['direction']} hedge {hedge['lot_size']} lots",
+                        'data': hedge
+                    })
+            
+            # 3. Portfolio rebalancing
+            buy_count = len([p for p in positions if p.direction == "BUY"])
+            sell_count = len([p for p in positions if p.direction == "SELL"])
+            if abs(buy_count - sell_count) > 2:
+                opportunities.append({
+                    'type': 'REBALANCE',
+                    'priority': 'LOW',
+                    'expected_profit': 5,  # Expected small profit from balance
+                    'action': f"Add {'SELL' if buy_count > sell_count else 'BUY'} order for balance",
+                    'data': {'imbalance': abs(buy_count - sell_count)}
+                })
+            
+            # Sort by priority and expected profit
+            priority_order = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
+            opportunities.sort(key=lambda x: (priority_order[x['priority']], x['expected_profit']), reverse=True)
+            
+            return opportunities[:5]  # Top 5 opportunities
+            
+        except Exception as e:
+            print(f"❌ Identify opportunities error: {e}")
+            return []
+
+    def execute_smart_close(self, position, reason, details: Dict) -> bool:
+        """AI Smart Close - ทับของเดิมเลย (เรียบง่าย)"""
+        
+        try:
+            # ปิดทั้งหมดเลย (ไม่มี partial close ให้ซับซ้อน)
+            success = self.close_entire_position(position)
+            
+            if success:
+                print(f"✅ AI Close: {position.position_id} - ${position.pnl:.2f} - Reason: {reason.value if hasattr(reason, 'value') else reason}")
                 
-                if position.direction == "BUY":
-                    # BUY position - close if price falls below trailing stop
-                    if current_price <= position.trailing_stop_price:
-                        should_close = True
-                        
-                else:  # SELL position
-                    # SELL position - close if price rises above trailing stop
-                    if current_price >= position.trailing_stop_price:
-                        should_close = True
-                        
-                if should_close:
-                    positions_to_close.append((position, CloseReason.TRAILING_STOP))
-                    print(f"🎯 Trailing stop triggered: {position.position_id} @ {current_price:.2f}")
-                    
-            except Exception as e:
-                print(f"❌ Trailing stop check error for {position.position_id}: {e}")
+                # วางไม้ใหม่ทดแทนทันที
+                self.place_smart_replacement_after_close(position)
                 
-        return positions_to_close
+                return True
+            else:
+                print(f"❌ AI Close failed: {position.position_id}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Smart close error: {e}")
+            return False
+
+    def place_smart_replacement_after_close(self, closed_position):
+        """วางไม้ใหม่อัจฉริยะหลังปิด"""
+        
+        try:
+            current_price = self.grid_system.get_current_price()
+            
+            # AI ตัดสินใจตำแหน่งใหม่
+            if closed_position.pnl > 0:
+                # ปิดได้กำไร = วางใกล้ๆ เดิม (คาดว่าจะได้กำไรต่อ)
+                distance = 150  # 150 points
+            else:
+                # ปิดขาดทุน = วางไกลออกไปหน่อย (ให้เวลา market ปรับตัว)
+                distance = 250  # 250 points
+                
+            if closed_position.direction == "BUY":
+                new_price = current_price - (distance * 0.01)
+                new_direction = "BUY"
+            else:
+                new_price = current_price + (distance * 0.01) 
+                new_direction = "SELL"
+            
+            # วางไม้ใหม่
+            success = self.place_single_replacement_order(new_direction, new_price, closed_position.lot_size)
+            if success:
+                print(f"   🔄 AI Replacement: {new_direction} @ ${new_price:.2f} (distance: {distance}pts)")
+            
+        except Exception as e:
+            print(f"❌ Smart replacement error: {e}")
         
     def identify_profit_opportunities(self, portfolio_analysis: Dict) -> List[Tuple[SmartPosition, CloseReason, Dict]]:
         """Identify positions ready for profit taking"""
@@ -552,95 +663,267 @@ class SmartProfitManager:
         except Exception as e:
             print(f"❌ Full close error: {e}")
             return False
-            
-    def partial_close_position(self, position: SmartPosition, close_volume: float) -> bool:
-        """Partially close position"""
-        
-        try:
-            # Round close volume to valid step
-            symbol_info = self.grid_system.symbol_info
-            volume_step = symbol_info.get('volume_step', 0.01)
-            close_volume = round(close_volume / volume_step) * volume_step
-            
-            # Ensure minimum volume
-            if close_volume < symbol_info.get('volume_min', 0.01):
-                close_volume = symbol_info.get('volume_min', 0.01)
-                
-            # Don't close more than available
-            close_volume = min(close_volume, position.lot_size)
-            
-            # Get current tick
-            tick = mt5.symbol_info_tick(self.grid_system.gold_symbol)
-            if not tick:
-                return False
-                
-            # Determine close parameters
-            if position.direction == "BUY":
-                trade_type = mt5.ORDER_TYPE_SELL
-                price = tick.bid
-            else:
-                trade_type = mt5.ORDER_TYPE_BUY
-                price = tick.ask
-                
-            # Partial close request
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.grid_system.gold_symbol,
-                "volume": close_volume,
-                "type": trade_type,
-                "position": position.position_id,
-                "price": price,
-                "deviation": 20,
-                "magic": self.grid_system.magic_number,
-                "comment": f"SmartProfit_Partial_{close_volume}",
-                "type_filling": self.grid_system.close_filling_mode
-            }
-            
-            result = mt5.order_send(request)
-            return result and result.retcode == mt5.TRADE_RETCODE_DONE
-            
-        except Exception as e:
-            print(f"❌ Partial close error: {e}")
-            return False
-            
+                        
     def run_smart_profit_management(self):
-        """Main function to run smart profit management"""
+        """AI Portfolio Management - ทับของเดิมเลย"""
         
         try:
-            # 1. Analyze entire portfolio
-            portfolio_analysis = self.analyze_portfolio_positions()
-            
-            if 'error' in portfolio_analysis:
+            # 1. วิเคราะห์ positions ทั้งหมด
+            portfolio = self.analyze_portfolio_positions()
+            if 'error' in portfolio or portfolio.get('total_positions', 0) == 0:
                 return
                 
-            # 2. Update trailing stops
-            self.update_trailing_stops(portfolio_analysis)
+            positions = portfolio.get('grid_positions', [])
+            total_pnl = portfolio.get('total_pnl', 0)
             
-            # 3. Check trailing stop triggers
-            trailing_stops = self.check_trailing_stop_triggers(portfolio_analysis)
+            print(f"🧠 AI Portfolio: {len(positions)} positions, Total PnL: ${total_pnl:.2f}")
             
-            # 4. Execute trailing stop closes
-            for position, reason in trailing_stops:
-                self.execute_smart_close(position, reason, {'close_percentage': 100})
+            # 2. หาคู่ที่ควรปิดเพื่อทำกำไร
+            profitable_pairs = self.find_profitable_pairs(positions)
+            if profitable_pairs:
+                print(f"💰 Found {len(profitable_pairs)} profitable pairs")
+                self.execute_pair_closes(profitable_pairs)
+            
+            # 3. หา hedge สำหรับ positions ที่ขาดทุนมาก  
+            if total_pnl < -30:  # ขาดทุนเกิน $30
+                hedge_opportunities = self.find_hedge_opportunities(positions)
+                if hedge_opportunities:
+                    print(f"🛡️ Found {len(hedge_opportunities)} hedge opportunities")
+                    self.execute_smart_hedges(hedge_opportunities)
+            
+            # 4. ปรับ portfolio สมดุล
+            self.rebalance_portfolio_if_needed(positions)
+            
+            # 5. Portfolio recovery ถ้าขาดทุนมาก
+            if self.recovery_enabled and total_pnl <= self.recovery_trigger_loss:
+                self.check_and_run_recovery(portfolio)
                 
-            # 5. Identify profit opportunities
-            profit_opportunities = self.identify_profit_opportunities(portfolio_analysis)
-            
-            # 6. Execute profit taking
-            for position, reason, details in profit_opportunities:
-                self.execute_smart_close(position, reason, details)
-                
-            # 7. Log portfolio status periodically
-            if len(portfolio_analysis.get('grid_positions', [])) > 0:
-                self.log_portfolio_status(portfolio_analysis)
-            
-            # ✅Portfolio Recovery (Optional)
-            if self.recovery_enabled:
-                self.check_and_run_recovery(portfolio_analysis)    
-        
         except Exception as e:
-            print(f"❌ Smart profit management error: {e}")
+            print(f"❌ AI Portfolio management error: {e}")
+    
+    def find_profitable_pairs(self, positions):
+        """หาคู่ positions ที่ปิดแล้วได้กำไรสุทธิ"""
+        
+        try:
+            profitable_pairs = []
+            losing_positions = [p for p in positions if p.pnl < -1]  # ขาดทุน > $1
+            profit_positions = [p for p in positions if p.pnl > 1]   # กำไร > $1
             
+            for losing_pos in losing_positions:
+                for profit_pos in profit_positions:
+                    net_pnl = losing_pos.pnl + profit_pos.pnl
+                    
+                    # ได้กำไรสุทธิ $3+ ถึงจะปิด
+                    if net_pnl >= 3:
+                        pair = {
+                            'losing_position': losing_pos,
+                            'profit_position': profit_pos,
+                            'net_profit': net_pnl,
+                            'priority': abs(losing_pos.pnl) + profit_pos.pnl  # ยิ่งขาดทุนมาก priority สูง
+                        }
+                        profitable_pairs.append(pair)
+            
+            # เรียงตาม priority
+            profitable_pairs.sort(key=lambda x: x['priority'], reverse=True)
+            
+            # เลือกคู่ที่ไม่ซ้ำ
+            selected_pairs = []
+            used_positions = set()
+            
+            for pair in profitable_pairs:
+                losing_id = pair['losing_position'].position_id
+                profit_id = pair['profit_position'].position_id
+                
+                if losing_id not in used_positions and profit_id not in used_positions:
+                    selected_pairs.append(pair)
+                    used_positions.add(losing_id)
+                    used_positions.add(profit_id)
+                    
+                    if len(selected_pairs) >= 2:  # ไม่เกิน 2 คู่ต่อครั้ง
+                        break
+            
+            return selected_pairs
+            
+        except Exception as e:
+            print(f"❌ Find pairs error: {e}")
+            return []
+
+    def execute_pair_closes(self, pairs):
+        """ปิดคู่ positions ที่ได้กำไรสุทธิ"""
+        
+        for pair in pairs:
+            try:
+                losing_pos = pair['losing_position']
+                profit_pos = pair['profit_position']
+                net_profit = pair['net_profit']
+                
+                print(f"💰 Closing pair: Loss ${losing_pos.pnl:.2f} + Profit ${profit_pos.pnl:.2f} = +${net_profit:.2f}")
+                
+                # ปิด position แรก
+                success1 = self.close_entire_position(losing_pos)
+                if success1:
+                    time.sleep(0.5)  # รอสักครู่
+                    
+                    # ปิด position ที่สอง
+                    success2 = self.close_entire_position(profit_pos)
+                    if success2:
+                        print(f"   ✅ Pair closed successfully: +${net_profit:.2f}")
+                        
+                        # วางไม้ใหม่ทดแทน
+                        self.place_replacement_orders_after_pair_close(losing_pos, profit_pos)
+                    else:
+                        print(f"   ⚠️ Second position failed to close")
+                else:
+                    print(f"   ❌ First position failed to close")
+                    
+            except Exception as e:
+                print(f"❌ Pair close error: {e}")
+
+    def find_hedge_opportunities(self, positions):
+        """หาโอกาส hedge สำหรับ positions ที่ขาดทุนมาก"""
+        
+        try:
+            hedge_opportunities = []
+            heavy_losers = [p for p in positions if p.pnl < -10]  # ขาดทุนเกิน $10
+            
+            if not heavy_losers:
+                return []
+            
+            # จัดกลุ่มตาม direction
+            losing_buys = [p for p in heavy_losers if p.direction == "BUY"]
+            losing_sells = [p for p in heavy_losers if p.direction == "SELL"]
+            
+            # Hedge BUY positions ที่ขาดทุน
+            if losing_buys:
+                total_buy_loss = sum(p.pnl for p in losing_buys)
+                total_buy_lots = sum(p.lot_size for p in losing_buys)
+                
+                hedge_opportunities.append({
+                    'type': 'SELL_HEDGE',
+                    'direction': 'SELL',
+                    'lot_size': round(total_buy_lots * 0.6, 3),  # 60% hedge
+                    'target_loss': total_buy_loss,
+                    'target_positions': losing_buys
+                })
+            
+            # Hedge SELL positions ที่ขาดทุน
+            if losing_sells:
+                total_sell_loss = sum(p.pnl for p in losing_sells)
+                total_sell_lots = sum(p.lot_size for p in losing_sells)
+                
+                hedge_opportunities.append({
+                    'type': 'BUY_HEDGE',
+                    'direction': 'BUY',
+                    'lot_size': round(total_sell_lots * 0.6, 3),  # 60% hedge
+                    'target_loss': total_sell_loss,
+                    'target_positions': losing_sells
+                })
+            
+            return hedge_opportunities
+            
+        except Exception as e:
+            print(f"❌ Find hedge opportunities error: {e}")
+            return []
+
+    def execute_smart_hedges(self, hedge_opportunities):
+        """วาง smart hedges"""
+        
+        for hedge in hedge_opportunities:
+            try:
+                direction = hedge['direction']
+                lot_size = hedge['lot_size']
+                target_loss = hedge['target_loss']
+                
+                print(f"🛡️ Placing {direction} hedge: {lot_size} lots for ${target_loss:.2f} loss")
+                
+                # ใช้ method ที่มีอยู่แล้ว
+                success = self.grid_system.place_hedge_order(direction, lot_size)
+                if success:
+                    print(f"   ✅ {direction} hedge placed successfully")
+                else:
+                    print(f"   ❌ Failed to place {direction} hedge")
+                    
+            except Exception as e:
+                print(f"❌ Execute hedge error: {e}")
+
+    def place_replacement_orders_after_pair_close(self, closed_pos1, closed_pos2):
+        """วางไม้ใหม่หลังปิดคู่"""
+        
+        try:
+            current_price = self.grid_system.get_current_price()
+            
+            # วางไม้ BUY และ SELL ใหม่ใกล้ current price
+            buy_price = current_price - (200 * 0.01)   # 200 points ลง
+            sell_price = current_price + (200 * 0.01)  # 200 points ขึ้น
+            
+            avg_lot = (closed_pos1.lot_size + closed_pos2.lot_size) / 2
+            
+            # วางไม้ทดแทน
+            self.place_single_replacement_order("BUY", buy_price, avg_lot)
+            self.place_single_replacement_order("SELL", sell_price, avg_lot)
+            
+            print(f"   🔄 Replacement orders placed: BUY @ ${buy_price:.2f}, SELL @ ${sell_price:.2f}")
+            
+        except Exception as e:
+            print(f"❌ Replacement orders error: {e}")
+
+    def place_single_replacement_order(self, direction, price, lot_size):
+        """วางไม้เดียวทดแทน"""
+        
+        try:
+            from ai_gold_grid import GridLevel, PositionStatus
+            
+            new_level = GridLevel(
+                level_id=f"AI_REPLACE_{direction}_{int(time.time())}",
+                price=round(price, 2),
+                lot_size=round(lot_size, 3),
+                direction=direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            order_result = self.grid_system.place_pending_order(new_level)
+            if order_result:
+                new_level.order_id = order_result
+                self.grid_system.grid_levels.append(new_level)
+                self.grid_system.pending_orders[order_result] = new_level
+                return True
+            
+        except Exception as e:
+            print(f"❌ Place replacement error: {e}")
+        return False
+
+    def rebalance_portfolio_if_needed(self, positions):
+        """ปรับ portfolio ให้สมดุลถ้าจำเป็น"""
+        
+        try:
+            buy_positions = [p for p in positions if p.direction == "BUY"]
+            sell_positions = [p for p in positions if p.direction == "SELL"]
+            
+            buy_count = len(buy_positions)
+            sell_count = len(sell_positions)
+            
+            print(f"⚖️ Portfolio balance: {buy_count} BUY, {sell_count} SELL")
+            
+            # ถ้า imbalance มาก (ต่างกัน > 3 positions)
+            if abs(buy_count - sell_count) > 3:
+                current_price = self.grid_system.get_current_price()
+                
+                if buy_count > sell_count:
+                    # เพิ่ม SELL order
+                    sell_price = current_price + (150 * 0.01)  # 150 points ขึ้น
+                    self.place_single_replacement_order("SELL", sell_price, self.grid_system.base_lot)
+                    print(f"   📈 Added SELL order @ ${sell_price:.2f} for balance")
+                    
+                else:
+                    # เพิ่ม BUY order  
+                    buy_price = current_price - (150 * 0.01)   # 150 points ลง
+                    self.place_single_replacement_order("BUY", buy_price, self.grid_system.base_lot)
+                    print(f"   📉 Added BUY order @ ${buy_price:.2f} for balance")
+            
+        except Exception as e:
+            print(f"❌ Rebalance portfolio error: {e}")
+
     def log_portfolio_status(self, portfolio_analysis: Dict):
         """Log current portfolio status"""
         

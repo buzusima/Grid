@@ -2,11 +2,11 @@
   "magic_number": 77743410,
   "account_login": 2043410,
   "base_lot": 0.01,
-  "grid_spacing": 150,
+  "grid_spacing": 600,
   "max_levels": 17,
-  "starting_price": 3376.86,
+  "starting_price": 3373.78,
   "survivability": 3000,
   "gold_symbol": "XAUUSD.v",
-  "created_timestamp": "2025-08-06T13:45:56.837116",
+  "created_timestamp": "2025-08-07T01:47:31.796481",
   "version": "1.0"
 }

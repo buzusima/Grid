@@ -300,12 +300,60 @@ class AIGoldTradingGUI:
             font=('Arial', 9), fg='#adb5bd', bg='#16213e'
         )
         self.portfolio_status_label.pack(side=tk.RIGHT)
+    
+    def force_ai_rebalance(self):
+        """บังคับให้ AI rebalance portfolio ทันที"""
+        try:
+            if not hasattr(self, 'grid_trader') or not self.grid_trader:
+                self.log_message("⚠️ Start AI Portfolio first", "WARNING")
+                return
+                
+            if hasattr(self.grid_trader, 'smart_profit_manager'):
+                self.grid_trader.smart_profit_manager.run_smart_profit_management()
+                self.log_message("⚖️ AI rebalance forced", "SUCCESS")
+                self.ai_status_display.config(text="🤖 AI: Rebalancing...", fg='#ffd43b')
+                
+                # Reset status after 3 seconds
+                self.root.after(3000, lambda: self.ai_status_display.config(
+                    text="🤖 AI Portfolio: Active", fg='#4ecdc4'
+                ))
+            else:
+                self.log_message("⚠️ AI Portfolio Manager not available", "WARNING")
+                
+        except Exception as e:
+            self.log_message(f"❌ AI rebalance error: {e}", "ERROR")
+
+    def run_ai_optimization(self):
+        """รัน AI optimization"""
+        try:
+            if not hasattr(self, 'grid_trader') or not self.grid_trader:
+                self.log_message("⚠️ Start AI Portfolio first", "WARNING")
+                return
+                
+            # Run multiple AI cycles for optimization
+            if hasattr(self.grid_trader, 'smart_profit_manager'):
+                for i in range(3):  # รัน 3 รอบ
+                    self.grid_trader.smart_profit_manager.run_smart_profit_management()
+                    time.sleep(1)
+                    
+                self.log_message("🚀 AI optimization completed", "SUCCESS")
+                self.ai_status_display.config(text="🚀 AI: Optimized!", fg='#51cf66')
+                
+                # Reset status after 5 seconds
+                self.root.after(5000, lambda: self.ai_status_display.config(
+                    text="🤖 AI Portfolio: Active", fg='#4ecdc4'
+                ))
+            else:
+                self.log_message("⚠️ AI Portfolio Manager not available", "WARNING")
+                
+        except Exception as e:
+            self.log_message(f"❌ AI optimization error: {e}", "ERROR")
 
     def create_merged_control_section(self, parent):
-        """รวม Trading Controls + Smart Profit + Recovery ในกรอบเดียว"""
+        """รวม Trading Controls + AI Portfolio Management"""
         control_frame = tk.LabelFrame(
             parent,
-            text="🎮 Trading Controls + Smart Profit + Recovery System",
+            text="🧠 AI Portfolio Trading Controls + Smart Management",
             font=('Arial', 10, 'bold'),
             fg='#ffd700',
             bg='#16213e',
@@ -319,16 +367,16 @@ class AIGoldTradingGUI:
         btn_row.pack(fill=tk.X, pady=5, padx=5)
         
         self.start_btn = tk.Button(
-            btn_row, text="🚀 Start AI Grid",
+            btn_row, text="🧠 Start AI Portfolio",
             font=('Arial', 10, 'bold'), bg='#51cf66', fg='#1a1a2e',
-            relief='raised', bd=2, width=15, command=self.start_trading
+            relief='raised', bd=2, width=18, command=self.start_trading
         )
         self.start_btn.pack(side=tk.LEFT, padx=2)
         
         self.stop_btn = tk.Button(
-            btn_row, text="⏹️ Stop Trading",
+            btn_row, text="⏹️ Stop AI Trading",
             font=('Arial', 10, 'bold'), bg='#ff6b6b', fg='#ffffff',
-            relief='raised', bd=2, width=15, command=self.stop_trading, state='disabled'
+            relief='raised', bd=2, width=18, command=self.stop_trading, state='disabled'
         )
         self.stop_btn.pack(side=tk.LEFT, padx=2)
         
@@ -339,60 +387,59 @@ class AIGoldTradingGUI:
         )
         self.emergency_btn.pack(side=tk.LEFT, padx=2)
         
-        # Current Status Display (Right side of main buttons)
-        self.smart_status_display = tk.Label(
-            btn_row, text="🤖 Smart: Ready | 💊 Recovery: Ready",
+        # AI Status Display (Right side)
+        self.ai_status_display = tk.Label(
+            btn_row, text="🤖 AI Portfolio: Ready to start",
             font=('Arial', 9), fg='#4ecdc4', bg='#16213e'
         )
-        self.smart_status_display.pack(side=tk.RIGHT, padx=10)
+        self.ai_status_display.pack(side=tk.RIGHT, padx=10)
         
-        # Row 2: Smart Profit + Recovery Controls
-        controls_row = tk.Frame(control_frame, bg='#16213e')
-        controls_row.pack(fill=tk.X, pady=5, padx=5)
+        # Row 2: AI Portfolio Controls
+        ai_controls_row = tk.Frame(control_frame, bg='#16213e')
+        ai_controls_row.pack(fill=tk.X, pady=5, padx=5)
         
-        # Smart Profit Section (Left)
-        smart_frame = tk.Frame(controls_row, bg='#16213e', relief='groove', bd=1)
-        smart_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        # AI Portfolio Section (Left)
+        ai_frame = tk.Frame(ai_controls_row, bg='#16213e', relief='groove', bd=1)
+        ai_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
         
-        tk.Label(smart_frame, text="🧠 Smart Profit", 
+        tk.Label(ai_frame, text="🧠 AI Portfolio Management", 
                 font=('Arial', 9, 'bold'), fg='#4ecdc4', bg='#16213e').pack()
         
-        smart_btn_row = tk.Frame(smart_frame, bg='#16213e')
-        smart_btn_row.pack(pady=2)
+        ai_btn_row = tk.Frame(ai_frame, bg='#16213e')
+        ai_btn_row.pack(pady=2)
         
-        # Strategy Selection
-        tk.Label(smart_btn_row, text="Strategy:", font=('Arial', 8), 
+        # AI Strategy Selection
+        tk.Label(ai_btn_row, text="Strategy:", font=('Arial', 8), 
                 fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
         
-        self.strategy_var = tk.StringVar(value="BALANCED")
-        self.strategy_combo = ttk.Combobox(
-            smart_btn_row, textvariable=self.strategy_var, 
-            values=["QUICK_SAFE", "BALANCED", "AGGRESSIVE"], 
-            state="readonly", width=10, font=('Arial', 8)
+        self.ai_strategy_var = tk.StringVar(value="BALANCED")
+        self.ai_strategy_combo = ttk.Combobox(
+            ai_btn_row, textvariable=self.ai_strategy_var, 
+            values=["AGGRESSIVE", "BALANCED", "CONSERVATIVE"], 
+            state="readonly", width=12, font=('Arial', 8)
         )
-        self.strategy_combo.pack(side=tk.LEFT, padx=2)
-        self.strategy_combo.bind('<<ComboboxSelected>>', self.on_strategy_change)
+        self.ai_strategy_combo.pack(side=tk.LEFT, padx=2)
         
-        # Smart Profit Buttons
-        self.manual_profit_btn = tk.Button(
-            smart_btn_row, text="💰 Take Profit",
+        # AI Portfolio Buttons
+        self.ai_rebalance_btn = tk.Button(
+            ai_btn_row, text="⚖️ Force Rebalance",
             font=('Arial', 8, 'bold'), bg='#ffd43b', fg='#1a1a2e',
-            relief='raised', bd=2, width=12, command=self.manual_take_profit, state='disabled'
+            relief='raised', bd=2, width=14, command=self.force_ai_rebalance
         )
-        self.manual_profit_btn.pack(side=tk.LEFT, padx=2)
+        self.ai_rebalance_btn.pack(side=tk.LEFT, padx=2)
         
-        self.toggle_smart_btn = tk.Button(
-            smart_btn_row, text="🤖 Smart: ON",
+        self.ai_optimize_btn = tk.Button(
+            ai_btn_row, text="🚀 AI Optimize",
             font=('Arial', 8, 'bold'), bg='#6f42c1', fg='#ffffff',
-            relief='raised', bd=2, width=10, command=self.toggle_smart_profit
+            relief='raised', bd=2, width=12, command=self.run_ai_optimization
         )
-        self.toggle_smart_btn.pack(side=tk.LEFT, padx=2)
+        self.ai_optimize_btn.pack(side=tk.LEFT, padx=2)
         
         # Recovery System Section (Right)
-        recovery_frame = tk.Frame(controls_row, bg='#16213e', relief='groove', bd=1)
+        recovery_frame = tk.Frame(ai_controls_row, bg='#16213e', relief='groove', bd=1)
         recovery_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
         
-        tk.Label(recovery_frame, text="💊 Recovery System", 
+        tk.Label(recovery_frame, text="💊 Portfolio Recovery", 
                 font=('Arial', 9, 'bold'), fg='#ff6b6b', bg='#16213e').pack()
         
         recovery_btn_row = tk.Frame(recovery_frame, bg='#16213e')
@@ -417,16 +464,16 @@ class AIGoldTradingGUI:
         status_row = tk.Frame(control_frame, bg='#16213e')
         status_row.pack(fill=tk.X, pady=2, padx=5)
         
-        # Strategy Description (Left)
-        self.strategy_desc = tk.Label(
-            status_row, text="⚖️ BALANCED: $5.0/0.01lot, Good balance",
+        # AI Strategy Description (Left)
+        self.ai_strategy_desc = tk.Label(
+            status_row, text="⚖️ BALANCED: Smart pair closing + auto hedging",
             font=('Arial', 8), fg='#adb5bd', bg='#16213e'
         )
-        self.strategy_desc.pack(side=tk.LEFT)
+        self.ai_strategy_desc.pack(side=tk.LEFT)
         
         # Recovery Status (Right)
         self.recovery_status_display = tk.Label(
-            status_row, text="💊 Ready: Trigger at -$50",
+            status_row, text="💊 Ready: Auto-trigger at -$50",
             font=('Arial', 8), fg='#adb5bd', bg='#16213e'
         )
         self.recovery_status_display.pack(side=tk.RIGHT)
@@ -1205,7 +1252,7 @@ class AIGoldTradingGUI:
             return {}
     
     def start_trading(self):
-        """Start AI grid trading system - REAL TRADING"""
+        """Start AI Portfolio Trading System"""
         if not self.is_connected:
             messagebox.showwarning("Warning", "Please connect to MT5 first")
             return
@@ -1214,24 +1261,31 @@ class AIGoldTradingGUI:
             messagebox.showwarning("Warning", "Please calculate survivability first")
             return
             
-        # Final confirmation for real trading
-        confirm_msg = f"""⚠️ REAL TRADING CONFIRMATION ⚠️
+        # AI Portfolio confirmation
+        confirm_msg = f"""🧠 AI PORTFOLIO TRADING CONFIRMATION
 
-You are about to start LIVE trading with:
+You are starting AI-powered portfolio management:
+
 • Account Balance: ${self.current_calculations['account_balance']:,.2f}
-• Base Lot Size: {self.current_calculations['base_lot']:.3f}
-• Max Survivability: {self.current_calculations.get('realistic_survivability', self.current_calculations['survivability']):,.0f} points
-• Daily Loss Limit: ${self.config.get('daily_loss_limit', 500):,.2f}
+• Starting Positions: 2 (1 BUY + 1 SELL)
+• AI will manage portfolio dynamically
+• No stop losses - AI rebalances automatically
 
-This will place REAL orders on your MT5 account!
+🤖 AI Features:
+• Smart pair closing for profits
+• Automatic hedging for large losses  
+• Dynamic position rebalancing
+• Portfolio health monitoring
 
-Are you absolutely sure you want to proceed?"""
+This is REAL trading with AI management!
 
-        if not messagebox.askyesno("⚠️ LIVE TRADING CONFIRMATION", confirm_msg):
+Are you ready to start?"""
+
+        if not messagebox.askyesno("🧠 AI PORTFOLIO CONFIRMATION", confirm_msg):
             return
             
         try:
-            # Initialize grid trader with real trading
+            # Initialize AI Portfolio system
             gold_symbol = self.mt5_connector.get_gold_symbol()
             self.grid_trader = AIGoldGrid(
                 self.mt5_connector,
@@ -1239,19 +1293,19 @@ Are you absolutely sure you want to proceed?"""
                 self.config
             )
             
-            # Initialize the grid system
-            self.log_message("🚀 Initializing AI Grid Trading System...", "INFO")
+            # Initialize the AI portfolio
+            self.log_message("🧠 Initializing AI Portfolio Trading System...", "INFO")
             if not self.grid_trader.initialize_grid():
-                raise Exception("Failed to initialize grid system")
+                raise Exception("Failed to initialize AI portfolio system")
             
-            # Start trading
+            # Start AI trading
             if self.grid_trader.start_trading():
                 self.is_trading = True
                 self.start_btn.config(state='disabled', bg='#6c757d')
                 self.stop_btn.config(state='normal', bg='#dc3545')
                 
-                self.log_message("🚀 AI Grid Trading System Started - LIVE TRADING!", "SUCCESS")
-                self.log_message(f"📊 Trading {gold_symbol} with {self.current_calculations.get('realistic_survivability', 0):,.0f} points survivability", "INFO")
+                self.log_message("🧠 AI Portfolio Trading Started!", "SUCCESS")
+                self.log_message(f"🤖 AI managing {gold_symbol} with smart portfolio optimization", "INFO")
                 self.log_message(f"🎯 Magic Number: {self.grid_trader.magic_number}", "INFO")
                 
                 # Start trading monitoring thread
@@ -1261,12 +1315,12 @@ Are you absolutely sure you want to proceed?"""
                 # Start real-time monitoring
                 self.start_real_time_monitoring()
             else:
-                raise Exception("Failed to start trading system")
+                raise Exception("Failed to start AI portfolio system")
             
         except Exception as e:
-            self.log_message(f"❌ Start Trading Error: {str(e)}", "ERROR")
-            messagebox.showerror("Trading Error", f"Failed to start trading:\n{str(e)}")
-            
+            self.log_message(f"❌ Start AI Portfolio Error: {str(e)}", "ERROR")
+            messagebox.showerror("AI Portfolio Error", f"Failed to start AI portfolio:\n{str(e)}")
+
     def stop_trading(self):
         """Stop trading system gracefully"""
         if not self.is_trading:
@@ -1379,231 +1433,104 @@ Proceed with emergency stop?"""
                 print(f"Monitor error: {e}")
                 time.sleep(5)
 
-    
-                
+   
     def update_trading_display(self, status: Dict):
-        """Update GUI with real-time trading data + Smart Profit Status + Live Grid Stats"""
+        """Update GUI with AI Portfolio data - ทับของเดิมเลย"""
         try:
-            # Update current drawdown display
-            current_drawdown = status.get('current_drawdown', 0)
+            # Basic trading info
             total_pnl = status.get('total_pnl', 0)
+            active_positions = status.get('active_positions', 0)
+            pending_orders = status.get('pending_orders', 0)
             market_open = status.get('market_open', True)
             
+            # AI Portfolio specific
             if total_pnl >= 0:
                 color = '#51cf66'  # Green for profit
-                text = f"📊 Current Profit: +${total_pnl:.2f} ({current_drawdown:.0f} pts)"
+                text = f"🧠 AI Portfolio Profit: +${total_pnl:.2f} ({active_positions} positions)"
             else:
                 color = '#ff6b6b'  # Red for loss
-                text = f"📊 Current Loss: ${total_pnl:.2f} ({current_drawdown:.0f} pts)"
-                
-            # Add market status to display
+                text = f"🧠 AI Portfolio Loss: ${total_pnl:.2f} ({active_positions} positions)"
+                    
+            # Add market status
             market_emoji = "🟢" if market_open else "🔴"
             text += f" | Market: {market_emoji}"
-                
+                    
             self.current_drawdown_label.config(text=text, fg=color)
             
-            # Update next hedge trigger
-            if hasattr(self, 'hedge_calculator') and current_drawdown > 0:
-                next_hedge = self.hedge_calculator.get_next_hedge_trigger(current_drawdown)
-                if next_hedge:
-                    self.next_hedge_label.config(text=f"⏳ Next Hedge: {next_hedge:,.0f} points")
-                else:
-                    self.next_hedge_label.config(text="⏳ Next Hedge: Max Level")
-            
-            # ✅ ENHANCED - Update position counts with LIVE GRID STATS
-            if not hasattr(self, 'position_count_label'):
-                self.position_count_label = tk.Label(
-                    self.current_drawdown_label.master,
-                    text="",
-                    font=('Arial', 10),
-                    fg='#ffffff',
-                    bg='#16213e'
-                )
-                self.position_count_label.pack(anchor='w', pady=2)
-                
-            # ✅ Get real-time grid statistics
-            realtime_stats = self.get_realtime_grid_stats()
-            
-            # Check hedge status from grid trader
-            hedge_status = ""
-            try:
-                if (hasattr(self, 'grid_trader') and self.grid_trader and 
-                    hasattr(self.grid_trader, 'has_active_hedge') and 
-                    self.grid_trader.has_active_hedge()):
-                    hedge_status = " | 🛡️ HEDGE ACTIVE"
-            except Exception as hedge_error:
-                # If hedge check fails, just continue without hedge status
-                pass
-            
-            # ✅ Display LIVE GRID STATS or fallback to basic stats
-            if realtime_stats and realtime_stats.get('total_orders', 0) > 0:
-                # Show detailed live stats
-                live_text = (f"📈 LIVE: {realtime_stats['total_orders']} orders "
-                            f"({realtime_stats['buy_orders']}B/{realtime_stats['sell_orders']}S), "
-                            f"{realtime_stats['active_positions']} positions, "
-                            f"Range: {realtime_stats['actual_survivability']:,}pts")
-                
-                # Color based on survivability level
-                if realtime_stats['actual_survivability'] < 2000:
-                    live_color = '#ff6b6b'  # Red - very low
-                elif realtime_stats['actual_survivability'] < 3000:
-                    live_color = '#ffd43b'  # Yellow - low  
-                elif realtime_stats['actual_survivability'] < 5000:
-                    live_color = '#4ecdc4'  # Cyan - good
-                else:
-                    live_color = '#51cf66'  # Green - excellent
-            else:
-                # Fallback to basic stats
-                live_text = f"📈 Positions: {status.get('active_positions', 0)} active, {status.get('pending_orders', 0)} pending"
-                live_color = '#ffffff'
-            
-            # Add hedge and market status
-            live_text += hedge_status
-            if not market_open:
-                live_text += " | 🕒 Market Closed - Orders paused"
-                
-            self.position_count_label.config(text=live_text, fg=live_color)
-            
-            # 🧠 SMART PROFIT STATUS DISPLAY (existing code - no changes)
-            if not hasattr(self, 'smart_status_label'):
-                self.smart_status_label = tk.Label(
+            # AI Portfolio Status Display
+            if not hasattr(self, 'ai_portfolio_status_label'):
+                self.ai_portfolio_status_label = tk.Label(
                     self.current_drawdown_label.master,
                     text="",
                     font=('Arial', 10),
                     fg='#4ecdc4',
                     bg='#16213e'
                 )
-                self.smart_status_label.pack(anchor='w', pady=2)
+                self.ai_portfolio_status_label.pack(anchor='w', pady=2)
             
-            # Update Smart Profit Status - ENHANCED WITH SAFE FALLBACK
-            smart_text = "💡 Smart Profit: Not Available"
-            smart_color = '#6c757d'  # Gray default
-            
+            # Get AI Portfolio summary
+            ai_summary = {}
             try:
-                if (hasattr(self, 'grid_trader') and self.grid_trader and 
-                    hasattr(self.grid_trader, 'smart_profit_enabled') and 
-                    self.grid_trader.smart_profit_enabled):
-                    
-                    # Try to get detailed status
-                    try:
-                        smart_status = self.grid_trader.smart_profit_manager.get_profit_management_status()
-                        
-                        # Check if smart_status has error
-                        if 'error' in smart_status:
-                            smart_text = "🧠 Smart: ✅ ACTIVE (Status Error)"
-                            smart_color = '#ffd43b'
-                        else:
-                            strategy = smart_status.get('strategy', 'BALANCED')
-                            risk_pct = smart_status.get('risk_percentage', 0)
-                            trailing_active = smart_status.get('trailing_stops_active', 0)
-                            total_positions = smart_status.get('total_positions', 0)
-                            hedge_positions = smart_status.get('hedge_positions', 0)
-                            
-                            # Color based on risk level
-                            if risk_pct < 10:
-                                smart_color = '#51cf66'  # Green - Low risk
-                                risk_emoji = "🟢"
-                            elif risk_pct < 20:
-                                smart_color = '#ffd43b'  # Yellow - Medium risk
-                                risk_emoji = "🟡"
-                            else:
-                                smart_color = '#ff6b6b'  # Red - High risk
-                                risk_emoji = "🔴"
-                            
-                            # Strategy emoji
-                            strategy_emoji = {
-                                'QUICK_SAFE': '⚡',
-                                'BALANCED': '⚖️',
-                                'AGGRESSIVE': '🚀'
-                            }.get(strategy, '🤖')
-                            
-                            smart_text = f"🧠 Smart: {strategy_emoji} {strategy} | Risk: {risk_pct:.1f}% {risk_emoji}"
-                            
-                            if trailing_active > 0:
-                                smart_text += f" | 📈 Trailing: {trailing_active}"
-                                
-                            if hedge_positions > 0:
-                                smart_text += f" | 🛡️ Hedge: {hedge_positions}"
-                        
-                    except Exception as status_error:
-                        # Smart is enabled but status call failed - still working
-                        smart_text = "🧠 Smart: ✅ ACTIVE (Display Issue)"
-                        smart_color = '#ffd43b'
-                        
-                elif hasattr(self, 'grid_trader') and self.grid_trader:
-                    # Check if smart profit manager exists but not enabled
-                    if hasattr(self.grid_trader, 'smart_profit_manager'):
-                        smart_text = "🧠 Smart: 🔄 READY (Click to Enable)"
-                        smart_color = '#ffd43b'
-                    else:
-                        smart_text = "🧠 Smart: ❌ NOT INITIALIZED"
-                        smart_color = '#6c757d'
-                else:
-                    smart_text = "🧠 Smart: ❌ GRID NOT ACTIVE"
-                    smart_color = '#6c757d'
-                    
-            except Exception as smart_error:
-                # Final fallback - assume working if grid trader exists
                 if hasattr(self, 'grid_trader') and self.grid_trader:
-                    smart_text = "🧠 Smart: ✅ WORKING (Unknown Status)"
-                    smart_color = '#51cf66'
+                    ai_summary = self.grid_trader.get_ai_portfolio_summary()
+            except Exception as ai_error:
+                ai_summary = {'error': str(ai_error)}
+                
+            # Display AI status
+            if 'error' not in ai_summary:
+                health = ai_summary.get('portfolio_health', 50)
+                pairs = ai_summary.get('profitable_pairs_available', 0)
+                hedges = ai_summary.get('hedge_opportunities', 0)
+                performance = ai_summary.get('performance_score', 50)
+                
+                # Health color
+                if health >= 80:
+                    health_color = '#51cf66'  # Green
+                    health_emoji = "🟢"
+                elif health >= 60:
+                    health_color = '#ffd43b'  # Yellow
+                    health_emoji = "🟡"
                 else:
-                    smart_text = "🧠 Smart: ❌ ERROR"
-                    smart_color = '#ff6b6b'
+                    health_color = '#ff6b6b'  # Red  
+                    health_emoji = "🔴"
+                
+                ai_text = f"🧠 AI Health: {health}% {health_emoji} | Performance: {performance}/100"
+                
+                if pairs > 0:
+                    ai_text += f" | 💰 Profitable Pairs: {pairs}"
+                if hedges > 0:
+                    ai_text += f" | 🛡️ Hedge Ops: {hedges}"
+                    
+                self.ai_portfolio_status_label.config(text=ai_text, fg=health_color)
+            else:
+                self.ai_portfolio_status_label.config(
+                    text="🧠 AI Portfolio: Error getting status", 
+                    fg='#ff6b6b'
+                )
             
-            self.smart_status_label.config(text=smart_text, fg=smart_color)
-            
-            # 📊 PROFIT TARGET INFO - SIMPLIFIED VERSION (existing code - no changes)
-            if not hasattr(self, 'target_info_label'):
-                self.target_info_label = tk.Label(
+            # Position breakdown
+            if not hasattr(self, 'position_breakdown_label'):
+                self.position_breakdown_label = tk.Label(
                     self.current_drawdown_label.master,
                     text="",
                     font=('Arial', 9),
                     fg='#adb5bd',
                     bg='#16213e'
                 )
-                self.target_info_label.pack(anchor='w', pady=1)
+                self.position_breakdown_label.pack(anchor='w', pady=1)
             
-            # Show simplified target info
-            target_text = ""
-            try:
-                if (hasattr(self, 'grid_trader') and self.grid_trader and 
-                    status.get('active_positions', 0) > 0):
-                    
-                    active_positions = status.get('active_positions', 0)
-                    
-                    # Get strategy safely
-                    strategy = "BALANCED"  # Default
-                    target_per_lot = 5.0   # Default for BALANCED
-                    
-                    try:
-                        if hasattr(self.grid_trader, 'smart_profit_manager'):
-                            # Try to get strategy from smart manager
-                            if hasattr(self.grid_trader.smart_profit_manager, 'default_strategy'):
-                                strategy_obj = self.grid_trader.smart_profit_manager.default_strategy
-                                strategy = strategy_obj.value if hasattr(strategy_obj, 'value') else str(strategy_obj)
-                                
-                                # Map strategy to target
-                                if 'QUICK' in strategy:
-                                    target_per_lot = 2.5
-                                elif 'AGGRESSIVE' in strategy:
-                                    target_per_lot = 10.0
-                                else:
-                                    target_per_lot = 5.0
-                    except:
-                        pass  # Use defaults
-                    
-                    # Calculate estimated targets
-                    estimated_target = active_positions * target_per_lot
-                    target_text = f"🎯 Est. Targets: ~${estimated_target:.1f} | Strategy: ${target_per_lot:.1f}/0.01lot"
-                    
-            except Exception as target_error:
-                pass  # Don't show target info if error
+            # Show position details
+            breakdown_text = f"📊 Trading: {pending_orders} pending orders"
             
-            self.target_info_label.config(text=target_text)
+            if not market_open:
+                breakdown_text += " | 🕒 Market Closed - AI monitoring only"
+            else:
+                breakdown_text += " | 🚀 AI actively managing portfolio"
+                
+            self.position_breakdown_label.config(text=breakdown_text)
             
         except Exception as e:
-            print(f"Display update error: {e}")
+            print(f"❌ AI Portfolio display update error: {e}")
 
     def handle_emergency_triggered(self):
         """Handle emergency stop triggered by system"""
