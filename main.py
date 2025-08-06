@@ -33,11 +33,11 @@ class AIGoldTradingGUI:
         self.create_gui()
         self.setup_status_monitoring()
         self.current_trading_mode = TradingMode.BALANCED
-
+    
     def setup_main_window(self):
-        """Setup main window properties"""
-        self.root.title("🏆 AI Gold Grid Trading System - 20,000+ Points Survivability")
-        self.root.geometry("1200x800")
+        """Setup main window properties - MERGED COMPACT"""
+        self.root.title("🏆 AI Gold Grid + Recovery")
+        self.root.geometry("800x450")  # ลดเป็น 800x450
         self.root.configure(bg='#1a1a2e')
         
         # Center window
@@ -47,7 +47,7 @@ class AIGoldTradingGUI:
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
-        
+
     def load_config(self):
         """Load configuration from config.json with trading mode support"""
         default_config = {
@@ -128,274 +128,340 @@ class AIGoldTradingGUI:
             messagebox.showerror("Initialization Error", f"Failed to initialize components: {e}")
             
     def create_gui(self):
-        """Create main GUI interface"""
-        # Create main frame
+        """Create MERGED GUI - รวมทุกอย่างเข้าด้วยกัน"""
         main_frame = tk.Frame(self.root, bg='#1a1a2e')
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=3, pady=3)
         
-        # Create sections
-        self.create_header_section(main_frame)
-        self.create_connection_section(main_frame)
-        self.create_survivability_section(main_frame)
-        self.create_hedge_section(main_frame)
-        self.create_control_section(main_frame)
-        self.create_log_section(main_frame)
+        # รวม Header + Connection + Calculator ในกรอบเดียว
+        self.create_merged_top_section(main_frame)
         
-    def create_header_section(self, parent):
-        """Create header with system title and status"""
-        header_frame = tk.Frame(parent, bg='#16213e', relief='raised', bd=1)
-        header_frame.pack(fill=tk.X, pady=(0, 5))
+        # รวม Controls + Recovery + Hedge ในกรอบเดียว  
+        self.create_merged_control_section(main_frame)
         
-        title_label = tk.Label(
-            header_frame,
-            text="🏆 AI Gold Grid Trading System",
-            font=('Arial', 14, 'bold'),
-            fg='#ffd700',
-            bg='#16213e'
-        )
-        title_label.pack(pady=5)
+        # Log section เล็กลง
+        self.create_compact_log_section(main_frame)
         
-        subtitle_label = tk.Label(
-            header_frame,
-            text="Survivability Calculator & Auto Money Management",
-            font=('Arial', 10),
-            fg='#ffffff',
-            bg='#16213e'
-        )
-        subtitle_label.pack(pady=(0, 5))
-        
-    def create_connection_section(self, parent):
-        """Create MT5 connection section"""
-        conn_frame = tk.LabelFrame(
+    def create_merged_top_section(self, parent):
+        """รวม Header + Connection + Calculator + Hedge ในกรอบเดียว - แก้ไข Missing Labels"""
+        top_frame = tk.LabelFrame(
             parent,
-            text="🔗 MT5 Auto Connection",
+            text="🏆 AI Gold Grid System + Real-time Monitor",
             font=('Arial', 10, 'bold'),
             fg='#ffd700',
             bg='#16213e',
             relief='groove',
             bd=2
         )
-        conn_frame.pack(fill=tk.X, pady=(0, 5))
+        top_frame.pack(fill=tk.X, pady=(0, 3))
         
-        # Connection status
-        status_frame = tk.Frame(conn_frame, bg='#16213e')
-        status_frame.pack(fill=tk.X, padx=5, pady=3)
+        # Row 1: Connection + Mode + Target
+        row1 = tk.Frame(top_frame, bg='#16213e')
+        row1.pack(fill=tk.X, padx=5, pady=3)
         
-        tk.Label(status_frame, text="📡 Status:", font=('Arial', 10, 'bold'), 
-                fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        # Connection Section (Left)
+        conn_section = tk.Frame(row1, bg='#16213e')
+        conn_section.pack(side=tk.LEFT)
         
         self.connection_status = tk.Label(
-            status_frame, 
-            text="❌ Disconnected", 
-            font=('Arial', 10), 
-            fg='#ff6b6b', 
-            bg='#16213e'
+            conn_section, text="❌ Disconnected", font=('Arial', 9, 'bold'), 
+            fg='#ff6b6b', bg='#16213e'
         )
-        self.connection_status.pack(side=tk.LEFT, padx=(10, 0))
+        self.connection_status.pack(side=tk.LEFT)
         
-        # Account info
-        account_frame = tk.Frame(conn_frame, bg='#16213e')
-        account_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        self.account_label = tk.Label(
-            account_frame,
-            text="💰 Account: Not Connected",
-            font=('Arial', 10),
-            fg='#ffffff',
-            bg='#16213e'
-        )
-        self.account_label.pack(side=tk.LEFT)
-        
-        # Connection button
+        # Connection Button
         self.connect_btn = tk.Button(
-            conn_frame,
-            text="🔌 Connect to MT5",
-            font=('Arial', 10, 'bold'),
+            conn_section,
+            text="🔌 Connect",
+            font=('Arial', 8, 'bold'),
             bg='#4ecdc4',
             fg='#1a1a2e',
             relief='raised',
-            bd=3,
+            bd=2,
             command=self.connect_mt5
         )
-        self.connect_btn.pack(pady=10)
+        self.connect_btn.pack(side=tk.LEFT, padx=(5, 0))
         
-    def create_survivability_section(self, parent):
-        """Create survivability calculation display with Smart Grid focus"""
-        surv_frame = tk.LabelFrame(
+        # Mode Selection (Center)
+        mode_frame = tk.Frame(row1, bg='#16213e')
+        mode_frame.pack(side=tk.LEFT, padx=(30, 0))
+        
+        tk.Label(mode_frame, text="🎯 Mode:", font=('Arial', 9, 'bold'), 
+                fg='#4ecdc4', bg='#16213e').pack(side=tk.LEFT)
+        
+        self.mode_var = tk.StringVar(value="BALANCED")
+        self.mode_combo = ttk.Combobox(
+            mode_frame, textvariable=self.mode_var, 
+            values=["SAFE", "BALANCED", "AGGRESSIVE", "TURBO"], 
+            state="readonly", width=10, font=('Arial', 9)
+        )
+        self.mode_combo.pack(side=tk.LEFT, padx=(5, 0))
+        self.mode_combo.bind('<<ComboboxSelected>>', self.on_mode_change)
+        
+        # Target Display (Right)
+        self.target_label = tk.Label(
+            row1, text="🎯 Target: 10,000 points", 
+            font=('Arial', 9, 'bold'), fg='#ffd43b', bg='#16213e'
+        )
+        self.target_label.pack(side=tk.RIGHT)
+        
+        # Row 2: Account Info + Calculator Results
+        row2 = tk.Frame(top_frame, bg='#16213e')
+        row2.pack(fill=tk.X, padx=5, pady=3)
+        
+        # Account Info (Left)
+        account_frame = tk.Frame(row2, bg='#16213e')
+        account_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        self.account_label = tk.Label(
+            account_frame, text="💰 Account: Not Connected", 
+            font=('Arial', 9), fg='#ffffff', bg='#16213e'
+        )
+        self.account_label.pack(anchor='w')
+        
+        self.balance_label = tk.Label(
+            account_frame, text="💰 Balance: $0", 
+            font=('Arial', 9), fg='#ffffff', bg='#16213e'
+        )
+        self.balance_label.pack(anchor='w')
+        
+        # ✅ เพิ่ม Safety Margin Label ที่หายไป
+        self.safety_margin_label = tk.Label(
+            account_frame, text="💪 Safety Margin: $0", 
+            font=('Arial', 9), fg='#ffffff', bg='#16213e'
+        )
+        self.safety_margin_label.pack(anchor='w')
+        
+        # Calculator Results (Right)
+        calc_frame = tk.Frame(row2, bg='#16213e')
+        calc_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        self.base_lot_label = tk.Label(
+            calc_frame, text="🎯 Base Lot: 0.000", 
+            font=('Arial', 9), fg='#ffffff', bg='#16213e'
+        )
+        self.base_lot_label.pack(anchor='e')
+        
+        self.grid_spacing_label = tk.Label(
+            calc_frame, text="📏 Spacing: 0 points", 
+            font=('Arial', 9), fg='#ffffff', bg='#16213e'
+        )
+        self.grid_spacing_label.pack(anchor='e')
+        
+        # ✅ เพิ่ม Max Levels Label ที่หายไป
+        self.max_levels_label = tk.Label(
+            calc_frame, text="📈 Max Levels: 0", 
+            font=('Arial', 9), fg='#ffffff', bg='#16213e'
+        )
+        self.max_levels_label.pack(anchor='e')
+        
+        # Row 3: Survivability + Hedge Monitor
+        row3 = tk.Frame(top_frame, bg='#16213e')
+        row3.pack(fill=tk.X, padx=5, pady=3)
+        
+        # Survivability (Left)
+        self.survivability_label = tk.Label(
+            row3, text="🛡️ Survivability: 0 points", 
+            font=('Arial', 10, 'bold'), fg='#adb5bd', bg='#16213e'
+        )
+        self.survivability_label.pack(side=tk.LEFT)
+        
+        # Hedge Monitor (Right) 
+        hedge_frame = tk.Frame(row3, bg='#16213e')
+        hedge_frame.pack(side=tk.RIGHT)
+        
+        self.current_drawdown_label = tk.Label(
+            hedge_frame, text="📊 Portfolio: Not active", 
+            font=('Arial', 9), fg='#adb5bd', bg='#16213e'
+        )
+        self.current_drawdown_label.pack(side=tk.RIGHT)
+        
+        # ✅ เพิ่ม Next Hedge Label ที่หายไป (สำหรับ hedge section)
+        self.next_hedge_label = tk.Label(
+            hedge_frame, text="⏳ Next Hedge: N/A", 
+            font=('Arial', 9), fg='#adb5bd', bg='#16213e'
+        )
+        self.next_hedge_label.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # Row 4: Calculate Button + Portfolio Status
+        row4 = tk.Frame(top_frame, bg='#16213e')
+        row4.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Calculate Button (Left)
+        calc_btn = tk.Button(
+            row4, text="🔄 Calculate Smart Grid",
+            font=('Arial', 10, 'bold'), bg='#4ecdc4', fg='#1a1a2e',
+            relief='raised', bd=2, command=self.calculate_survivability
+        )
+        calc_btn.pack(side=tk.LEFT)
+        
+        # Portfolio Status (Right)
+        self.portfolio_status_label = tk.Label(
+            row4, text="📊 Portfolio: Not active",
+            font=('Arial', 9), fg='#adb5bd', bg='#16213e'
+        )
+        self.portfolio_status_label.pack(side=tk.RIGHT)
+
+    def create_merged_control_section(self, parent):
+        """รวม Trading Controls + Smart Profit + Recovery ในกรอบเดียว"""
+        control_frame = tk.LabelFrame(
             parent,
-            text="🚀 AI Smart Grid Calculator",  # เปลี่ยนชื่อ
-            font=('Arial', 12, 'bold'),
+            text="🎮 Trading Controls + Smart Profit + Recovery System",
+            font=('Arial', 10, 'bold'),
             fg='#ffd700',
             bg='#16213e',
             relief='groove',
             bd=2
         )
-        surv_frame.pack(fill=tk.X, pady=(0, 10))
+        control_frame.pack(fill=tk.X, pady=(0, 3))
         
-        # ⭐ Trading Mode Selection
-        mode_frame = tk.Frame(surv_frame, bg='#16213e')
-        mode_frame.pack(fill=tk.X, padx=15, pady=(15, 10))
+        # Row 1: Main Trading Buttons
+        btn_row = tk.Frame(control_frame, bg='#16213e')
+        btn_row.pack(fill=tk.X, pady=5, padx=5)
         
-        tk.Label(mode_frame, text="🎯 Trading Mode:", 
-                font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(side=tk.LEFT)
-        
-        # Mode selection variable
-        self.mode_var = tk.StringVar(value="BALANCED")
-        
-        # Mode selection combobox
-        mode_options = ["SAFE", "BALANCED", "AGGRESSIVE", "TURBO"]
-        self.mode_combo = ttk.Combobox(
-            mode_frame, 
-            textvariable=self.mode_var, 
-            values=mode_options, 
-            state="readonly", 
-            width=12,
-            font=('Arial', 10)
+        self.start_btn = tk.Button(
+            btn_row, text="🚀 Start AI Grid",
+            font=('Arial', 10, 'bold'), bg='#51cf66', fg='#1a1a2e',
+            relief='raised', bd=2, width=15, command=self.start_trading
         )
-        self.mode_combo.pack(side=tk.LEFT, padx=(10, 0))
+        self.start_btn.pack(side=tk.LEFT, padx=2)
         
-        # Mode description label
-        self.mode_desc_label = tk.Label(
-            mode_frame,
-            text="⚖️ Good balance between speed and safety",
-            font=('Arial', 10),
-            fg='#adb5bd',
-            bg='#16213e'
+        self.stop_btn = tk.Button(
+            btn_row, text="⏹️ Stop Trading",
+            font=('Arial', 10, 'bold'), bg='#ff6b6b', fg='#ffffff',
+            relief='raised', bd=2, width=15, command=self.stop_trading, state='disabled'
         )
-        self.mode_desc_label.pack(side=tk.LEFT, padx=(15, 0))
+        self.stop_btn.pack(side=tk.LEFT, padx=2)
         
-        # Bind mode change event
-        self.mode_combo.bind('<<ComboboxSelected>>', self.on_mode_change)
-        
-        # Target survivability display
-        target_frame = tk.Frame(surv_frame, bg='#16213e')
-        target_frame.pack(fill=tk.X, padx=15, pady=5)
-        
-        self.target_surv_label = tk.Label(
-            target_frame,
-            text="🎯 Target: 10,000 points",
-            font=('Arial', 11, 'bold'),
-            fg='#ffd43b',
-            bg='#16213e'
+        self.emergency_btn = tk.Button(
+            btn_row, text="🚨 EMERGENCY",
+            font=('Arial', 10, 'bold'), bg='#e74c3c', fg='#ffffff',
+            relief='raised', bd=2, width=15, command=self.emergency_stop
         )
-        self.target_surv_label.pack(side=tk.LEFT)
+        self.emergency_btn.pack(side=tk.LEFT, padx=2)
         
-        self.risk_level_label = tk.Label(
-            target_frame,
-            text="⚠️ Risk: Medium",
-            font=('Arial', 11),
-            fg='#ffd43b',
-            bg='#16213e'
+        # Current Status Display (Right side of main buttons)
+        self.smart_status_display = tk.Label(
+            btn_row, text="🤖 Smart: Ready | 💊 Recovery: Ready",
+            font=('Arial', 9), fg='#4ecdc4', bg='#16213e'
         )
-        self.risk_level_label.pack(side=tk.RIGHT)
+        self.smart_status_display.pack(side=tk.RIGHT, padx=10)
         
-        # Main content area - 3 columns layout
-        content_frame = tk.Frame(surv_frame, bg='#16213e')
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
+        # Row 2: Smart Profit + Recovery Controls
+        controls_row = tk.Frame(control_frame, bg='#16213e')
+        controls_row.pack(fill=tk.X, pady=5, padx=5)
         
-        # Left column - Account & Basic Parameters (40%)
-        left_col = tk.Frame(content_frame, bg='#16213e')
-        left_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        # Smart Profit Section (Left)
+        smart_frame = tk.Frame(controls_row, bg='#16213e', relief='groove', bd=1)
+        smart_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
         
-        tk.Label(left_col, text="💰 Account Information:", 
-                font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(anchor='w')
+        tk.Label(smart_frame, text="🧠 Smart Profit", 
+                font=('Arial', 9, 'bold'), fg='#4ecdc4', bg='#16213e').pack()
         
-        self.balance_label = tk.Label(left_col, text="💰 Balance: $0", 
-                                    font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.balance_label.pack(anchor='w', pady=(5, 2))
+        smart_btn_row = tk.Frame(smart_frame, bg='#16213e')
+        smart_btn_row.pack(pady=2)
         
-        self.base_lot_label = tk.Label(left_col, text="🎯 Base Lot: 0.00", 
-                                    font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.base_lot_label.pack(anchor='w', pady=2)
+        # Strategy Selection
+        tk.Label(smart_btn_row, text="Strategy:", font=('Arial', 8), 
+                fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
         
-        self.safety_margin_label = tk.Label(left_col, text="💪 Safety Margin: $0", 
-                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.safety_margin_label.pack(anchor='w', pady=2)
-        
-        # Middle column - Smart Grid Parameters (35%)
-        middle_col = tk.Frame(content_frame, bg='#16213e')
-        middle_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        
-        tk.Label(middle_col, text="🚀 Smart Grid Setup:", 
-                font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(anchor='w')
-        
-        self.grid_spacing_label = tk.Label(middle_col, text="📏 Grid Spacing: 0 points", 
-                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.grid_spacing_label.pack(anchor='w', pady=(5, 2))
-        
-        self.max_levels_label = tk.Label(middle_col, text="📈 Max Levels: 0", 
-                                        font=('Arial', 10), fg='#ffffff', bg='#16213e')
-        self.max_levels_label.pack(anchor='w', pady=2)
-        
-        self.survivability_label = tk.Label(middle_col, text="🛡️ Survivability: 0 points", 
-                                        font=('Arial', 11, 'bold'), fg='#51cf66', bg='#16213e')
-        self.survivability_label.pack(anchor='w', pady=2)
-        
-        # Right column - Smart Grid Benefits (25%)
-        right_col = tk.Frame(content_frame, bg='#16213e')
-        right_col.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0))
-        
-        tk.Label(right_col, text="✨ Smart Grid Benefits:", 
-                font=('Arial', 11, 'bold'), fg='#4ecdc4', bg='#16213e').pack(anchor='w')
-        
-        # Benefits list
-        benefits = [
-            "💸 No hedge costs",
-            "⚖️ Auto-balancing", 
-            "⚡ 3x faster profits",
-            "🎯 Tighter grid spacing",
-            "🔄 Smart reposition"
-        ]
-        
-        for i, benefit in enumerate(benefits):
-            benefit_label = tk.Label(right_col, text=benefit, 
-                                font=('Arial', 9), fg='#51cf66', bg='#16213e')
-            benefit_label.pack(anchor='w', pady=(5 if i == 0 else 1, 1))
-        
-        # Separator line
-        separator = tk.Frame(surv_frame, height=2, bg='#4ecdc4')
-        separator.pack(fill=tk.X, padx=15, pady=(10, 5))
-        
-        # Status summary row
-        status_frame = tk.Frame(surv_frame, bg='#16213e')
-        status_frame.pack(fill=tk.X, padx=15, pady=5)
-        
-        # Smart Grid status indicator
-        self.smart_grid_status = tk.Label(
-            status_frame,
-            text="🚀 Smart Grid: Ready to calculate",
-            font=('Arial', 10, 'bold'),
-            fg='#4ecdc4',
-            bg='#16213e'
+        self.strategy_var = tk.StringVar(value="BALANCED")
+        self.strategy_combo = ttk.Combobox(
+            smart_btn_row, textvariable=self.strategy_var, 
+            values=["QUICK_SAFE", "BALANCED", "AGGRESSIVE"], 
+            state="readonly", width=10, font=('Arial', 8)
         )
-        self.smart_grid_status.pack(side=tk.LEFT)
+        self.strategy_combo.pack(side=tk.LEFT, padx=2)
+        self.strategy_combo.bind('<<ComboboxSelected>>', self.on_strategy_change)
         
-        # Capital efficiency indicator  
-        self.efficiency_indicator = tk.Label(
-            status_frame,
-            text="📊 Efficiency: Calculating...",
-            font=('Arial', 10),
-            fg='#adb5bd',
-            bg='#16213e'
+        # Smart Profit Buttons
+        self.manual_profit_btn = tk.Button(
+            smart_btn_row, text="💰 Take Profit",
+            font=('Arial', 8, 'bold'), bg='#ffd43b', fg='#1a1a2e',
+            relief='raised', bd=2, width=12, command=self.manual_take_profit, state='disabled'
         )
-        self.efficiency_indicator.pack(side=tk.RIGHT)
+        self.manual_profit_btn.pack(side=tk.LEFT, padx=2)
         
-        # Calculate button - ปรับให้สวยขึ้น
-        button_frame = tk.Frame(surv_frame, bg='#16213e')
-        button_frame.pack(fill=tk.X, pady=(10, 15))
-        
-        calc_btn = tk.Button(
-            button_frame,
-            text="🔄 Calculate Smart Grid",  # เปลี่ยนข้อความ
-            font=('Arial', 12, 'bold'),
-            bg='#4ecdc4',  # เปลี่ยนสี
-            fg='#1a1a2e',
-            relief='raised',
-            bd=3,
-            width=25,
-            command=self.calculate_survivability
+        self.toggle_smart_btn = tk.Button(
+            smart_btn_row, text="🤖 Smart: ON",
+            font=('Arial', 8, 'bold'), bg='#6f42c1', fg='#ffffff',
+            relief='raised', bd=2, width=10, command=self.toggle_smart_profit
         )
-        calc_btn.pack()
+        self.toggle_smart_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Recovery System Section (Right)
+        recovery_frame = tk.Frame(controls_row, bg='#16213e', relief='groove', bd=1)
+        recovery_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        tk.Label(recovery_frame, text="💊 Recovery System", 
+                font=('Arial', 9, 'bold'), fg='#ff6b6b', bg='#16213e').pack()
+        
+        recovery_btn_row = tk.Frame(recovery_frame, bg='#16213e')
+        recovery_btn_row.pack(pady=2)
+        
+        # Recovery Buttons
+        self.manual_recovery_btn = tk.Button(
+            recovery_btn_row, text="💊 Manual Recovery",
+            font=('Arial', 8, 'bold'), bg='#ff6b6b', fg='#ffffff',
+            relief='raised', bd=2, width=15, command=self.manual_trigger_recovery
+        )
+        self.manual_recovery_btn.pack(side=tk.LEFT, padx=2)
+        
+        self.auto_recovery_btn = tk.Button(
+            recovery_btn_row, text="🤖 Auto: OFF",
+            font=('Arial', 8, 'bold'), bg='#6c757d', fg='#ffffff',
+            relief='raised', bd=2, width=10, command=self.toggle_auto_recovery
+        )
+        self.auto_recovery_btn.pack(side=tk.LEFT, padx=2)
+        
+        # Row 3: Status Information
+        status_row = tk.Frame(control_frame, bg='#16213e')
+        status_row.pack(fill=tk.X, pady=2, padx=5)
+        
+        # Strategy Description (Left)
+        self.strategy_desc = tk.Label(
+            status_row, text="⚖️ BALANCED: $5.0/0.01lot, Good balance",
+            font=('Arial', 8), fg='#adb5bd', bg='#16213e'
+        )
+        self.strategy_desc.pack(side=tk.LEFT)
+        
+        # Recovery Status (Right)
+        self.recovery_status_display = tk.Label(
+            status_row, text="💊 Ready: Trigger at -$50",
+            font=('Arial', 8), fg='#adb5bd', bg='#16213e'
+        )
+        self.recovery_status_display.pack(side=tk.RIGHT)
+
+    def create_compact_log_section(self, parent):
+        """Create very compact log section"""
+        log_frame = tk.LabelFrame(
+            parent,
+            text="📜 System Logs",
+            font=('Arial', 9, 'bold'),
+            fg='#ffd700',
+            bg='#16213e',
+            relief='groove',
+            bd=2
+        )
+        log_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Log display - very small
+        self.log_display = scrolledtext.ScrolledText(
+            log_frame,
+            height=4,  # เล็กมาก แค่ 4 บรรทัด
+            font=('Consolas', 8),
+            bg='#0f0f0f',
+            fg='#00ff00',
+            insertbackground='#00ff00'
+        )
+        self.log_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Clear button - small
+        clear_btn = tk.Button(
+            log_frame, text="🗑️ Clear",
+            font=('Arial', 8), bg='#6c757d', fg='#ffffff',
+            command=self.clear_logs
+        )
+        clear_btn.pack(pady=2)
 
     def on_mode_change(self, event=None):
         """Handle trading mode change"""
@@ -416,20 +482,16 @@ class AIGoldTradingGUI:
             self.log_message(f"❌ Mode change error: {e}", "ERROR")
 
     def update_mode_display(self):
-        """Update mode description and target display"""
+        """Update mode description and target display - แก้ไขให้ทำงานกับ merged GUI"""
         try:
             if not hasattr(self, 'survivability_engine'):
                 return
                 
             mode_config = self.survivability_engine.mode_configs[self.current_trading_mode]
             
-            # Mode descriptions with emojis
-            descriptions = {
-                'SAFE': '🛡️ Maximum protection, slower gains',
-                'BALANCED': '⚖️ Good balance between speed and safety', 
-                'AGGRESSIVE': '🚀 Faster gains, higher risk',
-                'TURBO': '⚡ Maximum speed, maximum risk'
-            }
+            # Update target label ที่มีอยู่
+            target_points = mode_config['target_survivability']
+            self.target_label.config(text=f"🎯 Target: {target_points:,} points")
             
             # Risk level colors
             risk_colors = {
@@ -439,17 +501,12 @@ class AIGoldTradingGUI:
                 'Very High': '#e74c3c'
             }
             
-            # Update labels
-            mode_desc = descriptions.get(self.current_trading_mode.value, mode_config['description'])
-            self.mode_desc_label.config(text=mode_desc)
-            
-            target_points = mode_config['target_survivability']
-            self.target_surv_label.config(text=f"🎯 Target: {target_points:,} points")
-            
             risk_level = mode_config['risk_level']
             risk_color = risk_colors.get(risk_level, '#ffffff')
-            self.risk_level_label.config(
-                text=f"⚠️ Risk: {risk_level}",
+            
+            # Update target label with risk info
+            self.target_label.config(
+                text=f"🎯 Target: {target_points:,} pts | Risk: {risk_level}",
                 fg=risk_color
             )
             
@@ -492,7 +549,7 @@ class AIGoldTradingGUI:
         self.next_hedge_label.pack(side=tk.RIGHT)
         
     def create_control_section(self, parent):
-        """Create trading control section with Smart Profit Controls"""
+        """Create trading control section with Smart Profit Controls + Recovery"""
         control_frame = tk.LabelFrame(
             parent,
             text="🎮 Trading Controls",
@@ -642,12 +699,66 @@ class AIGoldTradingGUI:
         )
         self.toggle_smart_btn.pack(side=tk.RIGHT)
         
-        # Status row
-        status_row = tk.Frame(smart_frame, bg='#16213e')
-        status_row.pack(fill=tk.X, pady=(5, 10), padx=5)
+        # 💊 Recovery System Section - เพิ่มใหม่
+        recovery_frame = tk.LabelFrame(
+            control_frame,
+            text="💊 Recovery System",
+            font=('Arial', 10, 'bold'),
+            fg='#ff6b6b',
+            bg='#16213e',
+            relief='groove',
+            bd=1
+        )
+        recovery_frame.pack(fill=tk.X, pady=(5, 5), padx=10)
+        
+        # Recovery buttons row
+        recovery_row = tk.Frame(recovery_frame, bg='#16213e')
+        recovery_row.pack(fill=tk.X, pady=5, padx=5)
+        
+        # Manual Recovery Button
+        self.manual_recovery_btn = tk.Button(
+            recovery_row,
+            text="💊 Manual Recovery",
+            font=('Arial', 9, 'bold'),
+            bg='#ff6b6b',
+            fg='#ffffff',
+            relief='raised',
+            bd=2,
+            width=18,
+            command=self.manual_trigger_recovery
+        )
+        self.manual_recovery_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Auto Recovery Toggle
+        self.auto_recovery_btn = tk.Button(
+            recovery_row,
+            text="🤖 Auto Recovery: OFF",
+            font=('Arial', 9, 'bold'),
+            bg='#6c757d',
+            fg='#ffffff',
+            relief='raised',
+            bd=2,
+            width=20,
+            command=self.toggle_auto_recovery
+        )
+        self.auto_recovery_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Recovery Status Display
+        self.recovery_status_display = tk.Label(
+            recovery_row,
+            text="💊 Ready: Trigger at -$50",
+            font=('Arial', 9),
+            fg='#adb5bd',
+            bg='#16213e'
+        )
+        self.recovery_status_display.pack(side=tk.RIGHT)
+        
+        # Status summary row
+        status_frame = tk.Frame(smart_frame, bg='#16213e')
+        status_frame.pack(fill=tk.X, pady=(5, 10), padx=5)
         
         self.smart_status_display = tk.Label(
-            status_row,
+            status_frame,
             text="🤖 Smart Profit: Ready to initialize...",
             font=('Arial', 9),
             fg='#adb5bd',
@@ -782,7 +893,7 @@ class AIGoldTradingGUI:
             self.log_message(f"❌ Toggle smart profit error: {e}", "ERROR")
 
     def create_log_section(self, parent):
-        """Create logging and monitoring section"""
+        """Create logging and monitoring section - ลดขนาด"""
         log_frame = tk.LabelFrame(
             parent,
             text="📜 System Logs & Monitoring",
@@ -794,10 +905,10 @@ class AIGoldTradingGUI:
         )
         log_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Log display
+        # Log display - ลดความสูง
         self.log_display = scrolledtext.ScrolledText(
             log_frame,
-            height=8,
+            height=6,  # ลดจาก 8 เป็น 6
             font=('Consolas', 9),
             bg='#0f0f0f',
             fg='#00ff00',
@@ -979,128 +1090,54 @@ class AIGoldTradingGUI:
             messagebox.showerror("Calculation Error", str(e))
 
     def update_survivability_display(self, calc):
-        """Update survivability display - แก้ไขให้แสดงค่า real-time"""
+        """Update survivability display - แก้ไขให้ทำงานกับ merged GUI"""
         
-        # แสดงข้อมูลพื้นฐาน (เหมือนเดิม)
+        # แสดงข้อมูลพื้นฐาน
         self.balance_label.config(text=f"💰 Balance: ${calc['account_balance']:,.2f}")
         
-        # แสดง mode และ target (เหมือนเดิม)
-        mode_text = f"🎯 Mode: {calc['trading_mode']} | Target: {calc['target_survivability']:,} pts"
-        if not hasattr(self, 'mode_display_label'):
-            self.mode_display_label = tk.Label(
-                self.balance_label.master,
-                text=mode_text,
-                font=('Arial', 10, 'bold'),
-                fg='#4ecdc4',
-                bg='#16213e'
-            )
-            self.mode_display_label.pack(anchor='w', pady=2)
-        else:
-            self.mode_display_label.config(text=mode_text)
+        # แสดง mode และ target
+        mode_text = f"Mode: {calc['trading_mode']} | Target: {calc['target_survivability']:,} pts"
+        # อัพเดตใน target_label แทน
+        self.target_label.config(text=f"🎯 {mode_text}")
         
-        # ✅ แก้ไขส่วนนี้ - แสดงค่า real-time ถ้ามี grid_trader
-        if hasattr(self, 'grid_trader') and self.grid_trader and self.is_trading:
-            # ใช้ข้อมูล real-time จาก grid_trader
-            realtime_stats = self.get_realtime_grid_stats()
-            
-            # แสดง Base Lot (real-time)
-            actual_lot = realtime_stats.get('average_lot_size', calc['base_lot'])
-            lot_text = f"🎯 Base Lot: {actual_lot:.3f} (Active orders average)"
-            self.base_lot_label.config(text=lot_text, fg='#51cf66')  # เขียว = real-time
-            
-            # แสดง Grid Spacing (real-time)
-            actual_spacing = realtime_stats.get('actual_grid_spacing', calc['grid_spacing'])
-            spacing_text = f"📏 Grid Spacing: {actual_spacing} points (${actual_spacing*0.01:.2f}) - LIVE"
-            self.grid_spacing_label.config(text=spacing_text, fg='#51cf66')
-            
-            # แสดง Max Levels (real-time count)
-            actual_levels = realtime_stats.get('total_orders', calc['max_levels'])
-            levels_text = f"📈 Active Orders: {actual_levels} (Live count)"
-            self.max_levels_label.config(text=levels_text, fg='#51cf66')
-            
-            # ✅ แสดง Survivability (real-time)
-            actual_survivability = realtime_stats.get('actual_survivability', 0)
-            theoretical_survivability = calc['survivability']
-            target_surv = calc['target_survivability']
-            
-            if actual_survivability > 0:
-                # มีไม้จริง - แสดงค่า real-time
-                if actual_survivability >= target_surv:
-                    surv_color = '#51cf66'  # เขียว
-                    status_emoji = "✅"
-                elif actual_survivability >= target_surv * 0.7:
-                    surv_color = '#ffd43b'  # เหลือง
-                    status_emoji = "⚠️"
-                else:
-                    surv_color = '#ff6b6b'  # แดง
-                    status_emoji = "❌"
-                    
-                surv_text = f"🛡️ LIVE Survivability: {actual_survivability:,.0f} points {status_emoji} | Target: {target_surv:,}"
-                self.survivability_label.config(text=surv_text, fg=surv_color)
-            else:
-                # ยังไม่มีไม้ - แสดงค่า theoretical
-                surv_text = f"🛡️ Survivability: {theoretical_survivability:,.0f} points (Calculated) | Target: {target_surv:,}"
-                self.survivability_label.config(text=surv_text, fg='#adb5bd')  # เทา = ยังไม่มีข้อมูลจริง
-            
-            # ✅ แสดง Capital Usage (real-time)
-            actual_capital_usage = realtime_stats.get('actual_capital_usage', calc.get('capital_utilization', 0))
-            if actual_capital_usage > 90:
-                util_color = '#ff6b6b'
-            elif actual_capital_usage > 70:
-                util_color = '#ffd43b'
-            else:
-                util_color = '#51cf66'
-                
-            util_text = f"📊 LIVE Capital Used: {actual_capital_usage:.1f}%"
-            
-            if not hasattr(self, 'utilization_label'):
-                self.utilization_label = tk.Label(
-                    self.max_levels_label.master, 
-                    text=util_text, 
-                    font=('Arial', 10), 
-                    fg=util_color, 
-                    bg='#16213e'
-                )
-                self.utilization_label.pack(anchor='w', pady=2)
-            else:
-                self.utilization_label.config(text=util_text, fg=util_color)
-                
+        # แสดง Base Lot
+        if calc.get('lot_size_adjusted', False):
+            lot_text = f"🎯 Lot: {calc['base_lot']:.3f} (Ideal: {calc['ideal_base_lot']:.3f}) ⚠️"
+            lot_color = '#ffd43b'
         else:
-            # ยังไม่เริ่ม trading - แสดงค่า calculated
-            if calc.get('lot_size_adjusted', False):
-                lot_text = f"🎯 Lot: {calc['base_lot']:.3f} (Ideal: {calc['ideal_base_lot']:.3f}) ⚠️"
-                lot_color = '#ffd43b'
-            else:
-                lot_text = f"🎯 Base Lot: {calc['base_lot']:.3f} (Calculated)"
-                lot_color = '#ffffff'
-            self.base_lot_label.config(text=lot_text, fg=lot_color)
-            
-            self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} points (${calc['grid_spacing']*0.01:.2f})")
-            self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']} (Planned)")
-            
-            # Survivability (calculated)
-            theoretical_surv = calc['survivability']
-            realistic_surv = calc.get('realistic_survivability', theoretical_surv)
-            target_surv = calc['target_survivability']
-            
-            if realistic_surv >= target_surv:
-                surv_color = '#51cf66'
-                status_emoji = "✅"
-            elif realistic_surv >= target_surv * 0.8:
-                surv_color = '#ffd43b'
-                status_emoji = "⚠️"
-            else:
-                surv_color = '#ff6b6b'
-                status_emoji = "❌"
-            
-            if realistic_surv != theoretical_surv:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} (Theory: {theoretical_surv:,.0f}) | Target: {target_surv:,.0f}"
-            else:
-                surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} points {status_emoji} | Target: {target_surv:,.0f}"
-            
-            self.survivability_label.config(text=surv_text, fg=surv_color)
+            lot_text = f"🎯 Base Lot: {calc['base_lot']:.3f}"
+            lot_color = '#ffffff'
+        self.base_lot_label.config(text=lot_text, fg=lot_color)
         
-        # แสดง Safety Margin (เหมือนเดิม)
+        # แสดง Grid Spacing
+        self.grid_spacing_label.config(text=f"📏 Grid Spacing: {calc['grid_spacing']} points")
+        
+        # แสดง Max Levels
+        self.max_levels_label.config(text=f"📈 Max Levels: {calc['max_levels']}")
+        
+        # แสดง Survivability
+        theoretical_surv = calc['survivability']
+        realistic_surv = calc.get('realistic_survivability', theoretical_surv)
+        target_surv = calc['target_survivability']
+        
+        if realistic_surv >= target_surv:
+            surv_color = '#51cf66'
+            status_emoji = "✅"
+        elif realistic_surv >= target_surv * 0.8:
+            surv_color = '#ffd43b'
+            status_emoji = "⚠️"
+        else:
+            surv_color = '#ff6b6b'
+            status_emoji = "❌"
+        
+        if realistic_surv != theoretical_surv:
+            surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} pts {status_emoji} (Theory: {theoretical_surv:,.0f})"
+        else:
+            surv_text = f"🛡️ Survivability: {realistic_surv:,.0f} pts {status_emoji}"
+        
+        self.survivability_label.config(text=surv_text, fg=surv_color)
+        
+        # แสดง Safety Margin
         safety_pct = calc.get('safety_margin_percentage', 40)
         self.safety_margin_label.config(text=f"💪 Safety Margin: ${calc['safety_margin']:,.2f} ({safety_pct:.1f}%)")
 
@@ -1597,7 +1634,7 @@ Proceed with emergency stop?"""
         )
                 
     def monitor_system(self):
-        """Monitor system status"""
+        """Monitor system status - เพิ่ม recovery status update"""
         while self.monitoring:
             try:
                 if self.is_connected and self.mt5_connector:
@@ -1611,12 +1648,98 @@ Proceed with emergency stop?"""
                         current_drawdown = self.grid_trader.get_current_drawdown()
                         self.root.after(0, self.update_drawdown_display, current_drawdown)
                         
+                    # Update recovery status - เพิ่มใหม่
+                    if hasattr(self, 'recovery_status_display'):
+                        self.root.after(0, self.update_recovery_status_display)
+                        
                 time.sleep(2)  # Monitor every 2 seconds
                 
             except Exception as e:
                 print(f"Monitor error: {e}")
                 time.sleep(5)
+
+    def manual_trigger_recovery(self):
+        """Manual trigger recovery system"""
+        try:
+            if not hasattr(self, 'grid_trader') or not self.grid_trader:
+                self.log_message("⚠️ Start trading first", "WARNING")
+                messagebox.showwarning("Recovery", "Please start trading first")
+                return
                 
+            if not hasattr(self.grid_trader, 'smart_profit_manager'):
+                self.log_message("⚠️ Smart Profit Manager not available", "WARNING")
+                return
+                
+            result = self.grid_trader.smart_profit_manager.manual_trigger_recovery()
+            
+            if result:
+                self.log_message("💊 Manual recovery started", "SUCCESS")
+                self.recovery_status_display.config(text="💊 RECOVERY ACTIVE", fg='#ff6b6b')
+            else:
+                self.log_message("⚠️ Recovery failed to start", "WARNING")
+                
+        except Exception as e:
+            self.log_message(f"❌ Recovery error: {e}", "ERROR")
+
+    def toggle_auto_recovery(self):
+        """Toggle auto recovery mode"""
+        try:
+            if hasattr(self, 'grid_trader') and self.grid_trader and hasattr(self.grid_trader, 'smart_profit_manager'):
+                current_auto = getattr(self.grid_trader.smart_profit_manager, 'recovery_auto_mode', False)
+                self.grid_trader.smart_profit_manager.recovery_auto_mode = not current_auto
+                
+                if self.grid_trader.smart_profit_manager.recovery_auto_mode:
+                    self.auto_recovery_btn.config(text="🤖 Auto: ON", bg='#51cf66')
+                    self.recovery_status_display.config(text="💊 Auto Mode: ON", fg='#51cf66')
+                    self.log_message("🤖 Auto Recovery: ENABLED", "SUCCESS")
+                else:
+                    self.auto_recovery_btn.config(text="🤖 Auto: OFF", bg='#6c757d')
+                    self.recovery_status_display.config(text="💊 Ready: Trigger -$50", fg='#adb5bd')
+                    self.log_message("🤖 Auto Recovery: DISABLED", "WARNING")
+            else:
+                self.log_message("⚠️ Recovery system not available", "WARNING")
+                
+        except Exception as e:
+            self.log_message(f"❌ Toggle recovery error: {e}", "ERROR")
+
+    def update_recovery_status_display(self):
+        """Update recovery status in GUI - เรียกใน monitoring loop"""
+        try:
+            if (hasattr(self, 'grid_trader') and self.grid_trader and 
+                hasattr(self.grid_trader, 'smart_profit_manager')):
+                
+                recovery_status = self.grid_trader.smart_profit_manager.get_recovery_status()
+                
+                if recovery_status.get('active'):
+                    elapsed = recovery_status.get('elapsed_minutes', 0)
+                    self.recovery_status_display.config(
+                        text=f"💊 ACTIVE: {elapsed:.1f}min elapsed",
+                        fg='#ff6b6b'
+                    )
+                elif recovery_status.get('auto_mode'):
+                    self.recovery_status_display.config(
+                        text="💊 Auto Mode: ENABLED",
+                        fg='#51cf66'
+                    )
+                else:
+                    trigger_loss = recovery_status.get('trigger_loss', -50)
+                    self.recovery_status_display.config(
+                        text=f"💊 Ready: Trigger at ${trigger_loss}",
+                        fg='#adb5bd'
+                    )
+            else:
+                self.recovery_status_display.config(
+                    text="💊 Not initialized",
+                    fg='#6c757d'
+                )
+                
+        except Exception as e:
+            self.recovery_status_display.config(
+                text="💊 Status error",
+                fg='#ff6b6b'
+            )
+
+
     def update_drawdown_display(self, drawdown):
         """Update current drawdown display"""
         if drawdown >= 0:
