@@ -352,77 +352,53 @@ class SurvivabilityEngine:
         return round(final_lot, 3)
     
     def calculate_optimal_grid_spacing(self, usable_capital: float, base_lot: float, mode_config: Dict = None) -> int:
-        """Calculate optimal grid spacing for Smart Grid Rebalancing"""
+        """แก้ไข Grid Spacing ให้สมเหตุสมผลกับ Gold Trading"""
         
-        # 🚀 Smart Grid spacing - optimized for balance and efficiency
+        # 🎯 Grid Spacing ที่สมเหตุสมผลสำหรับ Gold
+        # Gold ผันผวน 50-200 points/วัน → Grid ควร 30-80 points
+        
         if usable_capital >= 50000:
-            base_spacing = 80   # Ultra-tight for very large accounts
+            base_spacing = 30   # Ultra-tight สำหรับทุนใหญ่
         elif usable_capital >= 30000:
-            base_spacing = 100  # Very tight for large accounts
+            base_spacing = 40   # Very tight
         elif usable_capital >= 15000:
-            base_spacing = 120  # Tight spacing
+            base_spacing = 50   # Tight
         elif usable_capital >= 10000:
-            base_spacing = 140  # Good for $10k+
+            base_spacing = 60   # เดิม: 140 → ใหม่: 60 (ลด 57%!)
         elif usable_capital >= 6000:
-            base_spacing = 150  # Sweet spot สำหรับ $5,000-10,000
+            base_spacing = 70   # เดิม: 150 → ใหม่: 70 (ลด 53%)
         elif usable_capital >= 4000:
-            base_spacing = 180  # Moderate for $4k+
+            base_spacing = 80   # เดิม: 180 → ใหม่: 80 (ลด 56%)
         elif usable_capital >= 2500:
-            base_spacing = 200  # Standard for $2.5k+
+            base_spacing = 90   # เดิม: 200 → ใหม่: 90 (ลด 55%)
         elif usable_capital >= 1500:
-            base_spacing = 250  # Wider for smaller accounts
+            base_spacing = 100  # เดิม: 250 → ใหม่: 100 (ลด 60%)
         else:
-            base_spacing = 300  # Conservative for small accounts
+            base_spacing = 120  # เดิม: 300 → ใหม่: 120 (ลด 60%)
         
-        print(f"🚀 Smart Grid Base Spacing: {base_spacing} points for ${usable_capital:,.0f}")
+        print(f"🎯 Realistic Grid Spacing: {base_spacing} points for ${usable_capital:,.0f}")
         
-        # Mode tightness adjustment
+        # เก็บส่วนอื่นเหมือนเดิม แต่ปรับ min/max
         if mode_config:
             grid_tightness = mode_config.get('grid_tightness', 1.0)
             mode_adjusted_spacing = base_spacing / grid_tightness
-            print(f"   Mode {mode_config.get('risk_level', 'Unknown')} adjustment: ÷{grid_tightness} = {mode_adjusted_spacing:.0f}")
         else:
             mode_adjusted_spacing = base_spacing
             
-        # 🚀 Smart Grid lot factor adjustment (reduced impact)
-        lot_factor = base_lot / 0.01
-        if lot_factor > 1:
-            # Reduced adjustment factor for Smart Grid
-            spacing_adjustment = math.sqrt(lot_factor) * 20  # ลดจาก 30 เป็น 20
-            adjusted_spacing = mode_adjusted_spacing + spacing_adjustment
-            print(f"   Lot factor {lot_factor:.1f}x adjustment: +{spacing_adjustment:.0f}")
-        else:
-            adjusted_spacing = mode_adjusted_spacing
-            
-        # 🚀 Smart Grid minimum spacing (tighter)
-        min_spacing = 60   # ลดจาก 80 เป็น 60
-        max_spacing = 400  # เพิ่ม maximum limit
+        # ปรับ min/max ให้สมเหตุสมผล
+        min_spacing = 25   # เดิม: 60 → ใหม่: 25
+        max_spacing = 150  # เดิม: 400 → ใหม่: 150
         
-        final_spacing = max(int(adjusted_spacing), min_spacing)
+        final_spacing = max(int(mode_adjusted_spacing), min_spacing)
         final_spacing = min(final_spacing, max_spacing)
         
-        # 🚀 Smart rounding for better grid alignment
-        if final_spacing >= 300:
-            final_spacing = round(final_spacing / 25) * 25  # รอบ 25
-        elif final_spacing >= 150:
-            final_spacing = round(final_spacing / 20) * 20  # รอบ 20
-        elif final_spacing >= 100:
+        # Smart rounding
+        if final_spacing >= 100:
             final_spacing = round(final_spacing / 10) * 10  # รอบ 10
         else:
-            final_spacing = round(final_spacing / 5) * 5    # รอบ 5 สำหรับ ultra-tight
+            final_spacing = round(final_spacing / 5) * 5    # รอบ 5
             
-        print(f"   Final Smart Grid Spacing: {final_spacing} points")
-        
-        # 🚀 Validation and recommendations
-        if final_spacing < 100:
-            print(f"   ⚡ Ultra-tight grid detected - High frequency trading mode")
-        elif final_spacing < 150:
-            print(f"   🚀 Tight grid - Optimal for Smart Grid Rebalancing")
-        elif final_spacing < 250:
-            print(f"   ⚖️ Balanced grid - Good profit/safety ratio")
-        else:
-            print(f"   🛡️ Conservative grid - Safety-focused approach")
-            
+        print(f"   Final Realistic Spacing: {final_spacing} points")
         return final_spacing
         
     def calculate_max_grid_levels_realistic(self, usable_capital: float, actual_lot: float, grid_spacing: int, 

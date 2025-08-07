@@ -665,8 +665,7 @@ class SmartProfitManager:
             return False
                         
     def run_smart_profit_management(self):
-        """AI Portfolio Management - ทับของเดิมเลย"""
-        
+        """แก้ไข - ใช้ find_profitable_pairs ที่เพิ่มใหม่"""
         try:
             # 1. วิเคราะห์ positions ทั้งหมด
             portfolio = self.analyze_portfolio_positions()
@@ -678,14 +677,24 @@ class SmartProfitManager:
             
             print(f"🧠 AI Portfolio: {len(positions)} positions, Total PnL: ${total_pnl:.2f}")
             
-            # 2. หาคู่ที่ควรปิดเพื่อทำกำไร
-            profitable_pairs = self.find_profitable_pairs(positions)
+            # 2. หาและปิดคู่ที่ได้กำไร - ใช้ method ที่เพิ่มใหม่
+            profitable_pairs = self.find_profitable_pairs(positions)  # ✅ ใช้ method ที่เพิ่มแล้ว
+            
             if profitable_pairs:
                 print(f"💰 Found {len(profitable_pairs)} profitable pairs")
                 self.execute_pair_closes(profitable_pairs)
+                
+                # รอให้ปิด positions เสร็จก่อนทำอย่างอื่น
+                time.sleep(1)
+                
+                # อัพเดต portfolio หลังปิดคู่
+                portfolio = self.analyze_portfolio_positions()
+                positions = portfolio.get('grid_positions', [])
+                total_pnl = portfolio.get('total_pnl', 0)
+                print(f"🔄 After pair closing: {len(positions)} positions, PnL: ${total_pnl:.2f}")
             
             # 3. หา hedge สำหรับ positions ที่ขาดทุนมาก  
-            if total_pnl < -30:  # ขาดทุนเกิน $30
+            if total_pnl < -30:
                 hedge_opportunities = self.find_hedge_opportunities(positions)
                 if hedge_opportunities:
                     print(f"🛡️ Found {len(hedge_opportunities)} hedge opportunities")
@@ -700,33 +709,44 @@ class SmartProfitManager:
                 
         except Exception as e:
             print(f"❌ AI Portfolio management error: {e}")
-    
+
+
     def find_profitable_pairs(self, positions):
-        """หาคู่ positions ที่ปิดแล้วได้กำไรสุทธิ"""
-        
+        """หาคู่ positions ที่ปิดแล้วได้กำไรสุทธิ - หัวใจของ Grid Trading"""
         try:
             profitable_pairs = []
+            
+            # แยก positions ตามสถานะ
             losing_positions = [p for p in positions if p.pnl < -1]  # ขาดทุน > $1
             profit_positions = [p for p in positions if p.pnl > 1]   # กำไร > $1
             
+            print(f"🔍 Analyzing pairs: {len(losing_positions)} losing vs {len(profit_positions)} profitable")
+            
+            # หาคู่ที่ได้กำไรสุทธิ
             for losing_pos in losing_positions:
                 for profit_pos in profit_positions:
                     net_pnl = losing_pos.pnl + profit_pos.pnl
                     
-                    # ได้กำไรสุทธิ $3+ ถึงจะปิด
-                    if net_pnl >= 3:
-                        pair = {
+                    # เงื่อนไข: ได้กำไรสุทธิ $2+ (ปรับได้ตามต้องการ)
+                    if net_pnl >= 2:
+                        pair_info = {
                             'losing_position': losing_pos,
                             'profit_position': profit_pos,
+                            'losing_pnl': losing_pos.pnl,
+                            'profit_pnl': profit_pos.pnl,
                             'net_profit': net_pnl,
-                            'priority': abs(losing_pos.pnl) + profit_pos.pnl  # ยิ่งขาดทุนมาก priority สูง
+                            'priority_score': net_pnl + abs(losing_pos.pnl),  # ยิ่งขาดทุนมาก + กำไรมาก = priority สูง
+                            'losing_direction': losing_pos.direction,
+                            'profit_direction': profit_pos.direction
                         }
-                        profitable_pairs.append(pair)
+                        profitable_pairs.append(pair_info)
+                        
+                        print(f"   💰 Found pair: {losing_pos.direction}(${losing_pos.pnl:.2f}) + {profit_pos.direction}(${profit_pos.pnl:.2f}) = +${net_pnl:.2f}")
             
-            # เรียงตาม priority
-            profitable_pairs.sort(key=lambda x: x['priority'], reverse=True)
+            # เรียงตาม priority score (สูงสุดก่อน)
+            profitable_pairs.sort(key=lambda x: x['priority_score'], reverse=True)
             
-            # เลือกคู่ที่ไม่ซ้ำ
+            # เลือกคู่ที่ไม่ซ้ำกัน (greedy selection)
             selected_pairs = []
             used_positions = set()
             
@@ -734,19 +754,69 @@ class SmartProfitManager:
                 losing_id = pair['losing_position'].position_id
                 profit_id = pair['profit_position'].position_id
                 
+                # ตรวจสอบว่า positions ยังไม่ได้ถูกใช้
                 if losing_id not in used_positions and profit_id not in used_positions:
                     selected_pairs.append(pair)
                     used_positions.add(losing_id)
                     used_positions.add(profit_id)
                     
-                    if len(selected_pairs) >= 2:  # ไม่เกิน 2 คู่ต่อครั้ง
+                    print(f"   ✅ Selected pair {len(selected_pairs)}: Net profit +${pair['net_profit']:.2f}")
+                    
+                    # จำกัดไม่เกิน 3 คู่ต่อครั้ง (ป้องกันการปิดมากเกินไป)
+                    if len(selected_pairs) >= 3:
+                        print(f"   📊 Limited to {len(selected_pairs)} pairs per cycle")
                         break
             
+            if selected_pairs:
+                total_expected_profit = sum(pair['net_profit'] for pair in selected_pairs)
+                print(f"💎 Total pairs found: {len(selected_pairs)}, Expected profit: +${total_expected_profit:.2f}")
+            else:
+                print(f"📊 No profitable pairs found (need net profit ≥ $2)")
+                
             return selected_pairs
             
         except Exception as e:
-            print(f"❌ Find pairs error: {e}")
+            print(f"❌ Find profitable pairs error: {e}")
             return []
+
+    def analyze_pair_opportunities(self, positions):
+        """วิเคราะห์โอกาส pair closing แบบละเอียด"""
+        try:
+            losing_positions = [p for p in positions if p.pnl < 0]
+            profit_positions = [p for p in positions if p.pnl > 0]
+            
+            print(f"\n📊 === PAIR ANALYSIS ===")
+            print(f"🔴 Losing positions: {len(losing_positions)}")
+            for pos in losing_positions[:5]:  # แสดง 5 ตัวแรก
+                print(f"   • {pos.direction} ${pos.pnl:.2f} @ ${pos.entry_price:.2f}")
+                
+            print(f"🟢 Profitable positions: {len(profit_positions)}")
+            for pos in profit_positions[:5]:  # แสดง 5 ตัวแรก
+                print(f"   • {pos.direction} +${pos.pnl:.2f} @ ${pos.entry_price:.2f}")
+            
+            # หาคู่ที่ดีที่สุด
+            best_pairs = []
+            for losing_pos in losing_positions[:3]:  # เช็ค 3 ตัวที่ขาดทุนมากสุด
+                for profit_pos in profit_positions:
+                    net_pnl = losing_pos.pnl + profit_pos.pnl
+                    if net_pnl > 0:
+                        best_pairs.append({
+                            'net_profit': net_pnl,
+                            'losing': f"{losing_pos.direction}(${losing_pos.pnl:.2f})",
+                            'profit': f"{profit_pos.direction}(+${profit_pos.pnl:.2f})"
+                        })
+            
+            best_pairs.sort(key=lambda x: x['net_profit'], reverse=True)
+            
+            print(f"🎯 Best potential pairs:")
+            for i, pair in enumerate(best_pairs[:3]):
+                print(f"   {i+1}. {pair['losing']} + {pair['profit']} = +${pair['net_profit']:.2f}")
+                
+            print(f"{'='*40}\n")
+            
+        except Exception as e:
+            print(f"❌ Pair analysis error: {e}")
+
 
     def execute_pair_closes(self, pairs):
         """ปิดคู่ positions ที่ได้กำไรสุทธิ"""
@@ -892,10 +962,153 @@ class SmartProfitManager:
         except Exception as e:
             print(f"❌ Place replacement error: {e}")
         return False
+    
+    def handle_buy_heavy_situation(self, buy_positions, sell_positions):
+        """จัดการเมื่อ BUY positions เยอะเกิน"""
+        try:
+            # 1. หาคู่ที่ปิดแล้วได้กำไรสุทธิ
+            best_pairs = self.find_best_closing_pairs(buy_positions, sell_positions)
+            
+            if best_pairs:
+                print(f"💰 Closing {len(best_pairs)} profitable pairs")
+                for pair in best_pairs:
+                    self.close_position_pair(pair['buy_pos'], pair['sell_pos'], pair['net_profit'])
+                    
+            # 2. เพิ่ม SELL orders ใกล้ราคาปัจจุบัน
+            current_price = self.grid_system.get_current_price()
+            self.add_sell_orders_for_balance(current_price, min(2, len(buy_positions) - len(sell_positions)))
+            
+        except Exception as e:
+            print(f"❌ BUY heavy handling error: {e}")
+
+    def handle_sell_heavy_situation(self, buy_positions, sell_positions):
+        """จัดการเมื่อ SELL positions เยอะเกิน"""  
+        try:
+            # 1. หาคู่ที่ปิดแล้วได้กำไรสุทธิ
+            best_pairs = self.find_best_closing_pairs(sell_positions, buy_positions)
+            
+            if best_pairs:
+                print(f"💰 Closing {len(best_pairs)} profitable pairs")
+                for pair in best_pairs:
+                    self.close_position_pair(pair['sell_pos'], pair['buy_pos'], pair['net_profit'])
+                    
+            # 2. เพิ่ม BUY orders ใกล้ราคาปัจจุบัน  
+            current_price = self.grid_system.get_current_price()
+            self.add_buy_orders_for_balance(current_price, min(2, len(sell_positions) - len(buy_positions)))
+            
+        except Exception as e:
+            print(f"❌ SELL heavy handling error: {e}")
+
+    def find_best_closing_pairs(self, heavy_positions, light_positions):
+        """หาคู่ positions ที่ปิดแล้วได้กำไรสุทธิ"""
+        try:
+            profitable_pairs = []
+            
+            for heavy_pos in heavy_positions:
+                for light_pos in light_positions:
+                    net_pnl = heavy_pos.pnl + light_pos.pnl
+                    
+                    # ต้องได้กำไรสุทธิ > $3 ถึงจะปิด
+                    if net_pnl > 3:
+                        profitable_pairs.append({
+                            'heavy_pos': heavy_pos,
+                            'light_pos': light_pos,  
+                            'buy_pos': heavy_pos if heavy_pos.direction == "BUY" else light_pos,
+                            'sell_pos': heavy_pos if heavy_pos.direction == "SELL" else light_pos,
+                            'net_profit': net_pnl,
+                            'priority': net_pnl + abs(min(heavy_pos.pnl, light_pos.pnl))
+                        })
+            
+            # เรียงตาม priority และเลือกที่ไม่ซ้ำ
+            profitable_pairs.sort(key=lambda x: x['priority'], reverse=True)
+            
+            selected_pairs = []
+            used_positions = set()
+            
+            for pair in profitable_pairs:
+                heavy_id = pair['heavy_pos'].position_id  
+                light_id = pair['light_pos'].position_id
+                
+                if heavy_id not in used_positions and light_id not in used_positions:
+                    selected_pairs.append(pair)
+                    used_positions.add(heavy_id)
+                    used_positions.add(light_id)
+                    
+                    if len(selected_pairs) >= 1:  # จำกัดแค่ 1 คู่ต่อครั้ง
+                        break
+                        
+            return selected_pairs
+            
+        except Exception as e:
+            print(f"❌ Find pairs error: {e}")
+            return []
+
+    def close_position_pair(self, pos1, pos2, expected_profit):
+        """ปิด positions คู่พร้อมกัน"""
+        try:
+            print(f"🎯 Closing pair: {pos1.direction} ${pos1.pnl:.2f} + {pos2.direction} ${pos2.pnl:.2f} = +${expected_profit:.2f}")
+            
+            # ปิด position แรก
+            success1 = self.close_single_position(pos1)
+            if success1:
+                time.sleep(0.3)  # รอสักครู่
+                
+                # ปิด position ที่สอง
+                success2 = self.close_single_position(pos2)
+                if success2:
+                    print(f"   ✅ Pair closed successfully: +${expected_profit:.2f}")
+                    return True
+                else:
+                    print(f"   ⚠️ Second position failed to close")
+            else:
+                print(f"   ❌ First position failed to close")
+                
+            return False
+            
+        except Exception as e:
+            print(f"❌ Close pair error: {e}")
+            return False
+
+    def close_single_position(self, position):
+        """ปิด position เดียว - ใช้ method ที่มีอยู่แล้ว"""
+        try:
+            return self.grid_system.close_position_by_id(position.position_id)
+        except Exception as e:
+            print(f"❌ Close single position error: {e}")
+            return False
+
+    def add_sell_orders_for_balance(self, current_price, count):
+        """เพิ่ม SELL orders เพื่อ balance"""
+        try:
+            distances = [80, 120, 160]  # ใกล้ๆ ราคาปัจจุบัน
+            
+            for i in range(min(count, len(distances))):
+                sell_price = current_price + (distances[i] * 0.01)
+                lot_size = self.grid_system.base_lot
+                
+                if self.grid_system.place_smart_rebalance_order("SELL", sell_price, lot_size):
+                    print(f"   ✅ Added balancing SELL: {lot_size:.3f} @ ${sell_price:.2f}")
+                    
+        except Exception as e:
+            print(f"❌ Add SELL orders error: {e}")
+
+    def add_buy_orders_for_balance(self, current_price, count):
+        """เพิ่ม BUY orders เพื่อ balance"""
+        try:
+            distances = [80, 120, 160]  # ใกล้ๆ ราคาปัจจุบัน
+            
+            for i in range(min(count, len(distances))):
+                buy_price = current_price - (distances[i] * 0.01)  
+                lot_size = self.grid_system.base_lot
+                
+                if self.grid_system.place_smart_rebalance_order("BUY", buy_price, lot_size):
+                    print(f"   ✅ Added balancing BUY: {lot_size:.3f} @ ${buy_price:.2f}")
+                    
+        except Exception as e:
+            print(f"❌ Add BUY orders error: {e}")
 
     def rebalance_portfolio_if_needed(self, positions):
-        """ปรับ portfolio ให้สมดุลถ้าจำเป็น"""
-        
+        """แก้ไข Rebalance Trigger ให้ทำงานได้จริง"""
         try:
             buy_positions = [p for p in positions if p.direction == "BUY"]
             sell_positions = [p for p in positions if p.direction == "SELL"]
@@ -905,24 +1118,107 @@ class SmartProfitManager:
             
             print(f"⚖️ Portfolio balance: {buy_count} BUY, {sell_count} SELL")
             
-            # ถ้า imbalance มาก (ต่างกัน > 3 positions)
-            if abs(buy_count - sell_count) > 3:
+            # 🔧 แก้ไขเงื่อนไข Rebalance ให้ sensitive กว่า
+            imbalance = abs(buy_count - sell_count)
+            
+            # เดิม: > 3 positions ถึงจะ rebalance (ช้าเกิน!)
+            # ใหม่: > 1 positions ก็ rebalance แล้ว (เร็วขึ้น)
+            if imbalance > 1 and (buy_count >= 2 or sell_count >= 2):  # ต้องมีอย่างน้อย 2 positions
+                
                 current_price = self.grid_system.get_current_price()
                 
                 if buy_count > sell_count:
-                    # เพิ่ม SELL order
-                    sell_price = current_price + (150 * 0.01)  # 150 points ขึ้น
-                    self.place_single_replacement_order("SELL", sell_price, self.grid_system.base_lot)
-                    print(f"   📈 Added SELL order @ ${sell_price:.2f} for balance")
+                    print(f"🎯 BUY HEAVY ({imbalance} imbalance): Adding SELL via MARKET order")
                     
-                else:
-                    # เพิ่ม BUY order  
-                    buy_price = current_price - (150 * 0.01)   # 150 points ลง
-                    self.place_single_replacement_order("BUY", buy_price, self.grid_system.base_lot)
-                    print(f"   📉 Added BUY order @ ${buy_price:.2f} for balance")
-            
+                    # เพิ่ม SELL positions เท่ากับครึ่งหนึ่งของ imbalance
+                    needed_sells = max(1, imbalance // 2)  # อย่างน้อย 1, สูงสุดครึ่งหนึ่ง
+                    
+                    for i in range(needed_sells):
+                        if self.place_market_rebalance_order("SELL"):
+                            print(f"   ✅ SELL Market #{i+1} placed")
+                        else:
+                            print(f"   ❌ SELL Market #{i+1} failed")
+                            
+                elif sell_count > buy_count:
+                    print(f"🎯 SELL HEAVY ({imbalance} imbalance): Adding BUY via MARKET order")
+                    
+                    needed_buys = max(1, imbalance // 2)
+                    
+                    for i in range(needed_buys):
+                        if self.place_market_rebalance_order("BUY"):
+                            print(f"   ✅ BUY Market #{i+1} placed")
+                        else:
+                            print(f"   ❌ BUY Market #{i+1} failed")
+            else:
+                print(f"✅ Portfolio balanced (imbalance: {imbalance})")
+                
         except Exception as e:
-            print(f"❌ Rebalance portfolio error: {e}")
+            print(f"❌ Rebalance error: {e}")
+    
+    def place_market_rebalance_order(self, direction: str) -> bool:
+        """เพิ่ม method ใหม่ - วาง Market Order เพื่อ Balance"""
+        try:
+            # Get current tick
+            tick = mt5.symbol_info_tick(self.grid_system.gold_symbol)
+            if not tick:
+                print(f"❌ Cannot get tick for market rebalance")
+                return False
+                
+            # ใช้ lot size พื้นฐาน
+            lot_size = self.grid_system.base_lot
+            
+            # Determine price and order type
+            if direction == "BUY":
+                order_type = mt5.ORDER_TYPE_BUY
+                price = tick.ask
+            else:
+                order_type = mt5.ORDER_TYPE_SELL
+                price = tick.bid
+                
+            # Market order request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": self.grid_system.gold_symbol,
+                "volume": lot_size,
+                "type": order_type,
+                "price": price,
+                "deviation": 30,  # Allow slippage for market order
+                "magic": self.grid_system.magic_number,
+                "comment": f"REBALANCE_{direction}",
+                "type_filling": self.grid_system.order_filling_mode
+            }
+            
+            print(f"   🎯 Market {direction}: {lot_size:.3f} @ ${price:.2f}")
+            
+            result = mt5.order_send(request)
+            
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"   ✅ Market rebalance: {direction} executed!")
+                
+                # Track ใน grid system
+                from ai_gold_grid import GridLevel, PositionStatus
+                
+                market_level = GridLevel(
+                    level_id=f"REBALANCE_{direction}_{int(time.time())}",
+                    price=price,
+                    lot_size=lot_size,
+                    direction=direction,
+                    status=PositionStatus.ACTIVE,
+                    position_id=result.order,
+                    entry_time=datetime.now()
+                )
+                
+                self.grid_system.grid_levels.append(market_level)
+                self.grid_system.active_positions[result.order] = market_level
+                
+                return True
+            else:
+                print(f"   ❌ Market rebalance failed: {result.comment if result else 'No response'}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Market rebalance order error: {e}")
+            return False
 
     def log_portfolio_status(self, portfolio_analysis: Dict):
         """Log current portfolio status"""

@@ -728,8 +728,8 @@ class AIGoldGrid:
             print(f"❌ Error checking market status: {e}")
             return False
             
-    def create_grid_levels(self, direction: GridDirection):
-        """AI Portfolio: วางไม้เริ่มต้นน้อยๆ แล้วให้ AI จัดการ"""
+    def create_grid_levels(self, direction):
+        """สร้าง grid levels แบบ ultra-tight - วางใกล้ราคาปัจจุบันมาก"""
         self.grid_levels = []
         current_time = datetime.now()
         
@@ -739,39 +739,41 @@ class AIGoldGrid:
             return
             
         self.starting_price = current_price
-        print(f"🧠 AI Portfolio: Starting with minimal positions at ${current_price:.2f}")
+        print(f"🧠 AI Ultra-Tight Grid: Starting at ${current_price:.2f}")
         
-        # 🧠 AI Portfolio: เริ่มแค่ 2 positions (1 BUY + 1 SELL)
+        # 🚀 Ultra-tight spacing (ใกล้มาก)
+        ultra_tight_spacing = 50  # เพียง 50 points แทน 300
+        
         if direction == GridDirection.BIDIRECTIONAL:
-            # BUY position ใกล้ๆ
-            buy_price = current_price - (300 * 0.01)
-            buy_level = GridLevel(
-            level_id=f"AI_BUY_1",
-            price=round(buy_price, 2),
-            lot_size=self.base_lot,
-            direction="BUY",
-            status=PositionStatus.PENDING,
-            entry_time=current_time
-            )
-            self.grid_levels.append(buy_level)
+            # สร้างไม้หลายตัวใกล้ๆ ราคาปัจจุบัน
+            positions_to_create = [
+                # BUY positions (ใกล้ๆ)
+                (current_price - (50 * 0.01), "BUY", "ULTRA_BUY_1"),   # -50 points
+                (current_price - (100 * 0.01), "BUY", "ULTRA_BUY_2"),  # -100 points
+                (current_price - (150 * 0.01), "BUY", "ULTRA_BUY_3"),  # -150 points
+                
+                # SELL positions (ใกล้ๆ)
+                (current_price + (50 * 0.01), "SELL", "ULTRA_SELL_1"),   # +50 points
+                (current_price + (100 * 0.01), "SELL", "ULTRA_SELL_2"),  # +100 points
+                (current_price + (150 * 0.01), "SELL", "ULTRA_SELL_3"),  # +150 points
+            ]
             
-            # SELL position ใกล้ๆ  
-            sell_price = current_price + (300 * 0.01)
-            sell_level = GridLevel(
-            level_id=f"AI_SELL_1", 
-            price=round(sell_price, 2),
-            lot_size=self.base_lot,
-            direction="SELL",
-            status=PositionStatus.PENDING,
-            entry_time=current_time
-            )
-            self.grid_levels.append(sell_level)
-            
-            print(f"   📉 BUY: ${buy_price:.2f} ({self.base_lot:.3f} lots)")
-            print(f"   📈 SELL: ${sell_price:.2f} ({self.base_lot:.3f} lots)")
+            for price, direction, level_id in positions_to_create:
+                level = GridLevel(
+                    level_id=level_id,
+                    price=round(price, 2),
+                    lot_size=self.base_lot,
+                    direction=direction,
+                    status=PositionStatus.PENDING,
+                    entry_time=current_time
+                )
+                self.grid_levels.append(level)
+                
+                distance = abs(price - current_price) / 0.01
+                print(f"   📍 {direction}: ${price:.2f} (distance: {distance:.0f} points)")
         
-        print(f"🧠 AI Portfolio initialized: {len(self.grid_levels)} starting positions")
-        print(f"   🤖 AI will manage portfolio dynamically")
+        print(f"🚀 Ultra-Tight Grid initialized: {len(self.grid_levels)} positions")
+        print(f"   🎯 Closest orders at ±50 points from current price")
 
 
     def calculate_level_lot_size(self, level: int) -> float:
@@ -3183,37 +3185,41 @@ class AIGoldGrid:
             print(f"❌ Smart replacement error: {e}")
     
     def add_balanced_nearby_orders(self, current_price: float):
-        """เพิTMากอไม้ทั้งสองด้านใกล้ราคาปัจจุบัน - FIXED VERSION"""
+        """เพิ่ม orders ใกล้ราคาปัจจุบัน - FIXED VERSION (ใกล้มาก)"""
         try:
-            # ✅ FIX: ใช้ระยะห่างใกล้ๆ สำหรับทั้ง BUY และ SELL
-            nearby_distances = [150, 250, 350]  # ระยะสมดุล
-            lot_size = max(self.min_lot, self.base_lot * 0.5)  # ขนาดเล็กลง
+            # 🚀 ใช้ระยะห่างใกล้มากๆ
+            nearby_distances = [50, 80, 120, 160, 200]  # ลดจาก [150, 250, 350] เป็นใกล้มาก
+            lot_size = max(self.min_lot, self.base_lot * 0.5)
             
-            print(f"   🎯 Adding balanced orders near ${current_price:.2f}")
+            print(f"   🎯 Adding ULTRA-CLOSE orders near ${current_price:.2f}")
             
             added_count = 0
             for distance_points in nearby_distances:
+                if added_count >= 3:  # จำกัด 3 orders
+                    break
+                    
                 # คำนวณราคา BUY และ SELL
-                buy_price = current_price - (300 * 0.01)  # แค่ 50 points
-                sell_price = current_price + (300 * 0.01)  # แค่ 50 points                
-                print(f"   📍 Checking pair @ BUY ${buy_price:.2f} / SELL ${sell_price:.2f}")
+                buy_price = current_price - (distance_points * 0.01)   # ใกล้มาก
+                sell_price = current_price + (distance_points * 0.01)  # ใกล้มาก
+                
+                print(f"   📍 Checking ULTRA-CLOSE pair @ BUY ${buy_price:.2f} / SELL ${sell_price:.2f}")
                 
                 # เพิ่ม BUY order
-                if not self.has_nearby_order(buy_price, "BUY", 50):
+                if not self.has_nearby_order(buy_price, "BUY", 25):  # ลดจาก 50 เป็น 25
                     if self.place_smart_rebalance_order("BUY", buy_price, lot_size):
                         added_count += 1
-                        print(f"   ✅ Added BUY: {lot_size:.3f} lots @ ${buy_price:.2f}")
+                        print(f"   ✅ Added ULTRA-CLOSE BUY: {lot_size:.3f} lots @ ${buy_price:.2f}")
                     
                 # เพิ่ม SELL order
-                if not self.has_nearby_order(sell_price, "SELL", 50):
+                if not self.has_nearby_order(sell_price, "SELL", 25):  # ลดจาก 50 เป็น 25
                     if self.place_smart_rebalance_order("SELL", sell_price, lot_size):
                         added_count += 1
-                        print(f"   ✅ Added SELL: {lot_size:.3f} lots @ ${sell_price:.2f}")
+                        print(f"   ✅ Added ULTRA-CLOSE SELL: {lot_size:.3f} lots @ ${sell_price:.2f}")
                     
-            print(f"✅ Added {added_count} balanced nearby orders")
+            print(f"✅ Added {added_count} ULTRA-CLOSE orders")
             
         except Exception as e:
-            print(f"❌ Balanced nearby orders error: {e}")
+            print(f"❌ ULTRA-CLOSE orders error: {e}")
 
     def has_nearby_order(self, price: float, direction: str, min_distance_points: int = 50) -> bool:
         """เช็คว่ามี order ใกล้ๆ ราคานี้แล้วหรือไม่ - FIXED VERSION"""
