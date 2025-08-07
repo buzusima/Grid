@@ -3221,30 +3221,56 @@ class AIGoldGrid:
         except Exception as e:
             print(f"❌ ULTRA-CLOSE orders error: {e}")
 
-    def has_nearby_order(self, price: float, direction: str, min_distance_points: int = 50) -> bool:
-        """เช็คว่ามี order ใกล้ๆ ราคานี้แล้วหรือไม่ - FIXED VERSION"""
+    def has_nearby_order(self, price: float, direction: str, min_distance_points: int = 80) -> bool:
+        """แก้ไข method ให้รองรับ 2-3 parameters"""
         try:
-            # ✅ FIX: ใช้ระยะห่างใน points อย่างถูกต้อง
-            min_distance_dollars = min_distance_points * 0.01  # แปลง points เป็น dollars
+            # ✅ แก้ไข: รองรับทั้ง 2 และ 3 parameters
+            min_distance = min_distance_points * 0.01  # แปลง points เป็น dollars
             
             # เช็ค pending orders
             for grid_level in self.pending_orders.values():
                 if (grid_level.direction == direction and 
-                    abs(grid_level.price - price) < min_distance_dollars):
+                    abs(grid_level.price - price) < min_distance):
                     return True
                     
             # เช็ค active positions
             for grid_level in self.active_positions.values():
                 if (grid_level.direction == direction and 
-                    abs(grid_level.price - price) < min_distance_dollars):
+                    abs(grid_level.price - price) < min_distance):
                     return True
                     
-                return False
+            return False
             
         except Exception as e:
             print(f"❌ Nearby order check error: {e}")
             return True  # ถ้า error ให้ถือว่ามี order แล้ว (ป้องกัน)
-    
+
+    # แก้ไขใน ai_gold_grid.py - เพิ่ม method ใหม่
+    def force_create_tight_grid(self):
+        """สร้าง grid แน่นๆ ใกล้ราคาปัจจุบัน"""
+        try:
+            current_price = self.get_current_price()
+            tight_spacing = 100  # แน่นมาก 100 จุด
+            
+            print(f"🚀 Force creating tight grid @ ${current_price:.2f}")
+            
+            # สร้าง 4 คู่ใกล้ๆ
+            for i in range(1, 5):  # 1, 2, 3, 4
+                # BUY orders
+                buy_price = current_price - (tight_spacing * i * 0.01)
+                if not self.has_nearby_order(buy_price, "BUY"):
+                    self.place_smart_rebalance_order("BUY", buy_price, self.base_lot)
+                
+                # SELL orders  
+                sell_price = current_price + (tight_spacing * i * 0.01)
+                if not self.has_nearby_order(sell_price, "SELL"):
+                    self.place_smart_rebalance_order("SELL", sell_price, self.base_lot)
+                    
+            print(f"✅ Tight grid created with {tight_spacing} points spacing")
+            
+        except Exception as e:
+            print(f"❌ Force tight grid error: {e}")
+
     def get_current_price(self) -> float:
         """Get current price from MT5"""
         try:

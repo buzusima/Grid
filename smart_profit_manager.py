@@ -665,11 +665,13 @@ class SmartProfitManager:
             return False
                         
     def run_smart_profit_management(self):
-        """แก้ไข - ใช้ find_profitable_pairs ที่เพิ่มใหม่"""
+        """แก้ไข method เดิม - เพิ่มการเช็คก่อนสร้าง orders"""
         try:
             # 1. วิเคราะห์ positions ทั้งหมด
             portfolio = self.analyze_portfolio_positions()
             if 'error' in portfolio or portfolio.get('total_positions', 0) == 0:
+                print("🔄 No positions - creating initial grid")
+                self.create_initial_grid_smart()  # ใช้ method ใหม่ที่เช็คดีกว่า
                 return
                 
             positions = portfolio.get('grid_positions', [])
@@ -677,107 +679,324 @@ class SmartProfitManager:
             
             print(f"🧠 AI Portfolio: {len(positions)} positions, Total PnL: ${total_pnl:.2f}")
             
-            # 2. หาและปิดคู่ที่ได้กำไร - ใช้ method ที่เพิ่มใหม่
-            profitable_pairs = self.find_profitable_pairs(positions)  # ✅ ใช้ method ที่เพิ่มแล้ว
+            # 2. หาคู่ที่ปิดได้ - ลด threshold จาก $3 เป็น $1.5
+            profitable_pairs = self.find_profitable_pairs(positions)
             
             if profitable_pairs:
                 print(f"💰 Found {len(profitable_pairs)} profitable pairs")
                 self.execute_pair_closes(profitable_pairs)
-                
-                # รอให้ปิด positions เสร็จก่อนทำอย่างอื่น
                 time.sleep(1)
-                
-                # อัพเดต portfolio หลังปิดคู่
                 portfolio = self.analyze_portfolio_positions()
                 positions = portfolio.get('grid_positions', [])
                 total_pnl = portfolio.get('total_pnl', 0)
                 print(f"🔄 After pair closing: {len(positions)} positions, PnL: ${total_pnl:.2f}")
             
-            # 3. หา hedge สำหรับ positions ที่ขาดทุนมาก  
-            if total_pnl < -30:
-                hedge_opportunities = self.find_hedge_opportunities(positions)
-                if hedge_opportunities:
-                    print(f"🛡️ Found {len(hedge_opportunities)} hedge opportunities")
-                    self.execute_smart_hedges(hedge_opportunities)
+            # 3. ✅ เช็คและ rebalance อย่างระมัดระวัง
+            self.smart_rebalance_with_checks(positions)
             
-            # 4. ปรับ portfolio สมดุล
-            self.rebalance_portfolio_if_needed(positions)
+        except Exception as e:
+            print(f"❌ Smart profit management error: {e}")
+
+    def create_initial_grid_smart(self):
+        """สร้าง grid เริ่มต้นอย่างฉลาด - ไม่มั่ว"""
+        try:
+            current_price = self.grid_system.get_current_price()
+            spacing = 150  # Fixed spacing
             
-            # 5. Portfolio recovery ถ้าขาดทุนมาก
-            if self.recovery_enabled and total_pnl <= self.recovery_trigger_loss:
-                self.check_and_run_recovery(portfolio)
+            print(f"🚀 Creating smart initial grid @ ${current_price:.2f}")
+            
+            # ✅ เช็คก่อนว่ามี orders อยู่แล้วไหม
+            existing_orders = self.get_all_existing_orders()
+            
+            if len(existing_orders) > 0:
+                print(f"   ⚠️ Found {len(existing_orders)} existing orders - skipping initial creation")
+                return
+            
+            # สร้างแค่ 3 คู่ที่ระยะห่างชัดเจน
+            orders_created = 0
+            for i in range(1, 4):  # 1, 2, 3
+                buy_price = round(current_price - (spacing * i * 0.01), 2)
+                sell_price = round(current_price + (spacing * i * 0.01), 2)
+                
+                # วาง BUY order
+                if self.grid_system.place_smart_rebalance_order("BUY", buy_price, self.grid_system.base_lot):
+                    orders_created += 1
+                    
+                # วาง SELL order  
+                if self.grid_system.place_smart_rebalance_order("SELL", sell_price, self.grid_system.base_lot):
+                    orders_created += 1
+                    
+            print(f"✅ Created {orders_created} initial orders with {spacing} points spacing")
+            
+        except Exception as e:
+            print(f"❌ Smart initial grid error: {e}")
+
+    def smart_rebalance_with_checks(self, positions):
+        """Rebalancing อย่างฉลาด - แก้ไขให้ aggressive กว่าเดิม"""
+        try:
+            current_price = self.grid_system.get_current_price()
+            buy_count = len([p for p in positions if p.direction == "BUY"])
+            sell_count = len([p for p in positions if p.direction == "SELL"])
+            
+            print(f"📊 Smart Check: {buy_count} BUY, {sell_count} SELL @ ${current_price:.2f}")
+            
+            # ✅ เช็ค existing orders ก่อน
+            existing_orders = self.get_all_existing_orders()
+            buy_orders = [o for o in existing_orders if o['direction'] == "BUY"]
+            sell_orders = [o for o in existing_orders if o['direction'] == "SELL"]
+            
+            total_coverage = len(buy_orders) + len(sell_orders) + len(positions)
+            print(f"📋 Total coverage: {total_coverage} ({len(positions)} positions + {len(existing_orders)} orders)")
+            
+            # ✅ แก้ไข: ลดเงื่อนไข coverage จาก 8 เป็น 6
+            if total_coverage >= 6 and abs(buy_count - sell_count) <= 1:
+                print("   ✅ Sufficient coverage - no rebalancing needed")
+                return
+                
+            # ✅ แก้ไข: Balance check ไวขึ้น - ถ้าต่างกัน > 1 (แทน > 2)
+            if abs(buy_count - sell_count) > 1:
+                imbalance = buy_count - sell_count
+                print(f"⚖️ Portfolio imbalance detected: {imbalance}")
+                self.fix_portfolio_imbalance_aggressive(current_price, imbalance, existing_orders)
+                return
+                
+            # ✅ เพิ่ม: เช็ค extreme imbalance (เช่น 0 BUY vs 3 SELL)
+            if buy_count == 0 and sell_count > 0:
+                print(f"🚨 EXTREME: No BUY positions vs {sell_count} SELL - Force adding BUY orders")
+                self.force_add_buy_orders(current_price, min(sell_count, 3))
+                return
+                
+            if sell_count == 0 and buy_count > 0:
+                print(f"🚨 EXTREME: No SELL positions vs {buy_count} BUY - Force adding SELL orders")
+                self.force_add_sell_orders(current_price, min(buy_count, 3))
+                return
+            
+            # ✅ เช็ค gaps ก่อนเพิ่ม orders
+            gaps = self.find_significant_gaps(current_price, existing_orders + positions)
+            
+            if gaps['buy_gaps']:
+                print(f"🔍 Found BUY gaps: {len(gaps['buy_gaps'])} locations")
+                self.fill_specific_gaps(gaps['buy_gaps'], "BUY")
+                
+            if gaps['sell_gaps']:
+                print(f"🔍 Found SELL gaps: {len(gaps['sell_gaps'])} locations")
+                self.fill_specific_gaps(gaps['sell_gaps'], "SELL")
                 
         except Exception as e:
-            print(f"❌ AI Portfolio management error: {e}")
+            print(f"❌ Smart rebalance error: {e}")
+
+    def fix_portfolio_imbalance_aggressive(self, current_price, imbalance, existing_orders):
+        """แก้ไข portfolio imbalance แบบ aggressive"""
+        try:
+            if imbalance < 0:  # SELL มากกว่า BUY
+                needed_buy = abs(imbalance)
+                print(f"🔄 Adding {needed_buy} BUY orders to balance SELL heavy portfolio")
+                self.force_add_buy_orders(current_price, needed_buy)
+            else:  # BUY มากกว่า SELL  
+                needed_sell = abs(imbalance)
+                print(f"🔄 Adding {needed_sell} SELL orders to balance BUY heavy portfolio")
+                self.force_add_sell_orders(current_price, needed_sell)
+                
+        except Exception as e:
+            print(f"❌ Aggressive imbalance fix error: {e}")
+
+    def force_add_buy_orders(self, current_price, count):
+        """บังคับเพิ่ม BUY orders"""
+        try:
+            spacing = 120  # ใช้ spacing เล็ก 120 จุด
+            
+            for i in range(min(count, 4)):  # เพิ่มสูงสุด 4 ตัว
+                price = current_price - (spacing * (i + 1) * 0.01)
+                
+                # ตรวจสอบว่าไกลเกินไปไหม
+                distance = (current_price - price) / 0.01
+                if distance > 600:  # ไม่เกิน 600 จุด
+                    print(f"   ⚠️ BUY order too far: {distance:.0f} points")
+                    continue
+                    
+                if not self.grid_system.has_nearby_order(price, "BUY"):
+                    success = self.grid_system.place_smart_rebalance_order("BUY", price, self.grid_system.base_lot)
+                    if success:
+                        print(f"   🚀 Force BUY: 0.01 @ ${price:.2f} ({distance:.0f} pts)")
+                        
+        except Exception as e:
+            print(f"❌ Force BUY orders error: {e}")
+
+    def force_add_sell_orders(self, current_price, count):
+        """บังคับเพิ่ม SELL orders"""
+        try:
+            spacing = 120  # ใช้ spacing เล็ก 120 จุด
+            
+            for i in range(min(count, 4)):  # เพิ่มสูงสุด 4 ตัว
+                price = current_price + (spacing * (i + 1) * 0.01)
+                
+                # ตรวจสอบว่าไกลเกินไปไหม
+                distance = (price - current_price) / 0.01
+                if distance > 600:  # ไม่เกิน 600 จุด
+                    print(f"   ⚠️ SELL order too far: {distance:.0f} points")
+                    continue
+                    
+                if not self.grid_system.has_nearby_order(price, "SELL"):
+                    success = self.grid_system.place_smart_rebalance_order("SELL", price, self.grid_system.base_lot)
+                    if success:
+                        print(f"   🚀 Force SELL: 0.01 @ ${price:.2f} ({distance:.0f} pts)")
+                        
+        except Exception as e:
+            print(f"❌ Force SELL orders error: {e}")
 
 
+    def get_all_existing_orders(self):
+        """รวบรวม orders ทั้งหมดที่มีอยู่"""
+        try:
+            all_orders = []
+            
+            # Pending orders
+            for order in self.grid_system.pending_orders.values():
+                all_orders.append({
+                    'price': order.price,
+                    'direction': order.direction,
+                    'type': 'pending',
+                    'lot_size': order.lot_size
+                })
+                
+            # Active positions
+            for pos in self.grid_system.active_positions.values():
+                all_orders.append({
+                    'price': pos.price,
+                    'direction': pos.direction,
+                    'type': 'active',
+                    'lot_size': pos.lot_size
+                })
+                
+            return all_orders
+            
+        except Exception as e:
+            print(f"❌ Get existing orders error: {e}")
+            return []
+
+    def find_significant_gaps(self, current_price, existing_orders):
+        """หา gaps ที่สำคัญจริงๆ"""
+        try:
+            buy_orders = [o for o in existing_orders if o['direction'] == "BUY"]
+            sell_orders = [o for o in existing_orders if o['direction'] == "SELL"]
+            
+            gaps = {'buy_gaps': [], 'sell_gaps': []}
+            significant_gap = 250  # ช่องว่างที่ใหญ่จริงๆ (250 จุด)
+            
+            # เช็ค BUY gaps
+            if buy_orders:
+                buy_prices = sorted([o['price'] for o in buy_orders], reverse=True)
+                
+                # เช็คช่องว่างระหว่าง current price กับ order ที่ใกล้ที่สุด
+                nearest_buy = buy_prices[0]
+                gap_to_current = (current_price - nearest_buy) / 0.01
+                
+                if gap_to_current > significant_gap:
+                    target_price = current_price - (150 * 0.01)  # วางที่ 150 จุด
+                    gaps['buy_gaps'].append({
+                        'price': target_price,
+                        'gap_size': gap_to_current,
+                        'reason': f'Gap to current: {gap_to_current:.0f} points'
+                    })
+            else:
+                # ไม่มี BUY orders เลย
+                gaps['buy_gaps'].append({
+                    'price': current_price - (150 * 0.01),
+                    'gap_size': 999,
+                    'reason': 'No BUY orders exist'
+                })
+                
+            # เช็ค SELL gaps
+            if sell_orders:
+                sell_prices = sorted([o['price'] for o in sell_orders])
+                
+                nearest_sell = sell_prices[0]
+                gap_to_current = (nearest_sell - current_price) / 0.01
+                
+                if gap_to_current > significant_gap:
+                    target_price = current_price + (150 * 0.01)
+                    gaps['sell_gaps'].append({
+                        'price': target_price,
+                        'gap_size': gap_to_current,
+                        'reason': f'Gap to current: {gap_to_current:.0f} points'
+                    })
+            else:
+                # ไม่มี SELL orders เลย
+                gaps['sell_gaps'].append({
+                    'price': current_price + (150 * 0.01),
+                    'gap_size': 999,
+                    'reason': 'No SELL orders exist'
+                })
+                
+            return gaps
+            
+        except Exception as e:
+            print(f"❌ Find gaps error: {e}")
+            return {'buy_gaps': [], 'sell_gaps': []}
+
+    def fill_specific_gaps(self, gaps, direction):
+        """เติมช่องว่างเฉพาะที่จำเป็น"""
+        try:
+            for gap in gaps[:2]:  # เติมสูงสุด 2 ช่องว่าง
+                price = gap['price']
+                
+                # ✅ เช็คอีกครั้งก่อนวาง
+                if not self.grid_system.has_nearby_order(price, direction):
+                    success = self.grid_system.place_smart_rebalance_order(direction, price, self.grid_system.base_lot)
+                    if success:
+                        print(f"   🔧 Filled {direction} gap @ ${price:.2f} ({gap['reason']})")
+                        
+        except Exception as e:
+            print(f"❌ Fill specific gaps error: {e}")
+
+    # แก้ไขใน smart_profit_manager.py - find_profitable_pairs() เดิม
     def find_profitable_pairs(self, positions):
-        """หาคู่ positions ที่ปิดแล้วได้กำไรสุทธิ - หัวใจของ Grid Trading"""
+        """แก้ไข method เดิม - ลด threshold"""
         try:
             profitable_pairs = []
+            buy_positions = [p for p in positions if p.direction == "BUY"]
+            sell_positions = [p for p in positions if p.direction == "SELL"]
             
-            # แยก positions ตามสถานะ
-            losing_positions = [p for p in positions if p.pnl < -1]  # ขาดทุน > $1
-            profit_positions = [p for p in positions if p.pnl > 1]   # กำไร > $1
-            
-            print(f"🔍 Analyzing pairs: {len(losing_positions)} losing vs {len(profit_positions)} profitable")
-            
-            # หาคู่ที่ได้กำไรสุทธิ
-            for losing_pos in losing_positions:
-                for profit_pos in profit_positions:
-                    net_pnl = losing_pos.pnl + profit_pos.pnl
+            for buy_pos in buy_positions:
+                for sell_pos in sell_positions:
+                    net_pnl = buy_pos.pnl + sell_pos.pnl
                     
-                    # เงื่อนไข: ได้กำไรสุทธิ $2+ (ปรับได้ตามต้องการ)
-                    if net_pnl >= 2:
-                        pair_info = {
-                            'losing_position': losing_pos,
-                            'profit_position': profit_pos,
-                            'losing_pnl': losing_pos.pnl,
-                            'profit_pnl': profit_pos.pnl,
+                    # ✅ แก้ไขจาก $3 เป็น $1.5 เพื่อเก็บกำไรไวขึ้น
+                    if net_pnl > 1.5:  # เดิมเป็น 3.0
+                        profitable_pairs.append({
+                            'losing_position': buy_pos if buy_pos.pnl < sell_pos.pnl else sell_pos,
+                            'profit_position': sell_pos if buy_pos.pnl < sell_pos.pnl else buy_pos,
                             'net_profit': net_pnl,
-                            'priority_score': net_pnl + abs(losing_pos.pnl),  # ยิ่งขาดทุนมาก + กำไรมาก = priority สูง
-                            'losing_direction': losing_pos.direction,
-                            'profit_direction': profit_pos.direction
-                        }
-                        profitable_pairs.append(pair_info)
-                        
-                        print(f"   💰 Found pair: {losing_pos.direction}(${losing_pos.pnl:.2f}) + {profit_pos.direction}(${profit_pos.pnl:.2f}) = +${net_pnl:.2f}")
+                            'priority': net_pnl + abs(min(buy_pos.pnl, sell_pos.pnl))
+                        })
             
-            # เรียงตาม priority score (สูงสุดก่อน)
-            profitable_pairs.sort(key=lambda x: x['priority_score'], reverse=True)
+            profitable_pairs.sort(key=lambda x: x['priority'], reverse=True)
             
-            # เลือกคู่ที่ไม่ซ้ำกัน (greedy selection)
-            selected_pairs = []
-            used_positions = set()
-            
-            for pair in profitable_pairs:
-                losing_id = pair['losing_position'].position_id
-                profit_id = pair['profit_position'].position_id
-                
-                # ตรวจสอบว่า positions ยังไม่ได้ถูกใช้
-                if losing_id not in used_positions and profit_id not in used_positions:
-                    selected_pairs.append(pair)
-                    used_positions.add(losing_id)
-                    used_positions.add(profit_id)
-                    
-                    print(f"   ✅ Selected pair {len(selected_pairs)}: Net profit +${pair['net_profit']:.2f}")
-                    
-                    # จำกัดไม่เกิน 3 คู่ต่อครั้ง (ป้องกันการปิดมากเกินไป)
-                    if len(selected_pairs) >= 3:
-                        print(f"   📊 Limited to {len(selected_pairs)} pairs per cycle")
-                        break
-            
-            if selected_pairs:
-                total_expected_profit = sum(pair['net_profit'] for pair in selected_pairs)
-                print(f"💎 Total pairs found: {len(selected_pairs)}, Expected profit: +${total_expected_profit:.2f}")
-            else:
-                print(f"📊 No profitable pairs found (need net profit ≥ $2)")
-                
-            return selected_pairs
+            # ✅ ไม่จำกัดจำนวนคู่ที่ปิด (เดิมจำกัด)
+            return profitable_pairs  # เดิม return profitable_pairs[:2]
             
         except Exception as e:
-            print(f"❌ Find profitable pairs error: {e}")
+            print(f"❌ Profitable pairs finding error: {e}")
             return []
+    
+    def close_single_profitable_position(self, position):
+        """ปิด position เดี่ยวที่กำไรดี"""
+        try:
+            success = self.close_entire_position(position)
+            if success:
+                print(f"   ✅ Closed single position: ${position.pnl:.2f} profit")
+                
+                # วาง order ใหม่ทดแทนทันที
+                current_price = self.grid_system.get_current_price()
+                if position.direction == "BUY":
+                    new_price = current_price - (150 * 0.01)  # วาง BUY ใหม่
+                    self.grid_system.place_smart_rebalance_order("BUY", new_price, position.lot_size)
+                else:
+                    new_price = current_price + (150 * 0.01)  # วาง SELL ใหม่
+                    self.grid_system.place_smart_rebalance_order("SELL", new_price, position.lot_size)
+                    
+        except Exception as e:
+            print(f"❌ Close single position error: {e}")
 
     def analyze_pair_opportunities(self, positions):
         """วิเคราะห์โอกาส pair closing แบบละเอียด"""
@@ -1078,83 +1297,117 @@ class SmartProfitManager:
             return False
 
     def add_sell_orders_for_balance(self, current_price, count):
-        """เพิ่ม SELL orders เพื่อ balance"""
+        """แก้ไข method เดิม - ใช้ spacing เล็กลง"""
         try:
-            distances = [80, 120, 160]  # ใกล้ๆ ราคาปัจจุบัน
+            # ✅ แก้ไขจาก spacing ใหญ่เป็น 150 จุด
+            tight_spacing = 150  # เดิมอาจเป็น 300+ จุด
             
-            for i in range(min(count, len(distances))):
-                sell_price = current_price + (distances[i] * 0.01)
-                lot_size = self.grid_system.base_lot
+            for i in range(min(count, 3)):  # เพิ่มสูงสุด 3 ตัว
+                price = current_price + (tight_spacing * (i + 1) * 0.01)
                 
-                if self.grid_system.place_smart_rebalance_order("SELL", sell_price, lot_size):
-                    print(f"   ✅ Added balancing SELL: {lot_size:.3f} @ ${sell_price:.2f}")
-                    
+                if not self.grid_system.has_nearby_order(price, "SELL"):
+                    lot_size = self.grid_system.base_lot
+                    success = self.grid_system.place_smart_rebalance_order("SELL", price, lot_size)
+                    if success:
+                        print(f"   ✅ Balance SELL: {lot_size:.3f} @ ${price:.2f}")
+                        
         except Exception as e:
-            print(f"❌ Add SELL orders error: {e}")
+            print(f"❌ Balance SELL orders error: {e}")
 
     def add_buy_orders_for_balance(self, current_price, count):
-        """เพิ่ม BUY orders เพื่อ balance"""
+        """แก้ไข method เดิม - ใช้ spacing เล็กลง"""
         try:
-            distances = [80, 120, 160]  # ใกล้ๆ ราคาปัจจุบัน
+            # ✅ แก้ไขจาก spacing ใหญ่เป็น 150 จุด
+            tight_spacing = 150  # เดิมอาจเป็น 300+ จุด
             
-            for i in range(min(count, len(distances))):
-                buy_price = current_price - (distances[i] * 0.01)  
-                lot_size = self.grid_system.base_lot
+            for i in range(min(count, 3)):
+                price = current_price - (tight_spacing * (i + 1) * 0.01)
                 
-                if self.grid_system.place_smart_rebalance_order("BUY", buy_price, lot_size):
-                    print(f"   ✅ Added balancing BUY: {lot_size:.3f} @ ${buy_price:.2f}")
-                    
+                if not self.grid_system.has_nearby_order(price, "BUY"):
+                    lot_size = self.grid_system.base_lot
+                    success = self.grid_system.place_smart_rebalance_order("BUY", price, lot_size)
+                    if success:
+                        print(f"   ✅ Balance BUY: {lot_size:.3f} @ ${price:.2f}")
+                        
         except Exception as e:
-            print(f"❌ Add BUY orders error: {e}")
+            print(f"❌ Balance BUY orders error: {e}")
 
     def rebalance_portfolio_if_needed(self, positions):
-        """แก้ไข Rebalance Trigger ให้ทำงานได้จริง"""
+        """แก้ไข method เดิม - Rebalancing ไวขึ้น"""
         try:
-            buy_positions = [p for p in positions if p.direction == "BUY"]
-            sell_positions = [p for p in positions if p.direction == "SELL"]
+            current_price = self.grid_system.get_current_price()
+            buy_count = len([p for p in positions if p.direction == "BUY"])
+            sell_count = len([p for p in positions if p.direction == "SELL"])
             
-            buy_count = len(buy_positions)
-            sell_count = len(sell_positions)
+            print(f"📊 Portfolio: {buy_count} BUY, {sell_count} SELL @ ${current_price:.2f}")
             
-            print(f"⚖️ Portfolio balance: {buy_count} BUY, {sell_count} SELL")
-            
-            # 🔧 แก้ไขเงื่อนไข Rebalance ให้ sensitive กว่า
-            imbalance = abs(buy_count - sell_count)
-            
-            # เดิม: > 3 positions ถึงจะ rebalance (ช้าเกิน!)
-            # ใหม่: > 1 positions ก็ rebalance แล้ว (เร็วขึ้น)
-            if imbalance > 1 and (buy_count >= 2 or sell_count >= 2):  # ต้องมีอย่างน้อย 2 positions
+            # ✅ แก้ไขจาก imbalance > 2 เป็น > 1 (ไวขึ้น)
+            if abs(buy_count - sell_count) > 1:  # เดิมเป็น > 2
+                imbalance = buy_count - sell_count
                 
-                current_price = self.grid_system.get_current_price()
-                
-                if buy_count > sell_count:
-                    print(f"🎯 BUY HEAVY ({imbalance} imbalance): Adding SELL via MARKET order")
-                    
-                    # เพิ่ม SELL positions เท่ากับครึ่งหนึ่งของ imbalance
-                    needed_sells = max(1, imbalance // 2)  # อย่างน้อย 1, สูงสุดครึ่งหนึ่ง
-                    
-                    for i in range(needed_sells):
-                        if self.place_market_rebalance_order("SELL"):
-                            print(f"   ✅ SELL Market #{i+1} placed")
-                        else:
-                            print(f"   ❌ SELL Market #{i+1} failed")
-                            
-                elif sell_count > buy_count:
-                    print(f"🎯 SELL HEAVY ({imbalance} imbalance): Adding BUY via MARKET order")
-                    
-                    needed_buys = max(1, imbalance // 2)
-                    
-                    for i in range(needed_buys):
-                        if self.place_market_rebalance_order("BUY"):
-                            print(f"   ✅ BUY Market #{i+1} placed")
-                        else:
-                            print(f"   ❌ BUY Market #{i+1} failed")
-            else:
-                print(f"✅ Portfolio balanced (imbalance: {imbalance})")
+                if imbalance > 0:  # BUY เยอะ
+                    print(f"⚖️ BUY heavy (+{imbalance}) - Adding SELL orders")
+                    self.add_sell_orders_for_balance(current_price, abs(imbalance))
+                else:  # SELL เยอะ
+                    print(f"⚖️ SELL heavy ({imbalance}) - Adding BUY orders")  
+                    self.add_buy_orders_for_balance(current_price, abs(imbalance))
+            
+            # ✅ เพิ่มการเช็คว่า positions น้อยเกินไป
+            total_positions = len(positions)
+            if total_positions < 6:  # น้อยกว่า 6 ตัว
+                orders_needed = 6 - total_positions
+                print(f"🎯 Too few positions ({total_positions}) - Adding {orders_needed} more")
+                # เพิ่ม orders ทั้งสองด้าน
+                pairs_needed = (orders_needed + 1) // 2
+                for i in range(pairs_needed):
+                    buy_price = current_price - (150 * (i + 1) * 0.01)  # 150 จุด
+                    sell_price = current_price + (150 * (i + 1) * 0.01)
+                    if not self.grid_system.has_nearby_order(buy_price, "BUY"):
+                        self.grid_system.place_smart_rebalance_order("BUY", buy_price, self.grid_system.base_lot)
+                    if not self.grid_system.has_nearby_order(sell_price, "SELL"):
+                        self.grid_system.place_smart_rebalance_order("SELL", sell_price, self.grid_system.base_lot)
+            
+            # ✅ เติมช่องว่างถ้าใหญ่เกินไป
+            self.check_and_fill_gaps(current_price)
                 
         except Exception as e:
-            print(f"❌ Rebalance error: {e}")
-    
+            print(f"❌ Portfolio rebalance error: {e}")
+
+    def check_and_fill_gaps(self, current_price):
+        """เช็คและเติมช่องว่างราคา - method ใหม่"""
+        try:
+            all_orders = list(self.grid_system.pending_orders.values())
+            if not all_orders:
+                return
+                
+            buy_orders = [o for o in all_orders if o.direction == "BUY"]
+            sell_orders = [o for o in all_orders if o.direction == "SELL"]
+            
+            # เช็คช่องว่าง BUY ด้าน
+            if buy_orders:
+                nearest_buy = max(buy_orders, key=lambda x: x.price)
+                buy_gap = (current_price - nearest_buy.price) / 0.01  # points
+                
+                if buy_gap > 300:  # ช่องว่างเกิน 300 จุด
+                    fill_price = current_price - (150 * 0.01)  # วางที่ 150 จุด
+                    if not self.grid_system.has_nearby_order(fill_price, "BUY"):
+                        self.grid_system.place_smart_rebalance_order("BUY", fill_price, self.grid_system.base_lot)
+                        print(f"🔧 Fill BUY gap: @ ${fill_price:.2f} (was {buy_gap:.0f} points)")
+            
+            # เช็คช่องว่าง SELL ด้าน
+            if sell_orders:
+                nearest_sell = min(sell_orders, key=lambda x: x.price)
+                sell_gap = (nearest_sell.price - current_price) / 0.01  # points
+                
+                if sell_gap > 300:  # ช่องว่างเกิน 300 จุด
+                    fill_price = current_price + (150 * 0.01)  # วางที่ 150 จุด
+                    if not self.grid_system.has_nearby_order(fill_price, "SELL"):
+                        self.grid_system.place_smart_rebalance_order("SELL", fill_price, self.grid_system.base_lot)
+                        print(f"🔧 Fill SELL gap: @ ${fill_price:.2f} (was {sell_gap:.0f} points)")
+                    
+        except Exception as e:
+            print(f"❌ Gap filling error: {e}")
+
     def place_market_rebalance_order(self, direction: str) -> bool:
         """เพิ่ม method ใหม่ - วาง Market Order เพื่อ Balance"""
         try:

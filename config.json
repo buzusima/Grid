@@ -2,6 +2,16 @@
     "target_survivability": 20000,
     "default_trading_mode": "BALANCED",
     "safety_ratio": 0.6,
+    "fast_rebalancing": {
+        "enabled": true,
+        "tight_spacing": 150,
+        "ultra_tight_spacing": 100,
+        "min_positions": 6,
+        "max_gap_tolerance": 300,
+        "profit_threshold": 1.5,
+        "update_interval": 3,
+        "nearby_order_distance": 80
+    },
     "emergency_stop_percentage": 50,
     "daily_loss_limit_percentage": 10,
     "hedge_triggers": [
