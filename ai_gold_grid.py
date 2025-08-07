@@ -972,35 +972,153 @@ class AIGoldGrid:
         return None
             
     def update_grid(self):
-        """Main grid update function - called continuously during trading"""
         
         if not self.trading_active:
             return
             
         try:
-            # Update current price
+            # ✅ Original update logic
             self.update_current_price()
-            
-            # Check for filled orders
             self.check_filled_orders()
-            
-            # Update position PnL
             self.update_positions_pnl()
             
-            # Check for grid level triggers
+            # 🚨 ENHANCED: Emergency Grid Rebalancing Check (ทุก 15 วินาที แทน 30)
+            if not hasattr(self, 'last_rebalance_check'):
+                self.last_rebalance_check = datetime.now()
+            
+            time_since_last_check = (datetime.now() - self.last_rebalance_check).total_seconds()
+            if time_since_last_check >= 15:  # ลดจาก 30 เป็น 15 วินาที
+                
+                # ตรวจจับ Grid imbalance ด้วยระบบใหม่
+                imbalance_data = self.detect_grid_imbalance()  # ใช้เวอร์ชันใหม่
+                
+                if not imbalance_data['balanced']:
+                    severity = imbalance_data['severity']
+                    
+                    print(f"🚨 AUTO REBALANCING TRIGGERED - Severity: {severity}")
+                    
+                    # 🔥 AGGRESSIVE: Auto-fix ทุก severity (ไม่เฉพาะ CRITICAL)
+                    if severity in ["CRITICAL", "MODERATE", "MINOR"]:
+                        success = self.execute_emergency_rebalancing(imbalance_data)
+                        
+                        if success:
+                            print(f"✅ Auto emergency rebalancing completed ({severity})")
+                        else:
+                            print(f"❌ Auto emergency rebalancing failed ({severity})")
+                            # 🔄 Retry ในรอบถัดไป
+                else:
+                    # 🔍 แม้ว่า balanced แต่ยังเช็คเพิ่มเติม
+                    self.perform_maintenance_rebalancing()
+                
+                self.last_rebalance_check = datetime.now()
+            
+            # ✅ Continue with original logic
             self.check_grid_triggers()
-            
-            # Update performance metrics
-            self.update_performance_metrics()
-            
-            # Check emergency conditions
+            self.update_performance_metrics()  
             self.check_emergency_conditions()
             
             self.last_update = datetime.now()
             
         except Exception as e:
-            print(f"❌ Grid update error: {e}")
+            print(f"❌ Enhanced auto grid update error: {e}")
     
+    def perform_maintenance_rebalancing(self):
+        """ทำ maintenance rebalancing แม้ว่า grid จะ balanced"""
+        try:
+            current_price = self.get_current_price()
+            
+            # 🔧 เช็คและเติม orders ที่อาจขาดหายไป
+            missing_buy_levels = self.find_missing_buy_levels(current_price)
+            missing_sell_levels = self.find_missing_sell_levels(current_price)
+            
+            if missing_buy_levels > 2:
+                print(f"🔧 Maintenance: Adding {missing_buy_levels} BUY levels")
+                self.add_maintenance_buy_orders(current_price, missing_buy_levels)
+            
+            if missing_sell_levels > 2:
+                print(f"🔧 Maintenance: Adding {missing_sell_levels} SELL levels")  
+                self.add_maintenance_sell_orders(current_price, missing_sell_levels)
+                
+        except Exception as e:
+            print(f"❌ Maintenance rebalancing error: {e}")
+
+    def find_missing_buy_levels(self, current_price: float) -> int:
+        """หาจำนวน BUY levels ที่ขาดหายไป"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            missing_count = 0
+            
+            # เช็ค 5 levels ด้านล่าง current price
+            for i in range(1, 6):
+                target_price = current_price - (i * grid_spacing_price)
+                if not self.has_position_or_order_near("BUY", target_price):
+                    missing_count += 1
+            
+            return missing_count
+            
+        except Exception as e:
+            print(f"❌ Missing BUY levels check error: {e}")
+            return 0
+
+    def find_missing_sell_levels(self, current_price: float) -> int:
+        """หาจำนวน SELL levels ที่ขาดหายไป"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            missing_count = 0
+            
+            # เช็ค 5 levels ด้านบน current price
+            for i in range(1, 6):
+                target_price = current_price + (i * grid_spacing_price)
+                if not self.has_position_or_order_near("SELL", target_price):
+                    missing_count += 1
+            
+            return missing_count
+            
+        except Exception as e:
+            print(f"❌ Missing SELL levels check error: {e}")
+            return 0
+
+    def add_maintenance_buy_orders(self, current_price: float, count: int):
+        """เพิ่ม BUY orders สำหรับ maintenance"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            added = 0
+            
+            for i in range(1, 6):
+                if added >= min(count, 3):  # จำกัดไม่เกิน 3 orders ต่อรอบ
+                    break
+                    
+                target_price = current_price - (i * grid_spacing_price)
+                
+                if not self.has_position_or_order_near("BUY", target_price):
+                    level_id = f"MAINT_BUY_{i}_{int(time.time())}"
+                    if self.add_single_grid_order("BUY", target_price, level_id):
+                        print(f"   ✅ Maintenance BUY: ${target_price:.2f}")
+                        added += 1
+                        
+        except Exception as e:
+            print(f"❌ Maintenance BUY orders error: {e}")
+
+    def add_maintenance_sell_orders(self, current_price: float, count: int):
+        """เพิ่ม SELL orders สำหรับ maintenance"""  
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            added = 0
+            
+            for i in range(1, 6):
+                if added >= min(count, 3):  # จำกัดไม่เกิน 3 orders ต่อรอบ
+                    break
+                    
+                target_price = current_price + (i * grid_spacing_price)
+                
+                if not self.has_position_or_order_near("SELL", target_price):
+                    level_id = f"MAINT_SELL_{i}_{int(time.time())}"
+                    if self.add_single_grid_order("SELL", target_price, level_id):
+                        print(f"   ✅ Maintenance SELL: ${target_price:.2f}")
+                        added += 1
+                        
+        except Exception as e:
+            print(f"❌ Maintenance SELL orders error: {e}")
 
     def create_buy_hedge_protection(self, buy_positions: List):
         """สร้าง Hedge Protection สำหรับ BUY positions เยอะ"""
@@ -1824,20 +1942,100 @@ class AIGoldGrid:
         print(f"❌ All filling modes failed for closing {grid_level.level_id}")
         return False
             
+# 🔧 แทนที่ method update_grid() เดิมใน class AIGoldGrid ใน ai_gold_grid.py
+
+    def update_grid(self):
+        """Main grid update function - ENHANCED with Emergency Rebalancing"""
+        
+        if not self.trading_active:
+            return
+            
+        try:
+            # ✅ Original update logic (เดิม)
+            self.update_current_price()
+            self.check_filled_orders()
+            self.update_positions_pnl()
+            
+            # 🚨 NEW: Emergency Grid Rebalancing Check
+            # ทำทุก 30 วินาที เพื่อไม่ให้ใช้ resources เยอะ
+            if not hasattr(self, 'last_rebalance_check'):
+                self.last_rebalance_check = datetime.now()
+            
+            time_since_last_check = (datetime.now() - self.last_rebalance_check).total_seconds()
+            if time_since_last_check >= 30:  # เช็คทุก 30 วินาที
+                
+                # ตรวจจับ Grid imbalance
+                imbalance_data = self.detect_grid_imbalance()
+                
+                if not imbalance_data['balanced']:
+                    severity = imbalance_data['severity']
+                    
+                    # ดำเนินการตาม severity - AUTO ONLY สำหรับ CRITICAL
+                    if severity == "CRITICAL":
+                        print(f"🚨 CRITICAL Grid imbalance detected! Auto-fixing...")
+                        success = self.execute_emergency_rebalancing(imbalance_data)
+                        
+                        if success:
+                            print("✅ Auto emergency rebalancing completed")
+                        else:
+                            print("❌ Auto emergency rebalancing failed")
+                            
+                    elif severity == "MODERATE":
+                        print(f"🟡 MODERATE Grid imbalance detected")
+                        print(f"   Wrong positions: {imbalance_data['wrong_positions_count']}")
+                        print(f"   Loss: ${imbalance_data['wrong_loss_total']:.2f}")
+                        print("   Consider manual rebalancing")
+                        
+                    elif severity == "MINOR":
+                        # Minor issues - fix automatically
+                        self.execute_emergency_rebalancing(imbalance_data)
+                
+                self.last_rebalance_check = datetime.now()
+            
+            # 🧠 Smart Profit Management (หากมี)
+            if hasattr(self, 'smart_profit_manager') and self.smart_profit_enabled:
+                if not hasattr(self, 'last_profit_check'):
+                    self.last_profit_check = datetime.now()
+                    
+                if (datetime.now() - self.last_profit_check).total_seconds() >= 5:
+                    self.smart_profit_manager.run_smart_profit_management()
+                    self.last_profit_check = datetime.now()
+            
+            # ✅ Continue with original logic (เดิม)
+            self.check_grid_triggers()
+            self.update_performance_metrics()
+            self.check_emergency_conditions()
+            
+            self.last_update = datetime.now()
+            
+        except Exception as e:
+            print(f"❌ Enhanced grid update error: {e}")
+
+
     def check_grid_rebalancing(self):
-        """Check if grid needs rebalancing"""
+        """Check if grid needs rebalancing - ENHANCED with Action"""
         
         try:
             active_buys = len([l for l in self.active_positions.values() if l.direction == "BUY"])
             active_sells = len([l for l in self.active_positions.values() if l.direction == "SELL"])
             
-            # Log significant imbalances
-            if abs(active_buys - active_sells) > 5:
+            # Log significant imbalances AND take action
+            if abs(active_buys - active_sells) > 3:  # ลดจาก 5 เป็น 3 (sensitive มากขึ้น)
                 print(f"⚖️ Grid imbalance: {active_buys} buys, {active_sells} sells")
                 
-                # Could implement automatic rebalancing here
-                # For now, just log the imbalance
+                # 🚨 NEW: Take immediate action for major imbalance
+                current_price = self.get_current_price()
                 
+                if active_buys > active_sells + 3:
+                    # BUY เยอะเกินไป -> เพิ่ม SELL orders
+                    print("   📈 Adding SELL orders to balance")
+                    self.add_strategic_sell_orders(current_price, active_buys - active_sells)
+                    
+                elif active_sells > active_buys + 3:
+                    # SELL เยอะเกินไป -> เพิ่ม BUY orders  
+                    print("   📉 Adding BUY orders to balance")
+                    self.add_strategic_buy_orders(current_price, active_sells - active_buys)
+                    
         except Exception as e:
             print(f"❌ Error checking grid rebalancing: {e}")
             
@@ -3111,23 +3309,31 @@ class AIGoldGrid:
         
         return adjusted_count
 
-    def add_single_grid_order(self, direction: str, price: float, level_id: str) -> bool:
-        """เพิ่ม order เดียว"""
-        
+    def add_single_grid_order(self, direction: str, price: float, level_id: str, lot_size: float = None) -> bool:
+        """เพิ่ม grid order เดียว - รองรับ custom lot size"""
         try:
-            # เช็คว่าไม่ใกล้ orders อื่นเกินไป
-            min_distance = self.grid_spacing * self.point_value * 0.8  # 80% ของ grid spacing
+            if lot_size is None:
+                lot_size = self.base_lot
             
-            for existing_level in self.pending_orders.values():
-                if (existing_level.direction == direction and 
-                    abs(existing_level.price - price) < min_distance):
-                    return False  # ใกล้เกินไป
+            # ตรวจสอบราคาให้สมเหตุสมผล
+            current_price = self.get_current_price()
             
-            # สร้าง grid level ใหม่
+            if direction == "BUY" and price >= current_price:
+                print(f"   ⚠️ Invalid BUY price: ${price:.2f} >= current ${current_price:.2f}")
+                return False
+            elif direction == "SELL" and price <= current_price:
+                print(f"   ⚠️ Invalid SELL price: ${price:.2f} <= current ${current_price:.2f}")
+                return False
+            
+            # ปรับ lot size ให้ถูกต้อง
+            lot_size = max(lot_size, self.min_lot)
+            lot_size = round(lot_size / self.lot_step) * self.lot_step
+            
+            # สร้าง GridLevel
             new_level = GridLevel(
                 level_id=level_id,
-                price=round(price, 5),
-                lot_size=self.calculate_level_lot_size(1),  # ใช้ lot size พื้นฐาน
+                price=round(price, 2),
+                lot_size=lot_size,
                 direction=direction,
                 status=PositionStatus.PENDING,
                 entry_time=datetime.now()
@@ -3139,14 +3345,14 @@ class AIGoldGrid:
                 new_level.order_id = order_result
                 self.grid_levels.append(new_level)
                 self.pending_orders[order_result] = new_level
-                print(f"   ✅ Added {direction} order: {level_id} @ {price:.2f}")
                 return True
-            
+            else:
+                return False
+                
         except Exception as e:
-            print(f"   ❌ Failed to add order: {e}")
-            
-        return False
-
+            print(f"❌ Add single grid order error: {e}")
+            return False
+    
     def smart_replacement_on_close(self, closed_position: GridLevel):
         """Smart Replacement เมื่อปิด position - วางใกล้ราคาปัจจุบัน"""
         
@@ -3405,7 +3611,981 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         except Exception as e:
             print(f"❌ Error getting real-time stats: {e}")
             return {}
+
+    def detect_grid_imbalance(self) -> Dict:
+        """ตรวจจับ Grid ที่เสียสมดุล - เพิ่ม Lot Exposure Check"""
+        try:
+            current_price = self.get_current_price()
+            if not current_price:
+                return {'balanced': True}
             
+            # วิเคราะห์ positions ปัจจุบัน
+            active_buys = []
+            active_sells = []
+            wrong_buys = []  # BUY ที่อยู่สูงกว่า current
+            wrong_sells = []  # SELL ที่อยู่ต่ำกว่า current
+            
+            for position_id, grid_level in self.active_positions.items():
+                if grid_level.direction == "BUY":
+                    if grid_level.price > current_price:
+                        wrong_buys.append(grid_level)
+                    else:
+                        active_buys.append(grid_level)
+                else:  # SELL
+                    if grid_level.price < current_price:
+                        wrong_sells.append(grid_level)
+                    else:
+                        active_sells.append(grid_level)
+            
+            # 🆕 คำนวณ total lot exposure
+            buy_total_lots = sum(pos.lot_size for pos in self.active_positions.values() if pos.direction == "BUY")
+            sell_total_lots = sum(pos.lot_size for pos in self.active_positions.values() if pos.direction == "SELL")
+            
+            # 🆕 คำนวณ lot imbalance
+            lot_imbalanced = False
+            lot_imbalance_type = "BALANCED"
+            excess_lots = 0
+            exposure_ratio = 1.0
+            
+            if buy_total_lots > 0 and sell_total_lots > 0:
+                exposure_ratio = max(buy_total_lots, sell_total_lots) / min(buy_total_lots, sell_total_lots)
+                if exposure_ratio > 1.25:  # ต่างกันเกิน 25%
+                    lot_imbalanced = True
+                    if buy_total_lots > sell_total_lots:
+                        lot_imbalance_type = "BUY_HEAVY"
+                        excess_lots = buy_total_lots - sell_total_lots
+                    else:
+                        lot_imbalance_type = "SELL_HEAVY"
+                        excess_lots = sell_total_lots - buy_total_lots
+            elif buy_total_lots == 0 or sell_total_lots == 0:
+                lot_imbalanced = True
+                lot_imbalance_type = "CRITICAL_MISSING"
+                excess_lots = buy_total_lots + sell_total_lots
+            
+            # ตรวจจับช่องว่างใน Grid
+            buy_gap = self.detect_grid_gap("BUY", current_price)
+            sell_gap = self.detect_grid_gap("SELL", current_price)
+            
+            # คำนวณค่าความเสียหาย
+            wrong_loss = sum(getattr(p, 'pnl', 0) for p in wrong_buys + wrong_sells)
+            
+            # 🔧 การตัดสิน balanced - รวม lot exposure
+            position_balanced = len(wrong_buys) == 0 and len(wrong_sells) == 0 and not buy_gap and not sell_gap
+            lot_balanced = not lot_imbalanced
+            is_truly_balanced = position_balanced and lot_balanced
+            
+            imbalance_data = {
+                'balanced': is_truly_balanced,
+                'current_price': current_price,
+                'wrong_buys': wrong_buys,
+                'wrong_sells': wrong_sells,
+                'wrong_positions_count': len(wrong_buys) + len(wrong_sells),
+                'wrong_loss_total': wrong_loss,
+                'buy_gap': buy_gap,
+                'sell_gap': sell_gap,
+                'active_buys_count': len(active_buys),
+                'active_sells_count': len(active_sells),
+                # 🆕 เพิ่ม lot exposure data
+                'buy_total_lots': round(buy_total_lots, 3),
+                'sell_total_lots': round(sell_total_lots, 3),
+                'lot_imbalanced': lot_imbalanced,
+                'lot_imbalance_type': lot_imbalance_type,
+                'excess_lots': round(excess_lots, 3),
+                'exposure_ratio': round(exposure_ratio, 2),
+                'severity': self.calculate_imbalance_severity(wrong_buys, wrong_sells, buy_gap, sell_gap)
+            }
+            
+            # 🆕 Enhanced logging with lot exposure info
+            if not imbalance_data['balanced']:
+                print(f"⚖️ GRID IMBALANCE DETECTED!")
+                print(f"   Current Price: ${current_price:.2f}")
+                print(f"   Wrong BUYs: {len(wrong_buys)} (should be lower)")
+                print(f"   Wrong SELLs: {len(wrong_sells)} (should be higher)")
+                print(f"   BUY Gap: {buy_gap} | SELL Gap: {sell_gap}")
+                
+                # 🆕 แสดง lot exposure info
+                print(f"   📊 LOT EXPOSURE ANALYSIS:")
+                print(f"      BUY total: {buy_total_lots:.3f} lots ({len(active_buys) + len(wrong_buys)} positions)")
+                print(f"      SELL total: {sell_total_lots:.3f} lots ({len(active_sells) + len(wrong_sells)} positions)")
+                print(f"      Exposure ratio: {exposure_ratio:.2f}")
+                print(f"      Lot imbalance: {lot_imbalance_type}")
+                if lot_imbalanced:
+                    print(f"      Excess lots: {excess_lots:.3f}")
+                
+                print(f"   Total Loss from wrong positions: ${wrong_loss:.2f}")
+                print(f"   Overall Severity: {imbalance_data['severity']}")
+            
+            return imbalance_data
+            
+        except Exception as e:
+            print(f"❌ Grid imbalance detection error: {e}")
+            return {'balanced': True}
+    
+    def execute_lot_exposure_balancing(self, imbalance_data: Dict) -> bool:
+        """แก้ไข lot exposure imbalance"""
+        try:
+            if not imbalance_data.get('lot_imbalanced', False):
+                return True
+            
+            lot_type = imbalance_data['lot_imbalance_type']
+            excess_lots = imbalance_data['excess_lots']
+            current_price = imbalance_data['current_price']
+            
+            print(f"🔄 FIXING LOT EXPOSURE IMBALANCE: {lot_type}")
+            print(f"   Excess lots to balance: {excess_lots:.3f}")
+            
+            actions_taken = 0
+            
+            if lot_type == "BUY_HEAVY":
+                # BUY exposure เยอะเกิน -> ลด BUY หรือเพิ่ม SELL
+                print(f"   🔽 BUY exposure too high - balancing...")
+                
+                # Option 1: ปิด BUY positions ที่ขาดทุนน้อย
+                buy_positions = [pos for pos in self.active_positions.values() if pos.direction == "BUY"]
+                actions_taken += self.close_positions_by_lot_target(buy_positions, excess_lots / 2)
+                
+                # Option 2: เพิ่ม SELL positions
+                needed_sell_lots = excess_lots / 2
+                actions_taken += self.add_positions_by_lot_target("SELL", current_price, needed_sell_lots)
+                
+            elif lot_type == "SELL_HEAVY":
+                # SELL exposure เยอะเกิน -> ลด SELL หรือเพิ่ม BUY
+                print(f"   🔽 SELL exposure too high - balancing...")
+                
+                # Option 1: ปิด SELL positions ที่ขาดทุนน้อย
+                sell_positions = [pos for pos in self.active_positions.values() if pos.direction == "SELL"]
+                actions_taken += self.close_positions_by_lot_target(sell_positions, excess_lots / 2)
+                
+                # Option 2: เพิ่ม BUY positions
+                needed_buy_lots = excess_lots / 2
+                actions_taken += self.add_positions_by_lot_target("BUY", current_price, needed_buy_lots)
+                
+            elif lot_type == "CRITICAL_MISSING":
+                # ไม่มีฝั่งใดฝั่งหนึ่ง
+                buy_total = imbalance_data['buy_total_lots']
+                sell_total = imbalance_data['sell_total_lots']
+                
+                if buy_total == 0:
+                    print(f"   ⚠️ No BUY positions - adding BUY coverage")
+                    actions_taken += self.add_positions_by_lot_target("BUY", current_price, sell_total)
+                elif sell_total == 0:
+                    print(f"   ⚠️ No SELL positions - adding SELL coverage")
+                    actions_taken += self.add_positions_by_lot_target("SELL", current_price, buy_total)
+            
+            print(f"   📊 Lot balancing actions completed: {actions_taken}")
+            return actions_taken > 0
+            
+        except Exception as e:
+            print(f"❌ Lot exposure balancing error: {e}")
+            return False
+
+    def close_positions_by_lot_target(self, positions: List, target_lots: float) -> int:
+        """ปิด positions ตาม target lot size"""
+        try:
+            actions = 0
+            remaining_target = target_lots
+            
+            # เรียง positions ตาม PnL (ขาดทุนน้อยที่สุดก่อน)
+            sorted_positions = sorted(positions, key=lambda x: getattr(x, 'pnl', 0), reverse=True)
+            
+            for pos in sorted_positions[:5]:  # จำกัดไม่เกิน 5 positions
+                if remaining_target <= 0:
+                    break
+                
+                # ปิดเฉพาะที่ขาดทุนไม่เกิน $30
+                if hasattr(pos, 'pnl') and pos.pnl > -30:
+                    if self.close_position_immediately(pos):
+                        print(f"      ✅ Closed {pos.direction} {pos.lot_size:.3f} lots @${pos.price:.2f} (PnL: ${getattr(pos, 'pnl', 0):.2f})")
+                        actions += 1
+                        remaining_target -= pos.lot_size
+            
+            return actions
+            
+        except Exception as e:
+            print(f"❌ Close positions by lot target error: {e}")
+            return 0
+
+    def add_positions_by_lot_target(self, direction: str, current_price: float, target_lots: float) -> int:
+        """เพิ่ม positions ตาม target lot size"""
+        try:
+            actions = 0
+            remaining_target = target_lots
+            grid_spacing_price = self.grid_spacing * self.point_value
+            
+            # คำนวณจำนวน positions ที่ต้องเพิ่ม
+            max_positions = min(4, max(1, int(target_lots / self.base_lot * 2)))
+            lot_per_position = target_lots / max_positions
+            
+            # ปรับ lot size ให้ถูกต้อง
+            lot_per_position = max(lot_per_position, self.min_lot)
+            lot_per_position = round(lot_per_position / self.lot_step) * self.lot_step
+            
+            for i in range(1, max_positions + 1):
+                if remaining_target <= 0:
+                    break
+                
+                # คำนวณราคา
+                if direction == "BUY":
+                    target_price = current_price - (i * grid_spacing_price)
+                else:
+                    target_price = current_price + (i * grid_spacing_price)
+                
+                # เช็คว่าไม่มี position ใกล้ๆ แล้ว
+                if not self.has_nearby_order(direction, target_price):
+                    level_id = f"LOT_BAL_{direction}_{i}_{int(time.time())}"
+                    actual_lot = min(lot_per_position, remaining_target)
+                    
+                    if self.add_single_grid_order_with_lot(direction, target_price, level_id, actual_lot):
+                        print(f"      ✅ Added {direction} {actual_lot:.3f} lots @${target_price:.2f}")
+                        actions += 1
+                        remaining_target -= actual_lot
+            
+            return actions
+            
+        except Exception as e:
+            print(f"❌ Add positions by lot target error: {e}")
+            return 0
+
+    def add_single_grid_order_with_lot(self, direction: str, price: float, level_id: str, lot_size: float) -> bool:
+        """เพิ่ม grid order พร้อมกำหนด lot size"""
+        try:
+            # ตรวจสอบราคา
+            current_price = self.get_current_price()
+            
+            if direction == "BUY" and price >= current_price:
+                print(f"      ⚠️ Invalid BUY price: ${price:.2f} >= current ${current_price:.2f}")
+                return False
+            elif direction == "SELL" and price <= current_price:
+                print(f"      ⚠️ Invalid SELL price: ${price:.2f} <= current ${current_price:.2f}")
+                return False
+            
+            # ปรับ lot size ให้ถูกต้อง
+            lot_size = max(lot_size, self.min_lot)
+            lot_size = round(lot_size / self.lot_step) * self.lot_step
+            
+            # สร้าง GridLevel
+            new_level = GridLevel(
+                level_id=level_id,
+                price=round(price, 2),
+                lot_size=lot_size,
+                direction=direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            # วาง order
+            order_result = self.place_pending_order(new_level)
+            if order_result:
+                new_level.order_id = order_result
+                self.grid_levels.append(new_level)
+                self.pending_orders[order_result] = new_level
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            print(f"❌ Add single grid order with lot error: {e}")
+            return False
+
+    def check_lot_exposure_imbalance(self, buy_lots: float, sell_lots: float) -> bool:
+        """ตรวจจับ lot exposure imbalance"""
+        try:
+            if buy_lots == 0 or sell_lots == 0:
+                return True  # ถ้าไม่มีฝั่งใดฝั่งหนึ่ง = imbalance
+            
+            ratio = max(buy_lots, sell_lots) / min(buy_lots, sell_lots)
+            
+            # ถ้าต่างกันเกิน 25% ถือว่า imbalance
+            return ratio > 1.25
+            
+        except Exception as e:
+            print(f"❌ Lot exposure check error: {e}")
+            return False
+
+    def calculate_lot_imbalance_severity(self, buy_lots: float, sell_lots: float) -> str:
+        """คำนวณความรุนแรงของ lot imbalance"""
+        try:
+            if buy_lots == 0 or sell_lots == 0:
+                return "CRITICAL"  # ไม่มีฝั่งใดฝั่งหนึ่ง
+            
+            ratio = max(buy_lots, sell_lots) / min(buy_lots, sell_lots)
+            
+            if ratio > 2.0:
+                return "CRITICAL"    # ต่างกันเกิน 100%
+            elif ratio > 1.5:
+                return "MODERATE"    # ต่างกันเกิน 50%
+            elif ratio > 1.25:
+                return "MINOR"       # ต่างกันเกิน 25%
+            else:
+                return "NONE"
+                
+        except Exception as e:
+            print(f"❌ Lot severity calculation error: {e}")
+            return "UNKNOWN"
+
+    def calculate_imbalance_severity_with_lots(self, wrong_buys: List, wrong_sells: List, 
+                                            buy_gap: bool, sell_gap: bool, lot_severity: str) -> str:
+        """คำนวณความรุนแรงรวมทั้ง position และ lot imbalance"""
+        try:
+            wrong_count = len(wrong_buys) + len(wrong_sells)
+            gap_count = (1 if buy_gap else 0) + (1 if sell_gap else 0)
+            
+            # Position-based severity
+            if wrong_count >= 8 or gap_count >= 2:
+                position_severity = "CRITICAL"
+            elif wrong_count >= 4 or gap_count >= 1:
+                position_severity = "MODERATE"
+            elif wrong_count >= 2:
+                position_severity = "MINOR"
+            else:
+                position_severity = "NONE"
+            
+            # รวม severity ระหว่าง position และ lot
+            severity_levels = {"NONE": 0, "MINOR": 1, "MODERATE": 2, "CRITICAL": 3}
+            
+            position_level = severity_levels.get(position_severity, 0)
+            lot_level = severity_levels.get(lot_severity, 0)
+            
+            # ใช้ severity ที่สูงกว่า
+            max_level = max(position_level, lot_level)
+            
+            # 🆕 ถ้ามีทั้ง position และ lot issues พร้อมกัน → ยกระดับขึ้น
+            if position_level > 0 and lot_level > 0:
+                max_level = min(max_level + 1, 3)  # ยกระดับแต่ไม่เกิน CRITICAL
+            
+            severity_names = ["NONE", "MINOR", "MODERATE", "CRITICAL"]
+            return severity_names[max_level]
+            
+        except Exception as e:
+            print(f"❌ Combined severity calculation error: {e}")
+            return "UNKNOWN"
+
+    def is_truly_balanced(self, wrong_buys: List, wrong_sells: List, 
+                        effective_buys: int, effective_sells: int,
+                        buy_gap: bool, sell_gap: bool, current_price: float) -> bool:
+        """ตัดสินว่า Grid balanced จริงหรือไม่ - เข้มงวดขึ้น"""
+        
+        try:
+            # 🚨 Rule 1: มี wrong positions > 3 ตัว = ไม่ balanced
+            if len(wrong_buys) + len(wrong_sells) > 3:
+                return False
+            
+            # 🚨 Rule 2: มี gap ที่สำคัญ = ไม่ balanced  
+            if buy_gap or sell_gap:
+                return False
+            
+            # 🚨 Rule 3: effective positions ไม่สมดุล = ไม่ balanced
+            if effective_buys == 0 or effective_sells == 0:
+                return False
+            
+            # 🚨 Rule 4: effective positions แตกต่างเกิน 70% = ไม่ balanced
+            ratio = max(effective_buys, effective_sells) / max(min(effective_buys, effective_sells), 1)
+            if ratio > 1.7:  # เข้มงวดขึ้นจาก old logic
+                return False
+            
+            # 🚨 Rule 5: wrong positions มี loss เกิน $30 = ไม่ balanced
+            wrong_loss = sum(getattr(p, 'pnl', 0) for p in wrong_buys + wrong_sells)
+            if wrong_loss < -30:
+                return False
+            
+            # 🚨 Rule 6: ไม่มี positions รอรับกำไรใกล้ๆ = ไม่ balanced
+            if not self.has_nearby_profit_positions(current_price):
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Balance assessment error: {e}")
+            return False
+
+    def count_effective_positions(self, direction: str, current_price: float) -> int:
+        """นับ positions ที่มีประสิทธิภาพ (อยู่ในตำแหน่งที่ถูก)"""
+        try:
+            count = 0
+            
+            # นับ active positions
+            for grid_level in self.active_positions.values():
+                if grid_level.direction == direction:
+                    if direction == "BUY" and grid_level.price < current_price:
+                        count += 1
+                    elif direction == "SELL" and grid_level.price > current_price:
+                        count += 1
+            
+            # นับ pending orders ที่อยู่ในตำแหน่งที่ถูก
+            for grid_level in self.pending_orders.values():
+                if grid_level.direction == direction:
+                    if direction == "BUY" and grid_level.price < current_price:
+                        count += 1
+                    elif direction == "SELL" and grid_level.price > current_price:
+                        count += 1
+            
+            return count
+            
+        except Exception as e:
+            print(f"❌ Effective positions count error: {e}")
+            return 0
+
+    def detect_critical_grid_gap(self, direction: str, current_price: float) -> bool:
+        """ตรวจจับช่องว่างที่วิกฤต (ไม่มี coverage ใกล้ๆ)"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            
+            if direction == "BUY":
+                # เช็ค 3 levels ด้านล่าง current price
+                critical_levels = [
+                    current_price - (1 * grid_spacing_price),
+                    current_price - (2 * grid_spacing_price),  
+                    current_price - (3 * grid_spacing_price)
+                ]
+                
+                coverage_count = 0
+                for level_price in critical_levels:
+                    if self.has_position_or_order_near("BUY", level_price):
+                        coverage_count += 1
+                
+                # ถ้า coverage < 2/3 ถือว่ามี gap
+                return coverage_count < 2
+                
+            else:  # SELL
+                # เช็ค 3 levels ด้านบน current price
+                critical_levels = [
+                    current_price + (1 * grid_spacing_price),
+                    current_price + (2 * grid_spacing_price),
+                    current_price + (3 * grid_spacing_price)
+                ]
+                
+                coverage_count = 0
+                for level_price in critical_levels:
+                    if self.has_position_or_order_near("SELL", level_price):
+                        coverage_count += 1
+                
+                return coverage_count < 2
+                
+        except Exception as e:
+            print(f"❌ Critical gap detection error: {e}")
+            return False
+
+    def has_position_or_order_near(self, direction: str, target_price: float) -> bool:
+        """เช็คว่ามี position หรือ order ใกล้ราคาที่กำหนด"""
+        try:
+            tolerance = self.grid_spacing * self.point_value * 0.4  # 40% tolerance
+            
+            # เช็ค active positions
+            for grid_level in self.active_positions.values():
+                if (grid_level.direction == direction and 
+                    abs(grid_level.price - target_price) <= tolerance):
+                    return True
+                    
+            # เช็ค pending orders  
+            for grid_level in self.pending_orders.values():
+                if (grid_level.direction == direction and 
+                    abs(grid_level.price - target_price) <= tolerance):
+                    return True
+                    
+            return False
+            
+        except Exception as e:
+            print(f"❌ Position/order near check error: {e}")
+            return False
+
+    def has_nearby_profit_positions(self, current_price: float) -> bool:
+        """เช็คว่ามี positions รอรับกำไรใกล้ๆ หรือไม่"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            profit_distance = grid_spacing_price * 2  # ระยะ 2 grid spacings
+            
+            # เช็ค BUY positions ที่รอรับกำไร (ด้านล่าง current)
+            target_buy_zone = current_price - profit_distance
+            has_buy_coverage = self.has_position_or_order_near("BUY", target_buy_zone)
+            
+            # เช็ค SELL positions ที่รอรับกำไร (ด้านบน current)  
+            target_sell_zone = current_price + profit_distance
+            has_sell_coverage = self.has_position_or_order_near("SELL", target_sell_zone)
+            
+            return has_buy_coverage and has_sell_coverage
+            
+        except Exception as e:
+            print(f"❌ Nearby profit positions check error: {e}")
+            return False
+
+    def calculate_enhanced_severity(self, wrong_buys: List, wrong_sells: List,
+                                effective_buys: int, effective_sells: int,
+                                buy_gap: bool, sell_gap: bool, wrong_loss: float) -> str:
+        """คำนวณความรุนแรงแบบเข้มงวด"""
+        try:
+            wrong_count = len(wrong_buys) + len(wrong_sells)
+            gap_count = (1 if buy_gap else 0) + (1 if sell_gap else 0)
+            effective_imbalance = abs(effective_buys - effective_sells)
+            
+            # 🚨 CRITICAL conditions (เข้มงวดขึ้น)
+            if (wrong_count >= 6 or 
+                gap_count >= 2 or 
+                wrong_loss < -50 or
+                effective_buys == 0 or effective_sells == 0):
+                return "CRITICAL"
+            
+            # ⚠️ MODERATE conditions (เข้มงวดขึ้น)
+            elif (wrong_count >= 3 or 
+                gap_count >= 1 or 
+                wrong_loss < -20 or
+                effective_imbalance >= 4):
+                return "MODERATE"
+            
+            # 📊 MINOR conditions (เข้มงวดขึ้น)
+            elif (wrong_count >= 1 or 
+                effective_imbalance >= 2 or
+                wrong_loss < -10):
+                return "MINOR"
+            
+            else:
+                return "NONE"
+                
+        except Exception as e:
+            print(f"❌ Enhanced severity calculation error: {e}")
+            return "UNKNOWN"
+
+    def detect_grid_gap(self, direction: str, current_price: float) -> bool:
+        """ตรวจจับช่องว่างใน Grid"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            
+            if direction == "BUY":
+                # ตรวจสอบว่ามี BUY orders ด้านล่าง current price ไหม
+                target_buy_price = current_price - grid_spacing_price
+                has_nearby_buy = False
+                
+                # เช็ค active positions
+                for grid_level in self.active_positions.values():
+                    if (grid_level.direction == "BUY" and 
+                        abs(grid_level.price - target_buy_price) < grid_spacing_price * 0.8):
+                        has_nearby_buy = True
+                        break
+                
+                # เช็ค pending orders
+                if not has_nearby_buy:
+                    for grid_level in self.pending_orders.values():
+                        if (grid_level.direction == "BUY" and 
+                            abs(grid_level.price - target_buy_price) < grid_spacing_price * 0.8):
+                            has_nearby_buy = True
+                            break
+                
+                return not has_nearby_buy
+                
+            else:  # SELL
+                # ตรวจสอบว่ามี SELL orders ด้านบน current price ไหม
+                target_sell_price = current_price + grid_spacing_price
+                has_nearby_sell = False
+                
+                # เช็ค active positions
+                for grid_level in self.active_positions.values():
+                    if (grid_level.direction == "SELL" and 
+                        abs(grid_level.price - target_sell_price) < grid_spacing_price * 0.8):
+                        has_nearby_sell = True
+                        break
+                
+                # เช็ค pending orders
+                if not has_nearby_sell:
+                    for grid_level in self.pending_orders.values():
+                        if (grid_level.direction == "SELL" and 
+                            abs(grid_level.price - target_sell_price) < grid_spacing_price * 0.8):
+                            has_nearby_sell = True
+                            break
+                
+                return not has_nearby_sell
+                
+        except Exception as e:
+            print(f"❌ Grid gap detection error: {e}")
+            return False
+
+    def calculate_imbalance_severity(self, wrong_buys: List, wrong_sells: List, 
+                                buy_gap: bool, sell_gap: bool) -> str:
+        """คำนวณความรุนแรงของ imbalance"""
+        try:
+            wrong_count = len(wrong_buys) + len(wrong_sells)
+            gap_count = (1 if buy_gap else 0) + (1 if sell_gap else 0)
+            
+            if wrong_count >= 8 or gap_count >= 2:
+                return "CRITICAL"
+            elif wrong_count >= 4 or gap_count >= 1:
+                return "MODERATE"
+            elif wrong_count >= 2:
+                return "MINOR"
+            else:
+                return "NONE"
+        except:
+            return "UNKNOWN"
+
+    def execute_emergency_rebalancing(self, imbalance_data: Dict) -> bool:
+        """ดำเนินการ Emergency Rebalancing รวมทั้ง lot exposure"""
+        try:
+            if imbalance_data['balanced']:
+                return True
+                
+            severity = imbalance_data['severity']
+            current_price = imbalance_data['current_price']
+            
+            print(f"🚨 EXECUTING EMERGENCY REBALANCING - Severity: {severity}")
+            
+            # 🆕 เช็คและแก้ไข lot exposure imbalance ก่อน
+            if imbalance_data.get('lot_imbalanced', False):
+                print(f"📊 Detecting lot exposure imbalance...")
+                lot_fix_success = self.execute_lot_exposure_balancing(imbalance_data)
+                if lot_fix_success:
+                    print("✅ Lot exposure balancing completed")
+                    
+                    # หลังจากแก้ไข lot แล้ว ให้ recheck imbalance
+                    print("🔍 Rechecking grid balance after lot correction...")
+                    updated_imbalance = self.detect_grid_imbalance()
+                    if updated_imbalance['balanced']:
+                        print("✅ Grid fully balanced after lot correction")
+                        return True
+                    else:
+                        print("ℹ️ Grid partially balanced - continuing with position rebalancing...")
+                        # อัปเดต imbalance_data สำหรับ position rebalancing
+                        severity = updated_imbalance['severity']
+                else:
+                    print("⚠️ Lot exposure balancing had issues - continuing with position rebalancing...")
+            
+            # ดำเนินการ position rebalancing ตามเดิม
+            print(f"🎯 Proceeding with position rebalancing - Severity: {severity}")
+            
+            if severity == "CRITICAL":
+                return self.critical_rebalancing(imbalance_data)
+            elif severity == "MODERATE":
+                return self.moderate_rebalancing(imbalance_data)
+            elif severity == "MINOR":
+                return self.minor_rebalancing(imbalance_data)
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Emergency rebalancing error: {e}")
+            return False
+
+    def fix_lot_exposure_imbalance(self, imbalance_data: Dict) -> bool:
+        """แก้ไข lot exposure imbalance"""
+        try:
+            buy_exposure = imbalance_data['buy_lot_exposure']
+            sell_exposure = imbalance_data['sell_lot_exposure']
+            current_price = imbalance_data['current_price']
+            
+            actions_taken = 0
+            
+            if buy_exposure > sell_exposure * 1.25:
+                # BUY exposure เยอะเกินไป
+                print(f"   🔄 BUY exposure too high: {buy_exposure:.3f} vs {sell_exposure:.3f}")
+                
+                # Option 1: ปิด BUY positions ที่ขาดทุนน้อย
+                actions_taken += self.close_small_loss_positions("BUY", buy_exposure - sell_exposure)
+                
+                # Option 2: เพิ่ม SELL positions
+                needed_sell_lots = (buy_exposure - sell_exposure) / 2
+                actions_taken += self.add_balancing_positions("SELL", current_price, needed_sell_lots)
+                
+            elif sell_exposure > buy_exposure * 1.25:
+                # SELL exposure เยอะเกินไป
+                print(f"   🔄 SELL exposure too high: {sell_exposure:.3f} vs {buy_exposure:.3f}")
+                
+                # Option 1: ปิด SELL positions ที่ขาดทุนน้อย
+                actions_taken += self.close_small_loss_positions("SELL", sell_exposure - buy_exposure)
+                
+                # Option 2: เพิ่ม BUY positions
+                needed_buy_lots = (sell_exposure - buy_exposure) / 2
+                actions_taken += self.add_balancing_positions("BUY", current_price, needed_buy_lots)
+            
+            print(f"   📊 Lot rebalancing actions: {actions_taken}")
+            return actions_taken > 0
+            
+        except Exception as e:
+            print(f"❌ Lot exposure fix error: {e}")
+            return False
+
+    def close_small_loss_positions(self, direction: str, target_reduction: float) -> int:
+        """ปิด positions ที่ขาดทุนน้อยเพื่อลด exposure"""
+        try:
+            actions = 0
+            remaining_reduction = target_reduction
+            
+            # หา positions ที่ขาดทุนน้อยที่สุด
+            target_positions = []
+            for pos in self.active_positions.values():
+                if (pos.direction == direction and 
+                    hasattr(pos, 'pnl') and pos.pnl > -20):  # ขาดทุนน้อยกว่า $20
+                    target_positions.append(pos)
+            
+            # เรียงตาม pnl (ขาดทุนน้อยที่สุดก่อน)
+            target_positions.sort(key=lambda x: getattr(x, 'pnl', 0), reverse=True)
+            
+            for pos in target_positions[:3]:  # ปิดไม่เกิน 3 ตัว
+                if remaining_reduction <= 0:
+                    break
+                    
+                if self.close_position_immediately(pos):
+                    print(f"   ✅ Closed {direction} @${pos.price:.2f} (PnL: ${getattr(pos, 'pnl', 0):.2f})")
+                    actions += 1
+                    remaining_reduction -= pos.lot_size
+            
+            return actions
+            
+        except Exception as e:
+            print(f"❌ Close small loss positions error: {e}")
+            return 0
+
+    def add_balancing_positions(self, direction: str, current_price: float, target_lots: float) -> int:
+        """เพิ่ม positions เพื่อ balance exposure"""
+        try:
+            actions = 0
+            grid_spacing_price = self.grid_spacing * self.point_value
+            
+            # คำนวณ lot size ต่อ position
+            positions_to_add = min(3, max(1, int(target_lots / self.base_lot)))
+            lot_per_position = target_lots / positions_to_add
+            lot_per_position = max(lot_per_position, self.min_lot)
+            lot_per_position = round(lot_per_position / self.lot_step) * self.lot_step
+            
+            for i in range(1, positions_to_add + 1):
+                if direction == "BUY":
+                    target_price = current_price - (i * grid_spacing_price)
+                else:
+                    target_price = current_price + (i * grid_spacing_price)
+                
+                # เช็คว่าไม่มี position ใกล้ๆ แล้ว
+                if not self.has_nearby_order(direction, target_price):
+                    level_id = f"BALANCE_{direction}_{i}_{int(time.time())}"
+                    if self.add_single_grid_order(direction, target_price, level_id, lot_per_position):
+                        print(f"   ✅ Added balancing {direction}: {lot_per_position:.3f} lots @${target_price:.2f}")
+                        actions += 1
+            
+            return actions
+            
+        except Exception as e:
+            print(f"❌ Add balancing positions error: {e}")
+            return 0
+
+    def critical_rebalancing(self, imbalance_data: Dict) -> bool:
+        """Critical Level - ปิดไม้ผิดที่ขาดทุนน้อย + วาง Grid ใหม่"""
+        try:
+            print("🔴 CRITICAL REBALANCING: Close wrong positions + rebuild grid")
+            
+            current_price = imbalance_data['current_price']
+            wrong_buys = imbalance_data['wrong_buys']
+            wrong_sells = imbalance_data['wrong_sells']
+            
+            # 1. ปิดไม้ที่ขาดทุนน้อยกว่า $20
+            closed_count = 0
+            for wrong_pos in wrong_buys + wrong_sells:
+                if hasattr(wrong_pos, 'pnl') and wrong_pos.pnl > -20:  # ขาดทุนน้อยกว่า $20
+                    if self.close_position_immediately(wrong_pos):
+                        closed_count += 1
+                        print(f"   ✅ Closed {wrong_pos.direction} @${wrong_pos.price:.2f} (Loss: ${wrong_pos.pnl:.2f})")
+            
+            # 2. สร้าง Grid ใหม่รอบราคาปัจจุบัน
+            self.create_emergency_grid_around_price(current_price)
+            
+            print(f"   📊 Critical rebalancing result: {closed_count} positions closed")
+            return closed_count > 0
+            
+        except Exception as e:
+            print(f"❌ Critical rebalancing error: {e}")
+            return False
+
+    def moderate_rebalancing(self, imbalance_data: Dict) -> bool:
+        """Moderate Level - Cover Strategy + Fill Gaps"""
+        try:
+            print("🟡 MODERATE REBALANCING: Cover positions + fill gaps")
+            
+            current_price = imbalance_data['current_price']
+            
+            # 1. เติมช่องว่าง
+            actions_taken = 0
+            if imbalance_data['buy_gap']:
+                if self.fill_buy_gap(current_price):
+                    actions_taken += 1
+                    
+            if imbalance_data['sell_gap']:
+                if self.fill_sell_gap(current_price):
+                    actions_taken += 1
+            
+            # 2. สร้าง Cover Orders สำหรับไม้ที่ผิด
+            wrong_positions = imbalance_data['wrong_buys'] + imbalance_data['wrong_sells']
+            for wrong_pos in wrong_positions[:3]:  # ทำ 3 ตัวแรก
+                if self.create_cover_order(wrong_pos):
+                    actions_taken += 1
+            
+            print(f"   📊 Moderate rebalancing result: {actions_taken} actions taken")
+            return actions_taken > 0
+            
+        except Exception as e:
+            print(f"❌ Moderate rebalancing error: {e}")
+            return False
+
+    def minor_rebalancing(self, imbalance_data: Dict) -> bool:
+        """Minor Level - เติมช่องว่างอย่างเดียว"""
+        try:
+            print("🟢 MINOR REBALANCING: Fill grid gaps only")
+            
+            current_price = imbalance_data['current_price']
+            actions_taken = 0
+            
+            if imbalance_data['buy_gap']:
+                if self.fill_buy_gap(current_price):
+                    actions_taken += 1
+                    
+            if imbalance_data['sell_gap']:
+                if self.fill_sell_gap(current_price):
+                    actions_taken += 1
+            
+            print(f"   📊 Minor rebalancing result: {actions_taken} gaps filled")
+            return actions_taken > 0
+            
+        except Exception as e:
+            print(f"❌ Minor rebalancing error: {e}")
+            return False
+
+    def fill_buy_gap(self, current_price: float) -> bool:
+        """เติม BUY gap ด้านล่าง current price"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            buy_price = current_price - grid_spacing_price
+            
+            # ตรวจสอบว่าราคาปลอดภัย
+            if buy_price > 0 and buy_price < current_price:
+                success = self.place_smart_rebalance_order("BUY", buy_price, self.base_lot)
+                if success:
+                    print(f"   ✅ Filled BUY gap: ${buy_price:.2f}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Fill BUY gap error: {e}")
+            return False
+
+    def fill_sell_gap(self, current_price: float) -> bool:
+        """เติม SELL gap ด้านบน current price"""
+        try:
+            grid_spacing_price = self.grid_spacing * self.point_value
+            sell_price = current_price + grid_spacing_price
+            
+            # ตรวจสอบว่าราคาปลอดภัย
+            if sell_price > current_price:
+                success = self.place_smart_rebalance_order("SELL", sell_price, self.base_lot)
+                if success:
+                    print(f"   ✅ Filled SELL gap: ${sell_price:.2f}")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Fill SELL gap error: {e}")
+            return False
+
+    def create_cover_order(self, wrong_position) -> bool:
+        """สร้าง Cover Order สำหรับ position ที่ผิด"""
+        try:
+            current_price = self.get_current_price()
+            cover_distance = 150 * self.point_value  # 150 points
+            
+            if wrong_position.direction == "BUY":
+                # BUY ผิด (อยู่บน) -> สร้าง SELL Cover ด้านบน
+                cover_price = current_price + cover_distance
+                cover_direction = "SELL"
+            else:
+                # SELL ผิด (อยู่ล่าง) -> สร้าง BUY Cover ด้านล่าง
+                cover_price = current_price - cover_distance
+                cover_direction = "BUY"
+            
+            # วาง Cover Order
+            cover_lot = wrong_position.lot_size * 0.8  # 80% ของขนาดเดิม
+            success = self.place_smart_rebalance_order(cover_direction, cover_price, cover_lot)
+            
+            if success:
+                print(f"   🛡️ Cover created: {cover_direction} {cover_lot:.3f} @${cover_price:.2f}")
+                print(f"      Covering: {wrong_position.direction} @${wrong_position.price:.2f}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Cover order error: {e}")
+            return False
+
+    def create_emergency_grid_around_price(self, center_price: float):
+        """สร้าง Grid ใหม่รอบราคาที่กำหนด"""
+        try:
+            print(f"🏗️ Creating emergency grid around ${center_price:.2f}")
+            
+            grid_spacing_price = self.grid_spacing * self.point_value
+            
+            # สร้าง BUY levels ด้านล่าง
+            buy_levels = 3
+            for i in range(1, buy_levels + 1):
+                buy_price = center_price - (i * grid_spacing_price)
+                if buy_price > 0:
+                    self.place_smart_rebalance_order("BUY", buy_price, self.base_lot)
+                    print(f"   📉 Emergency BUY: ${buy_price:.2f}")
+            
+            # สร้าง SELL levels ด้านบน
+            sell_levels = 3
+            for i in range(1, sell_levels + 1):
+                sell_price = center_price + (i * grid_spacing_price)
+                self.place_smart_rebalance_order("SELL", sell_price, self.base_lot)
+                print(f"   📈 Emergency SELL: ${sell_price:.2f}")
+            
+            print(f"   ✅ Emergency grid created: {buy_levels} BUYs + {sell_levels} SELLs")
+            
+        except Exception as e:
+            print(f"❌ Emergency grid creation error: {e}")
+
+    def close_position_immediately(self, grid_level) -> bool:
+        """ปิด position ทันที (market close)"""
+        try:
+            if not hasattr(grid_level, 'position_id') or not grid_level.position_id:
+                return False
+            
+            # หา position จาก MT5
+            positions = mt5.positions_get(symbol=self.gold_symbol, ticket=grid_level.position_id)
+            if not positions:
+                return False
+            
+            position = positions[0]
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            
+            if position.type == mt5.POSITION_TYPE_BUY:
+                close_price = tick.bid
+                trade_type = mt5.ORDER_TYPE_SELL
+            else:
+                close_price = tick.ask
+                trade_type = mt5.ORDER_TYPE_BUY
+            
+            # สร้าง close request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": self.gold_symbol,
+                "volume": position.volume,
+                "type": trade_type,
+                "position": position.ticket,
+                "price": close_price,
+                "deviation": 50,  # เพิ่ม deviation สำหรับ emergency
+                "magic": self.magic_number,
+                "comment": "EMERGENCY_CLOSE",
+                "type_filling": mt5.ORDER_FILLING_IOC
+            }
+            
+            result = mt5.order_send(request)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                # ลบออกจาก active positions
+                if grid_level.position_id in self.active_positions:
+                    del self.active_positions[grid_level.position_id]
+                return True
+            else:
+                print(f"   ❌ Close failed: {result.comment if result else 'No response'}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Immediate close error: {e}")
+            return False
+        
     def __del__(self):
         """Cleanup when object is destroyed"""
         try:
