@@ -11,6 +11,7 @@ from typing import Dict, List, Tuple, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
 import MetaTrader5 as mt5
+import itertools
 
 class ProfitStrategy(Enum):
     QUICK_SAFE = "QUICK_SAFE"       # เก็บไวๆ ปลอดภัย
@@ -949,35 +950,296 @@ class SmartProfitManager:
         except Exception as e:
             print(f"❌ Fill specific gaps error: {e}")
 
-    # แก้ไขใน smart_profit_manager.py - find_profitable_pairs() เดิม
     def find_profitable_pairs(self, positions):
-        """แก้ไข method เดิม - ลด threshold"""
+        """🚀 ENHANCED Multi-Position Pairing - แก้ไขจาก method เดิม"""
         try:
-            profitable_pairs = []
+            # 🔧 DEBUG: เช็ค input positions ก่อน
+            print(f"🔧 DEBUG: Total input positions: {len(positions)}")
+            print(f"🔧 DEBUG: Position types:")
+            for i, pos in enumerate(positions):
+                print(f"   {i+1}. {pos.direction} (ID:{pos.position_id}): ${pos.pnl:.2f}")
+            
+            all_profitable_pairs = []
             buy_positions = [p for p in positions if p.direction == "BUY"]
             sell_positions = [p for p in positions if p.direction == "SELL"]
             
+            print(f"🔍 Multi-Position Analysis: {len(buy_positions)} BUY, {len(sell_positions)} SELL")
+            
+            # 🔧 DEBUG: แสดงการแยก BUY/SELL
+            if len(buy_positions) == 0:
+                print("⚠️ WARNING: No BUY positions found!")
+                print("🔧 Checking position directions:")
+                for pos in positions:
+                    print(f"   Position direction: '{pos.direction}' (type: {type(pos.direction)})")
+            
+            if len(sell_positions) == 0:
+                print("⚠️ WARNING: No SELL positions found!")
+            
+            # 🔍 DEBUG: แสดง PnL ของแต่ละ position พร้อม position_id
+            print(f"📊 BUY Positions PnL:")
+            for i, pos in enumerate(buy_positions):
+                print(f"   BUY {i+1} (ID:{pos.position_id}): ${pos.pnl:.2f}")
+            
+            print(f"📊 SELL Positions PnL:")
+            for i, pos in enumerate(sell_positions):
+                print(f"   SELL {i+1} (ID:{pos.position_id}): ${pos.pnl:.2f}")
+            
+            # 🔧 DEBUG: เช็ค attribute ของ position object
+            if buy_positions:
+                sample_pos = buy_positions[0]
+                print(f"🔧 Position object attributes: {dir(sample_pos)}")
+                print(f"🔧 Sample position data: {vars(sample_pos) if hasattr(sample_pos, '__dict__') else 'No __dict__'}")
+            
+            
+            # 🔍 DEBUG: ทดสอบคู่ 1:1 แบบง่ายๆ
+            debug_pairs = 0
             for buy_pos in buy_positions:
                 for sell_pos in sell_positions:
                     net_pnl = buy_pos.pnl + sell_pos.pnl
-                    
-                    # ✅ แก้ไขจาก $3 เป็น $1.5 เพื่อเก็บกำไรไวขึ้น
-                    if net_pnl > 1.5:  # เดิมเป็น 3.0
-                        profitable_pairs.append({
-                            'losing_position': buy_pos if buy_pos.pnl < sell_pos.pnl else sell_pos,
-                            'profit_position': sell_pos if buy_pos.pnl < sell_pos.pnl else buy_pos,
-                            'net_profit': net_pnl,
-                            'priority': net_pnl + abs(min(buy_pos.pnl, sell_pos.pnl))
+                    print(f"   Test Pair: BUY(${buy_pos.pnl:.2f}) + SELL(${sell_pos.pnl:.2f}) = ${net_pnl:.2f}")
+                    if net_pnl > 0.1:  # threshold ต่ำมาก
+                        debug_pairs += 1
+            
+            print(f"🎯 Pairs that pass threshold > $0.1: {debug_pairs}")
+            
+            if debug_pairs == 0:
+                print("⚠️ NO PAIRS PASS EVEN $0.1 THRESHOLD!")
+                print("💡 Trying INDIVIDUAL profitable positions instead...")
+                
+                # 🚀 FALLBACK: ปิดทีละตัวที่กำไรดี
+                individual_profits = []
+                for pos in buy_positions + sell_positions:
+                    if pos.pnl > 1.0:  # กำไร > $1
+                        individual_profits.append({
+                            'losing_positions': [],
+                            'profitable_positions': [pos],
+                            'net_profit': pos.pnl,
+                            'total_positions': 1,
+                            'pair_type': "SINGLE",
+                            'priority_score': pos.pnl,
+                            'position_ids': {pos.position_id}
                         })
+                
+                if individual_profits:
+                    individual_profits.sort(key=lambda x: x['net_profit'], reverse=True)
+                    print(f"💰 Found {len(individual_profits)} profitable singles:")
+                    for i, single in enumerate(individual_profits[:3]):
+                        print(f"   {i+1}. SINGLE: 1 pos = +${single['net_profit']:.2f}")
+                    return individual_profits[:2]  # ปิดสูงสุด 2 ตัว
+                else:
+                    print("❌ No individual profitable positions found!")
+                    return []
             
-            profitable_pairs.sort(key=lambda x: x['priority'], reverse=True)
+            # 🎯 Type 1: แบบเดิม 1:1 (เร็วที่สุด)
+            pairs_1_1 = self.find_1_to_1_pairs(buy_positions, sell_positions)
+            all_profitable_pairs.extend(pairs_1_1)
             
-            # ✅ ไม่จำกัดจำนวนคู่ที่ปิด (เดิมจำกัด)
-            return profitable_pairs  # เดิม return profitable_pairs[:2]
+            # 🎯 Type 2: 1 เสีย + 2-3 ได้กำไร (1:2, 1:3)
+            pairs_1_to_n = self.find_1_to_n_pairs(buy_positions, sell_positions)
+            all_profitable_pairs.extend(pairs_1_to_n)
+            
+            # 🎯 Type 3: 2-3 เสีย + 1 ได้กำไรใหญ่ (2:1, 3:1)
+            pairs_n_to_1 = self.find_n_to_1_pairs(buy_positions, sell_positions)
+            all_profitable_pairs.extend(pairs_n_to_1)
+            
+            # 🎯 Type 4: แบบผสม 2:2, 2:3 (สำหรับ advanced cases)
+            pairs_complex = []
+            if len(buy_positions) >= 2 and len(sell_positions) >= 2:
+                pairs_complex = self.find_complex_pairs(buy_positions, sell_positions)
+                all_profitable_pairs.extend(pairs_complex)
+            
+            # 📊 เรียงลำดับตาม priority_score
+            all_profitable_pairs.sort(key=lambda x: x['priority_score'], reverse=True)
+            
+            # 🚫 กรองเอาเฉพาะคู่ที่ไม่ซ้ำกัน (greedy selection)
+            final_pairs = self.select_non_overlapping_pairs(all_profitable_pairs)
+            
+            print(f"💰 Multi-Position Results:")
+            print(f"   • 1:1 pairs: {len(pairs_1_1)}")
+            print(f"   • 1:N pairs: {len(pairs_1_to_n)}")  
+            print(f"   • N:1 pairs: {len(pairs_n_to_1)}")
+            print(f"   • Complex: {len(pairs_complex)}")
+            print(f"   • 🏆 Final selected: {len(final_pairs)} pairs")
+            
+            # แสดง top 3 pairs
+            for i, pair in enumerate(final_pairs[:3]):
+                print(f"   {i+1}. {pair['pair_type']}: {pair['total_positions']} pos = +${pair['net_profit']:.2f} (Score: {pair['priority_score']:.1f})")
+            
+            return final_pairs
             
         except Exception as e:
-            print(f"❌ Profitable pairs finding error: {e}")
+            print(f"❌ Multi-position pairing error: {e}")
             return []
+
+    def find_1_to_1_pairs(self, buy_positions, sell_positions):
+        """หาคู่ 1:1 แบบเดิม (เร็วที่สุด)"""
+        pairs_1_1 = []
+        
+        for buy_pos in buy_positions:
+            for sell_pos in sell_positions:
+                net_pnl = buy_pos.pnl + sell_pos.pnl
+                
+                if net_pnl > 0.3:  # threshold ต่ำมากสำหรับ 1:1
+                    priority_score = net_pnl + abs(min(buy_pos.pnl, sell_pos.pnl))
+                    
+                    pairs_1_1.append({
+                        'losing_positions': [buy_pos if buy_pos.pnl < sell_pos.pnl else sell_pos],
+                        'profitable_positions': [sell_pos if buy_pos.pnl < sell_pos.pnl else buy_pos],
+                        'net_profit': net_pnl,
+                        'total_positions': 2,
+                        'pair_type': "1:1",
+                        'priority_score': priority_score,
+                        'position_ids': {buy_pos.position_id, sell_pos.position_id}
+                    })
+        
+        return pairs_1_1
+
+    def find_1_to_n_pairs(self, buy_positions, sell_positions):
+        """หาคู่ 1 เสีย + 2-3 ได้กำไร"""
+        pairs_1_to_n = []
+        
+        # รวม losing positions (ทั้ง BUY และ SELL ที่เสีย)
+        losing_positions = [p for p in buy_positions + sell_positions if p.pnl < -0.5]  # เสียอย่างน้อย $0.5
+        profitable_positions = [p for p in buy_positions + sell_positions if p.pnl > 0.2]  # กำไรอย่างน้อย $0.2
+        
+        # 1 เสีย + 2 ได้กำไร - ใช้ nested loops แทน itertools
+        for losing_pos in losing_positions:
+            # ลองจับคู่กับ 2 ไม้กำไร
+            for i, profit1 in enumerate(profitable_positions):
+                for profit2 in profitable_positions[i+1:]:  # หลีกเลี่ยงการซ้ำ
+                    net_pnl = losing_pos.pnl + profit1.pnl + profit2.pnl
+                    
+                    if net_pnl > 0.5:  # threshold ต่ำขึ้นสำหรับ multi-pos
+                        priority_score = net_pnl + abs(losing_pos.pnl) * 0.8  # bonus สำหรับการปิดไม้เสียใหญ่
+                        
+                        pairs_1_to_n.append({
+                            'losing_positions': [losing_pos],
+                            'profitable_positions': [profit1, profit2],
+                            'net_profit': net_pnl,
+                            'total_positions': 3,
+                            'pair_type': "1:2",
+                            'priority_score': priority_score,
+                            'position_ids': {losing_pos.position_id, profit1.position_id, profit2.position_id}
+                        })
+            
+            # 1 เสีย + 3 ได้กำไร (เฉพาะไม้เสียใหญ่ > $3)
+            if losing_pos.pnl < -3 and len(profitable_positions) >= 3:
+                for i, profit1 in enumerate(profitable_positions[:5]):  # จำกัด 5 ตัวแรก
+                    for j, profit2 in enumerate(profitable_positions[i+1:5]):
+                        for profit3 in profitable_positions[i+j+2:5]:
+                            net_pnl = losing_pos.pnl + profit1.pnl + profit2.pnl + profit3.pnl
+                            
+                            if net_pnl > 0.8:
+                                priority_score = net_pnl + abs(losing_pos.pnl) * 0.9
+                                
+                                pairs_1_to_n.append({
+                                    'losing_positions': [losing_pos],
+                                    'profitable_positions': [profit1, profit2, profit3],
+                                    'net_profit': net_pnl,
+                                    'total_positions': 4,
+                                    'pair_type': "1:3",
+                                    'priority_score': priority_score,
+                                    'position_ids': {losing_pos.position_id, profit1.position_id, profit2.position_id, profit3.position_id}
+                                })
+        
+        return pairs_1_to_n
+
+    def find_n_to_1_pairs(self, buy_positions, sell_positions):
+        """หา 2-3 เสีย + 1 ได้กำไรใหญ่"""
+        pairs_n_to_1 = []
+        
+        losing_positions = [p for p in buy_positions + sell_positions if p.pnl < -0.3]
+        profitable_positions = [p for p in buy_positions + sell_positions if p.pnl > 1.5]  # กำไรใหญ่ > $1.5
+        
+        # 2 เสีย + 1 กำไรใหญ่ - ใช้ nested loops
+        for profit_pos in profitable_positions:
+            for i, losing1 in enumerate(losing_positions):
+                for losing2 in losing_positions[i+1:]:  # หลีกเลี่ยงการซ้ำ
+                    net_pnl = profit_pos.pnl + losing1.pnl + losing2.pnl
+                    
+                    if net_pnl > 0.5:
+                        priority_score = net_pnl + profit_pos.pnl * 0.7  # bonus สำหรับกำไรใหญ่
+                        
+                        pairs_n_to_1.append({
+                            'losing_positions': [losing1, losing2],
+                            'profitable_positions': [profit_pos],
+                            'net_profit': net_pnl,
+                            'total_positions': 3,
+                            'pair_type': "2:1",
+                            'priority_score': priority_score,
+                            'position_ids': {profit_pos.position_id, losing1.position_id, losing2.position_id}
+                        })
+            
+            # 3 เสีย + 1 กำไรใหญ่ (เฉพาะกำไร > $5)
+            if profit_pos.pnl > 5 and len(losing_positions) >= 3:
+                for i, losing1 in enumerate(losing_positions[:3]):  # จำกัด 3 ตัวแรก
+                    for j, losing2 in enumerate(losing_positions[i+1:3]):
+                        for losing3 in losing_positions[i+j+2:3]:
+                            total_loss = losing1.pnl + losing2.pnl + losing3.pnl
+                            if total_loss > -4:  # ไม่ให้เสียรวมเกิน $4
+                                net_pnl = profit_pos.pnl + total_loss
+                                
+                                if net_pnl > 0.8:
+                                    priority_score = net_pnl + profit_pos.pnl * 0.8
+                                    
+                                    pairs_n_to_1.append({
+                                        'losing_positions': [losing1, losing2, losing3],
+                                        'profitable_positions': [profit_pos],
+                                        'net_profit': net_pnl,
+                                        'total_positions': 4,
+                                        'pair_type': "3:1",
+                                        'priority_score': priority_score,
+                                        'position_ids': {profit_pos.position_id, losing1.position_id, losing2.position_id, losing3.position_id}
+                                    })
+        
+        return pairs_n_to_1
+
+    def find_complex_pairs(self, buy_positions, sell_positions):
+        """หาคู่แบบผสม 2:2, 2:3 (advanced)"""
+        pairs_complex = []
+        
+        losing_positions = [p for p in buy_positions + sell_positions if p.pnl < -0.5]
+        profitable_positions = [p for p in buy_positions + sell_positions if p.pnl > 1]
+        
+        # 2 เสีย + 2 กำไร - ใช้ nested loops
+        if len(losing_positions) >= 2 and len(profitable_positions) >= 2:
+            for i, losing1 in enumerate(losing_positions[:3]):  # จำกัด 3 ตัวแรก
+                for losing2 in losing_positions[i+1:3]:
+                    for j, profit1 in enumerate(profitable_positions[:3]):
+                        for profit2 in profitable_positions[j+1:3]:
+                            net_pnl = losing1.pnl + losing2.pnl + profit1.pnl + profit2.pnl
+                            
+                            if net_pnl > 0.8:  # threshold ต่ำลงสำหรับ complex
+                                priority_score = net_pnl + abs(losing1.pnl + losing2.pnl) * 0.6
+                                
+                                pairs_complex.append({
+                                    'losing_positions': [losing1, losing2],
+                                    'profitable_positions': [profit1, profit2],
+                                    'net_profit': net_pnl,
+                                    'total_positions': 4,
+                                    'pair_type': "2:2",
+                                    'priority_score': priority_score,
+                                    'position_ids': {losing1.position_id, losing2.position_id, profit1.position_id, profit2.position_id}
+                                })
+        
+        return pairs_complex
+
+    def select_non_overlapping_pairs(self, all_pairs):
+        """เลือกคู่ที่ไม่ซ้ำกัน (greedy selection)"""
+        selected_pairs = []
+        used_position_ids = set()
+        
+        for pair in all_pairs:
+            # เช็คว่า position ใดๆ ในคู่นี้ถูกใช้แล้วไหม
+            if not pair['position_ids'].intersection(used_position_ids):
+                selected_pairs.append(pair)
+                used_position_ids.update(pair['position_ids'])
+                
+                # จำกัดจำนวนคู่สูงสุด (ไม่ให้ปิดครั้งละเยอะเกินไป)
+                if len(selected_pairs) >= 5:  # สูงสุด 5 คู่ต่อครั้ง
+                    break
+        
+        return selected_pairs
     
     def close_single_profitable_position(self, position):
         """ปิด position เดี่ยวที่กำไรดี"""
@@ -1038,33 +1300,39 @@ class SmartProfitManager:
 
 
     def execute_pair_closes(self, pairs):
-        """ปิดคู่ positions ที่ได้กำไรสุทธิ"""
+        """ปิดคู่ positions ที่ได้กำไรสุทธิ - รองรับ Multi-Position"""
         
         for pair in pairs:
             try:
-                losing_pos = pair['losing_position']
-                profit_pos = pair['profit_position']
-                net_profit = pair['net_profit']
-                
-                print(f"💰 Closing pair: Loss ${losing_pos.pnl:.2f} + Profit ${profit_pos.pnl:.2f} = +${net_profit:.2f}")
-                
-                # ปิด position แรก
-                success1 = self.close_entire_position(losing_pos)
-                if success1:
-                    time.sleep(0.5)  # รอสักครู่
-                    
-                    # ปิด position ที่สอง
-                    success2 = self.close_entire_position(profit_pos)
-                    if success2:
-                        print(f"   ✅ Pair closed successfully: +${net_profit:.2f}")
-                        
-                        # วางไม้ใหม่ทดแทน
-                        self.place_replacement_orders_after_pair_close(losing_pos, profit_pos)
+                # เช็คว่าเป็น SINGLE position หรือ Multi-Position
+                if pair['pair_type'] == "SINGLE":
+                    # ปิดไม้เดี่ยว
+                    pos = pair['profitable_positions'][0]
+                    success = self.close_entire_position(pos)
+                    if success:
+                        print(f"   ✅ Single closed: +${pair['net_profit']:.2f}")
                     else:
-                        print(f"   ⚠️ Second position failed to close")
+                        print(f"   ❌ Single close failed")
+                        
                 else:
-                    print(f"   ❌ First position failed to close")
+                    # ปิด Multi-Position (1:1, 1:2, 2:1, etc.)
+                    all_positions = pair['losing_positions'] + pair['profitable_positions']
                     
+                    print(f"💰 Closing {pair['pair_type']}: {len(all_positions)} pos = +${pair['net_profit']:.2f}")
+                    
+                    success_count = 0
+                    for pos in all_positions:
+                        success = self.close_entire_position(pos)
+                        if success:
+                            success_count += 1
+                            print(f"   ✅ Closed: ${pos.pnl:.2f}")
+                            time.sleep(0.2)  # รอสักครู่
+                        else:
+                            print(f"   ❌ Failed: ${pos.pnl:.2f}")
+                    
+                    if success_count == len(all_positions):
+                        print(f"   🎉 {pair['pair_type']} completed: +${pair['net_profit']:.2f}")
+                        
             except Exception as e:
                 print(f"❌ Pair close error: {e}")
 
