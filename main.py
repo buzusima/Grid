@@ -350,133 +350,720 @@ class AIGoldTradingGUI:
             self.log_message(f"❌ AI optimization error: {e}", "ERROR")
 
     def create_merged_control_section(self, parent):
-        """รวม Trading Controls + AI Portfolio Management"""
+        """แก้ไข GUI - เพิ่ม AI Brain Monitor"""
         control_frame = tk.LabelFrame(
             parent,
-            text="🧠 AI Portfolio Trading Controls + Smart Management",
+            text="🧠 AI Brain Monitor + Portfolio Health",
             font=('Arial', 10, 'bold'),
-            fg='#ffd700',
+            fg='#4ecdc4',
             bg='#16213e',
             relief='groove',
             bd=2
         )
-        control_frame.pack(fill=tk.X, pady=(0, 3))
+        control_frame.pack(fill=tk.X, pady=3)
         
-        # Row 1: Main Trading Buttons
-        btn_row = tk.Frame(control_frame, bg='#16213e')
-        btn_row.pack(fill=tk.X, pady=5, padx=5)
+        # Row 1: AI Brain Status
+        ai_brain_row = tk.Frame(control_frame, bg='#16213e')
+        ai_brain_row.pack(fill=tk.X, padx=5, pady=3)
         
+        # AI Brain Section
+        ai_frame = tk.LabelFrame(
+            ai_brain_row,
+            text="🧠 AI Brain Activity",
+            font=('Arial', 9, 'bold'),
+            fg='#ffd43b',
+            bg='#16213e',
+            relief='groove',
+            bd=1
+        )
+        ai_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # AI Current Task
+        ai_task_frame = tk.Frame(ai_frame, bg='#16213e')
+        ai_task_frame.pack(fill=tk.X, padx=3, pady=2)
+        
+        tk.Label(ai_task_frame, text="🎯 Current Task:", font=('Arial', 8, 'bold'), 
+                fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        
+        self.ai_current_task = tk.Label(
+            ai_task_frame, text="🔍 Analyzing portfolio...", font=('Arial', 8),
+            fg='#74c0fc', bg='#16213e', wraplength=300
+        )
+        self.ai_current_task.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # AI Strategy Display
+        ai_strategy_frame = tk.Frame(ai_frame, bg='#16213e')
+        ai_strategy_frame.pack(fill=tk.X, padx=3, pady=2)
+        
+        tk.Label(ai_strategy_frame, text="🎲 Strategy:", font=('Arial', 8, 'bold'), 
+                fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        
+        self.ai_strategy_display = tk.Label(
+            ai_strategy_frame, text="🔄 Initializing AI brain...", font=('Arial', 8),
+            fg='#51cf66', bg='#16213e', wraplength=300
+        )
+        self.ai_strategy_display.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # AI Findings
+        ai_findings_frame = tk.Frame(ai_frame, bg='#16213e')
+        ai_findings_frame.pack(fill=tk.X, padx=3, pady=2)
+        
+        tk.Label(ai_findings_frame, text="🔍 Findings:", font=('Arial', 8, 'bold'), 
+                fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        
+        self.ai_findings_display = tk.Label(
+            ai_findings_frame, text="📊 Scanning market conditions...", font=('Arial', 8),
+            fg='#ff922b', bg='#16213e', wraplength=300
+        )
+        self.ai_findings_display.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Row 2: Portfolio Health + Controls
+        row2 = tk.Frame(control_frame, bg='#16213e')
+        row2.pack(fill=tk.X, padx=5, pady=3)
+        
+        # Portfolio Health (Left)
+        health_frame = tk.Frame(row2, bg='#16213e')
+        health_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # Portfolio Health Score
+        health_score_frame = tk.Frame(health_frame, bg='#16213e')
+        health_score_frame.pack(fill=tk.X)
+        
+        tk.Label(health_score_frame, text="🏥 Health:", font=('Arial', 9), 
+                fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        
+        self.portfolio_health_score = tk.Label(
+            health_score_frame, text="📊 --/100", font=('Arial', 9, 'bold'),
+            fg='#51cf66', bg='#16213e'
+        )
+        self.portfolio_health_score.pack(side=tk.LEFT, padx=(10, 0))
+        
+        self.portfolio_health_status = tk.Label(
+            health_score_frame, text="ANALYZING", font=('Arial', 9),
+            fg='#ffd43b', bg='#16213e'
+        )
+        self.portfolio_health_status.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Balance & Margin
+        balance_frame = tk.Frame(health_frame, bg='#16213e')
+        balance_frame.pack(fill=tk.X)
+        
+        self.portfolio_balance_label = tk.Label(
+            balance_frame, text="⚖️ Balance: --:-- | 💪 Margin: --%", 
+            font=('Arial', 8), fg='#74c0fc', bg='#16213e'
+        )
+        self.portfolio_balance_label.pack(side=tk.LEFT)
+        
+        # Controls (Right)
+        controls_frame = tk.Frame(row2, bg='#16213e')
+        controls_frame.pack(side=tk.RIGHT)
+        
+        # Trading Controls
         self.start_btn = tk.Button(
-            btn_row, text="🧠 Start AI Portfolio",
-            font=('Arial', 10, 'bold'), bg='#51cf66', fg='#1a1a2e',
-            relief='raised', bd=2, width=18, command=self.start_trading
+            controls_frame,
+            text="🚀 Start AI",
+            font=('Arial', 9, 'bold'),
+            bg='#51cf66',
+            fg='white',
+            command=self.start_trading,
+            width=10,
+            relief='raised',
+            bd=2
         )
         self.start_btn.pack(side=tk.LEFT, padx=2)
         
         self.stop_btn = tk.Button(
-            btn_row, text="⏹️ Stop AI Trading",
-            font=('Arial', 10, 'bold'), bg='#ff6b6b', fg='#ffffff',
-            relief='raised', bd=2, width=18, command=self.stop_trading, state='disabled'
+            controls_frame,
+            text="⏹️ Stop AI", 
+            font=('Arial', 9, 'bold'),
+            bg='#ff6b6b',
+            fg='white',
+            command=self.stop_trading,
+            width=10,
+            relief='raised',
+            bd=2
         )
         self.stop_btn.pack(side=tk.LEFT, padx=2)
         
-        self.emergency_btn = tk.Button(
-            btn_row, text="🚨 EMERGENCY",
-            font=('Arial', 10, 'bold'), bg='#e74c3c', fg='#ffffff',
-            relief='raised', bd=2, width=15, command=self.emergency_stop
+        # AI Status Toggle
+        self.ai_detail_btn = tk.Button(
+            controls_frame,
+            text="🧠 AI Details",
+            font=('Arial', 8),
+            bg='#4ecdc4',
+            fg='white',
+            command=self.toggle_ai_details,
+            width=10
         )
-        self.emergency_btn.pack(side=tk.LEFT, padx=2)
+        self.ai_detail_btn.pack(side=tk.LEFT, padx=2)
+
+    def update_ai_brain_status(self, task="", strategy="", findings=""):
+        """อัพเดท AI Brain Monitor"""
+        try:
+            if task:
+                self.ai_current_task.config(text=task)
+            if strategy:
+                self.ai_strategy_display.config(text=strategy)
+            if findings:
+                self.ai_findings_display.config(text=findings)
+        except Exception as e:
+            print(f"❌ AI Brain update error: {e}")
+
+    def toggle_ai_details(self):
+        """Toggle รายละเอียด AI"""
+        if not hasattr(self, 'ai_detail_window') or not self.ai_detail_window.winfo_exists():
+            self.create_ai_detail_window()
+        else:
+            self.ai_detail_window.destroy()
+
+    def create_ai_detail_window(self):
+        """สร้างหน้าต่างรายละเอียด AI"""
+        self.ai_detail_window = tk.Toplevel(self.root)
+        self.ai_detail_window.title("🧠 AI Brain Detailed Analysis")
+        self.ai_detail_window.geometry("600x400")
+        self.ai_detail_window.configure(bg='#1a1a2e')
         
-        # AI Status Display (Right side)
-        self.ai_status_display = tk.Label(
-            btn_row, text="🤖 AI Portfolio: Ready to start",
-            font=('Arial', 9), fg='#4ecdc4', bg='#16213e'
+        # AI Analysis Text
+        text_frame = tk.Frame(self.ai_detail_window, bg='#1a1a2e')
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        tk.Label(text_frame, text="🧠 AI Detailed Brain Activity", 
+                font=('Arial', 12, 'bold'), fg='#ffd43b', bg='#1a1a2e').pack()
+        
+        self.ai_detail_text = scrolledtext.ScrolledText(
+            text_frame,
+            height=20,
+            width=70,
+            bg='#2c2c54',
+            fg='#ffffff',
+            font=('Consolas', 9),
+            wrap=tk.WORD
         )
-        self.ai_status_display.pack(side=tk.RIGHT, padx=10)
+        self.ai_detail_text.pack(fill=tk.BOTH, expand=True, pady=10)
         
-        # Row 2: AI Portfolio Controls
-        ai_controls_row = tk.Frame(control_frame, bg='#16213e')
-        ai_controls_row.pack(fill=tk.X, pady=5, padx=5)
+        # Insert initial text
+        self.ai_detail_text.insert(tk.END, "🧠 AI BRAIN INITIALIZATION\n" + "="*50 + "\n")
+        self.ai_detail_text.insert(tk.END, "⚡ Neural networks activated\n")
+        self.ai_detail_text.insert(tk.END, "🔍 Market analysis engines online\n")
+        self.ai_detail_text.insert(tk.END, "🛡️ Risk management protocols active\n")
+        self.ai_detail_text.insert(tk.END, "💰 Profit optimization algorithms loaded\n\n")
+
+    def log_ai_brain_activity(self, activity_type, message):
+        """บันทึก AI Brain Activity"""
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            
+            # เลือกสี/emoji ตาม activity type
+            if activity_type == "ANALYSIS":
+                prefix = "🔍 ANALYSIS"
+                color_tag = "analysis"
+            elif activity_type == "STRATEGY":
+                prefix = "🎲 STRATEGY"
+                color_tag = "strategy"
+            elif activity_type == "ACTION":
+                prefix = "⚡ ACTION"
+                color_tag = "action"
+            elif activity_type == "PROFIT":
+                prefix = "💰 PROFIT"
+                color_tag = "profit"
+            elif activity_type == "RISK":
+                prefix = "🛡️ RISK"
+                color_tag = "risk"
+            else:
+                prefix = "🧠 AI"
+                color_tag = "default"
+            
+            full_message = f"[{timestamp}] {prefix}: {message}\n"
+            
+            # อัพเดท AI detail window ถ้ามี
+            if hasattr(self, 'ai_detail_text') and self.ai_detail_text.winfo_exists():
+                self.ai_detail_text.insert(tk.END, full_message)
+                self.ai_detail_text.see(tk.END)
+                
+                # จำกัดข้อความไม่ให้เยอะเกินไป
+                if self.ai_detail_text.index(tk.END).split('.')[0] > "500":
+                    self.ai_detail_text.delete("1.0", "100.0")
+            
+        except Exception as e:
+            print(f"❌ AI activity log error: {e}")
+
+    def update_status_displays(self):
+        """อัพเดทการแสดงผลสถานะ - เพิ่ม AI Brain Updates"""
+        try:
+            if not self.is_connected or not hasattr(self, 'grid_trader') or not self.grid_trader:
+                self.update_ai_brain_status(
+                    task="⏸️ Waiting for connection...",
+                    strategy="🔌 Connect to MT5 to activate AI",
+                    findings="📡 No market data available"
+                )
+                return
+            
+            # อัพเดท Account Info
+            account_info = self.mt5_connector.get_account_info()
+            if account_info:
+                self.account_info = account_info
+                balance = account_info.get('balance', 0)
+                equity = account_info.get('equity', 0)
+                margin_level = account_info.get('margin_level', 0)
+                
+                # อัพเดท Survivability Display
+                if self.current_calculations:
+                    target_survival = self.current_calculations.get('realistic_survivability', 0)
+                    base_lot = self.current_calculations.get('base_lot', 0)
+                    grid_spacing = self.current_calculations.get('grid_spacing', 0)
+                    
+                    survival_text = f"🛡️ Survivability: {target_survival:,.0f} points | 📊 Base: {base_lot:.3f} | 📏 Spacing: {grid_spacing}"
+                    self.survivability_display.config(text=survival_text)
+                    
+                    # แสดง Account Info
+                    account_text = f"💰 Balance: ${balance:,.2f} | 💎 Equity: ${equity:,.2f} | 💪 Margin: {margin_level:.0f}%"
+                    self.account_display.config(text=account_text)
+                
+                # อัพเดท Portfolio Health
+                self.update_portfolio_health_display()
+                
+                # อัพเดท AI Brain Status based on actual conditions
+                if self.is_trading and hasattr(self.grid_trader, 'smart_profit_manager'):
+                    self.update_ai_brain_from_trading_state()
+                
+        except Exception as e:
+            print(f"❌ Status display update error: {e}")
+
+    def update_ai_brain_from_trading_state(self):
+        """อัพเดท AI Brain จากสถานะการเทรดจริง"""
+        try:
+            if not hasattr(self.grid_trader, 'smart_profit_manager'):
+                return
+                
+            # ดึงข้อมูล portfolio
+            portfolio = self.grid_trader.smart_profit_manager.analyze_portfolio_positions()
+            
+            if 'error' not in portfolio and portfolio.get('grid_positions'):
+                positions = portfolio['grid_positions']
+                total_pnl = portfolio.get('total_pnl', 0)
+                
+                # จำนวน positions
+                buy_count = len([p for p in positions if p.direction == "BUY"])
+                sell_count = len([p for p in positions if p.direction == "SELL"])
+                
+                # AI Brain Analysis
+                if len(positions) == 0:
+                    task = "🔄 Creating intelligent grid..."
+                    strategy = "🏗️ Deploying layered protection system"
+                    findings = "📊 No positions detected - building foundation"
+                    
+                elif total_pnl > 5:
+                    task = "💰 Hunting profit opportunities..."
+                    strategy = f"🎯 Analyzing {len(positions)} positions for smart closure"
+                    findings = f"💵 Portfolio: +${total_pnl:.2f} - Looking for optimal exits"
+                    
+                elif total_pnl < -10:
+                    task = "🛡️ Activating recovery protocols..."
+                    strategy = "🎲 Using profit positions to close losing positions"
+                    findings = f"📉 Portfolio: ${total_pnl:.2f} - Initiating smart recovery"
+                    
+                elif abs(buy_count - sell_count) > 2:
+                    task = "⚖️ Rebalancing portfolio..."
+                    strategy = f"🔄 Balancing {buy_count} BUY vs {sell_count} SELL"
+                    findings = "📊 Imbalance detected - Adding strategic positions"
+                    
+                else:
+                    task = "🧠 Monitoring market patterns..."
+                    strategy = f"✅ Portfolio healthy: {buy_count}:{sell_count} balance"
+                    findings = f"📈 {len(positions)} positions active - All systems optimal"
+                
+                # อัพเดท GUI
+                self.update_ai_brain_status(task, strategy, findings)
+                
+                # บันทึก AI activity
+                if total_pnl != getattr(self, 'last_pnl', 0):
+                    if total_pnl > getattr(self, 'last_pnl', 0):
+                        self.log_ai_brain_activity("PROFIT", f"Portfolio improved to +${total_pnl:.2f}")
+                    else:
+                        self.log_ai_brain_activity("ANALYSIS", f"Portfolio PnL: ${total_pnl:.2f}")
+                    self.last_pnl = total_pnl
+                
+            else:
+                # ไม่มี positions
+                self.update_ai_brain_status(
+                    task="🔄 Initializing grid system...",
+                    strategy="🏗️ Calculating optimal parameters",
+                    findings="📊 Preparing intelligent grid deployment"
+                )
+                
+        except Exception as e:
+            print(f"❌ AI Brain update from trading error: {e}")
+
+    def start_trading(self):
+        """เริ่มเทรด - เพิ่ม AI Brain logging"""
+        if not self.is_connected:
+            messagebox.showwarning("Warning", "Please connect to MT5 first")
+            return
+            
+        if not self.current_calculations:
+            messagebox.showwarning("Warning", "Please calculate survivability first")
+            return
         
-        # AI Portfolio Section (Left)
-        ai_frame = tk.Frame(ai_controls_row, bg='#16213e', relief='groove', bd=1)
-        ai_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        try:
+            # บันทึก AI activity
+            self.log_ai_brain_activity("ACTION", "🚀 Initializing AI Trading System...")
+            
+            # อัพเดท AI Brain
+            self.update_ai_brain_status(
+                task="🚀 Booting AI trading engines...",
+                strategy="🧠 Loading neural networks and algorithms",
+                findings="⚡ Preparing for market engagement"
+            )
+            
+            # เริ่มระบบ Grid Trading
+            self.grid_trader = AIGoldGrid(
+                self.mt5_connector,
+                self.current_calculations,
+                self.config
+            )
+            
+            # เริ่ม trading
+            success = self.grid_trader.start_trading()
+            
+            if success:
+                self.is_trading = True
+                
+                # อัพเดท GUI
+                self.start_btn.config(state='disabled', bg='#6c757d')
+                self.stop_btn.config(state='normal', bg='#ff6b6b')
+                self.trading_status.config(text="🟢 AI ACTIVE", fg='#51cf66')
+                
+                # AI Brain notification
+                survivability = self.current_calculations.get('realistic_survivability', 0)
+                self.log_ai_brain_activity("ACTION", f"✅ AI System ONLINE - {survivability:,} points protection active")
+                
+                self.update_ai_brain_status(
+                    task="✅ AI System fully operational",
+                    strategy="🛡️ Protecting portfolio with intelligent algorithms",
+                    findings=f"🎯 Target survivability: {survivability:,} points"
+                )
+                
+                # Log success
+                self.log_message("🧠 AI Trading System ACTIVATED", "SUCCESS")
+                self.log_message(f"🛡️ Survivability: {survivability:,} points", "INFO")
+                
+            else:
+                self.log_ai_brain_activity("RISK", "❌ Failed to start AI system")
+                messagebox.showerror("Error", "Failed to start AI trading system")
+                
+        except Exception as e:
+            self.log_ai_brain_activity("RISK", f"❌ System error: {str(e)}")
+            self.log_message(f"❌ AI System Error: {str(e)}", "ERROR")
+            messagebox.showerror("Error", f"Failed to start AI trading:\n{str(e)}")
+
+    def stop_trading(self):
+        """หยุดเทรด - เพิ่ม AI Brain logging"""
+        if not self.is_trading:
+            return
+            
+        try:
+            self.log_ai_brain_activity("ACTION", "⏹️ Shutting down AI trading system...")
+            
+            self.update_ai_brain_status(
+                task="⏹️ Shutting down AI engines...",
+                strategy="🔄 Saving portfolio state and configurations",
+                findings="💾 Preparing for safe shutdown"
+            )
+            
+            self.is_trading = False
+            
+            if self.grid_trader:
+                final_pnl = getattr(self.grid_trader, 'total_pnl', 0)
+                positions_count = len(getattr(self.grid_trader, 'active_positions', {}))
+                
+                self.grid_trader.stop_trading()
+                
+                self.log_ai_brain_activity("ACTION", f"📊 Final Status: {positions_count} positions, PnL: ${final_pnl:.2f}")
+                
+            self.start_btn.config(state='normal', bg='#51cf66')
+            self.stop_btn.config(state='disabled', bg='#6c757d')
+            
+            self.update_ai_brain_status(
+                task="😴 AI System hibernating...",
+                strategy="💤 Neural networks in standby mode",
+                findings="📊 Ready to reactivate when needed"
+            )
+            
+            self.log_message("⏹️ AI Trading System DEACTIVATED", "WARNING")
+            
+        except Exception as e:
+            self.log_ai_brain_activity("RISK", f"❌ Shutdown error: {str(e)}")
+            self.log_message(f"❌ Stop Trading Error: {str(e)}", "ERROR")
+
+    def update_portfolio_health_display(self):
+        """อัพเดท Portfolio Health Display ใหม่"""
+        try:
+            if not hasattr(self, 'grid_trader') or not self.grid_trader:
+                self.portfolio_health_score.config(text="📊 Score: --/100", fg='#6c757d')
+                self.portfolio_health_status.config(text="Status: NOT CONNECTED", fg='#ff6b6b')
+                return
+            
+            # ดึงข้อมูล portfolio
+            portfolio_data = self.grid_trader.smart_profit_manager.analyze_portfolio_positions()
+            if 'error' in portfolio_data or not portfolio_data.get('grid_positions'):
+                self.portfolio_health_score.config(text="📊 Score: --/100", fg='#6c757d')
+                self.portfolio_health_status.config(text="Status: NO POSITIONS", fg='#ffd43b')
+                return
+            
+            positions = portfolio_data['grid_positions']
+            health_data = self.grid_trader.smart_profit_manager.get_portfolio_health_score(positions)
+            
+            # อัพเดท Health Score
+            score = health_data['score']
+            status = health_data['status']
+            
+            # สีตาม score
+            if score >= 80:
+                score_color = '#51cf66'  # เขียว
+            elif score >= 60:
+                score_color = '#ffd43b'  # เหลือง
+            elif score >= 40:
+                score_color = '#ff922b'  # ส้ม
+            else:
+                score_color = '#ff6b6b'  # แดง
+            
+            self.portfolio_health_score.config(
+                text=f"📊 Score: {score:.0f}/100", 
+                fg=score_color
+            )
+            
+            # สีตาม status
+            status_colors = {
+                'EXCELLENT': '#51cf66',
+                'GOOD': '#74c0fc', 
+                'FAIR': '#ffd43b',
+                'POOR': '#ff922b',
+                'CRITICAL': '#ff6b6b'
+            }
+            
+            self.portfolio_health_status.config(
+                text=f"Status: {status}",
+                fg=status_colors.get(status, '#6c757d')
+            )
+            
+            # อัพเดท Balance & Margin
+            balance_ratio = health_data['balance_ratio']
+            
+            # คำนวณ margin level (ตัวอย่าง)
+            if hasattr(self, 'account_info') and self.account_info:
+                margin_level = self.account_info.get('margin_level', 0)
+                margin_text = f"💪 Margin: {margin_level:.0f}%"
+                
+                if margin_level > 300:
+                    margin_color = '#51cf66'
+                elif margin_level > 150:
+                    margin_color = '#ffd43b'
+                else:
+                    margin_color = '#ff6b6b'
+            else:
+                margin_text = "💪 Margin: --%"
+                margin_color = '#6c757d'
+            
+            self.portfolio_balance_label.config(
+                text=f"⚖️ Balance: {balance_ratio} | {margin_text}",
+                fg=margin_color
+            )
+            
+            # อัพเดท Wrong Side & Close Ready
+            wrong_side_pct = health_data.get('wrong_side_percentage', 0)
+            
+            # คำนวณจำนวนคู่ที่พร้อมปิด
+            profitable_pairs = self.grid_trader.smart_profit_manager.find_profitable_pairs(positions)
+            close_ready_count = len(profitable_pairs)
+            
+            wrong_side_color = '#ff6b6b' if wrong_side_pct > 30 else '#ffd43b' if wrong_side_pct > 15 else '#51cf66'
+            close_ready_color = '#51cf66' if close_ready_count > 0 else '#6c757d'
+            
+            self.wrong_side_positions.config(
+                text=f"🚨 Wrong Side: {wrong_side_pct:.1f}% | 📊 Close Ready: {close_ready_count}",
+                fg=wrong_side_color
+            )
+            
+            # อัพเดท Recommendations
+            recommendations = health_data.get('recommendations', [])
+            if recommendations:
+                rec_text = " • ".join(recommendations[:2])  # แสดงแค่ 2 ข้อแรก
+                self.portfolio_recommendations.config(text=rec_text)
+            else:
+                self.portfolio_recommendations.config(text="✅ Portfolio operating normally")
+                
+        except Exception as e:
+            print(f"❌ Portfolio health display error: {e}")
+            self.portfolio_health_score.config(text="📊 Score: ERROR", fg='#ff6b6b')
+
+    def portfolio_smart_cleanup(self):
+        """Smart Portfolio Cleanup Function"""
+        try:
+            if not self.grid_trader:
+                messagebox.showwarning("Warning", "Please connect to MT5 first")
+                return
+            
+            # ยืนยันก่อนทำ cleanup
+            result = messagebox.askyesno(
+                "Smart Portfolio Cleanup",
+                "This will:\n\n" +
+                "• Close wrong-side positions\n" +
+                "• Balance BUY:SELL ratio\n" +
+                "• Optimize margin usage\n" +
+                "• Keep profitable hedges\n\n" +
+                "Continue with smart cleanup?"
+            )
+            
+            if result:
+                self.log_message("🧹 Starting Smart Portfolio Cleanup...", "INFO")
+                
+                # เรียกใช้ smart cleanup function
+                cleanup_result = self.grid_trader.smart_profit_manager.run_portfolio_cleanup()
+                
+                if cleanup_result.get('success', False):
+                    closed_count = cleanup_result.get('positions_closed', 0)
+                    freed_margin = cleanup_result.get('margin_freed', 0)
+                    self.log_message(f"✅ Cleanup Complete: {closed_count} positions closed, ${freed_margin:.2f} margin freed", "SUCCESS")
+                else:
+                    error_msg = cleanup_result.get('error', 'Unknown error')
+                    self.log_message(f"❌ Cleanup Failed: {error_msg}", "ERROR")
+                    
+        except Exception as e:
+            self.log_message(f"❌ Smart cleanup error: {e}", "ERROR")
+
+    def update_trading_stats_display(self):
+        """อัพเดทสถิติการเทรด"""
+        try:
+            if not hasattr(self, 'grid_trader') or not self.grid_trader:
+                return
+                
+            # ดึงสถิติจาก grid trader
+            stats = {
+                'trades_opened': getattr(self.grid_trader, 'trades_opened', 0),
+                'trades_closed': getattr(self.grid_trader, 'trades_closed', 0),
+                'winning_trades': getattr(self.grid_trader, 'winning_trades', 0),
+                'total_pnl': getattr(self.grid_trader, 'total_pnl', 0),
+                'win_rate': getattr(self.grid_trader, 'win_rate', 0)
+            }
+            
+            # คำนวณสถิติเพิ่มเติม
+            total_trades = stats['trades_closed']
+            win_rate = (stats['winning_trades'] / total_trades * 100) if total_trades > 0 else 0
+            
+            # อัพเดท GUI
+            if hasattr(self, 'trading_stats_display'):
+                stats_text = f"📈 Opened: {stats['trades_opened']} | ✅ Closed: {stats['trades_closed']} | 🎯 Win Rate: {win_rate:.1f}% | 💵 Total PnL: ${stats['total_pnl']:.2f}"
+                self.trading_stats_display.config(text=stats_text)
+                
+        except Exception as e:
+            print(f"❌ Trading stats update error: {e}")
+
+    def setup_status_monitoring(self):
+        """ตั้งค่าระบบ monitoring แบบ real-time"""
+        self.monitoring = True
+        self.monitoring_thread = threading.Thread(target=self.monitoring_loop, daemon=True)
+        self.monitoring_thread.start()
         
-        tk.Label(ai_frame, text="🧠 AI Portfolio Management", 
-                font=('Arial', 9, 'bold'), fg='#4ecdc4', bg='#16213e').pack()
+    def monitoring_loop(self):
+        """Loop การ monitoring หลัก"""
+        while self.monitoring:
+            try:
+                if self.is_connected and self.is_trading:
+                    # อัพเดทข้อมูลทุก 2 วินาที
+                    self.root.after(0, self.update_status_displays)
+                    
+                    # รัน Smart Profit Management ทุก 30 วินาที
+                    if hasattr(self, 'grid_trader') and self.grid_trader:
+                        current_time = datetime.now()
+                        if not hasattr(self, 'last_smart_management'):
+                            self.last_smart_management = current_time
+                        
+                        if (current_time - self.last_smart_management).seconds >= 30:
+                            if hasattr(self.grid_trader, 'smart_profit_manager'):
+                                self.grid_trader.smart_profit_manager.run_smart_profit_management()
+                            self.last_smart_management = current_time
+                
+                time.sleep(2)  # รอ 2 วินาที
+                
+            except Exception as e:
+                print(f"❌ Monitoring error: {e}")
+                time.sleep(5)  # รอนานขึ้นถ้า error
+    
+    def create_trading_stats_section(self, parent):
+        """สร้างส่วนแสดงสถิติการเทรด"""
+        stats_frame = tk.Frame(parent, bg='#16213e')
+        stats_frame.pack(fill=tk.X, padx=5, pady=2)
         
-        ai_btn_row = tk.Frame(ai_frame, bg='#16213e')
-        ai_btn_row.pack(pady=2)
+        # Trading Statistics
+        tk.Label(stats_frame, text="📊 Trading Statistics:", font=('Arial', 9, 'bold'), 
+                fg='#74c0fc', bg='#16213e').pack(anchor=tk.W)
         
-        # AI Strategy Selection
-        tk.Label(ai_btn_row, text="Strategy:", font=('Arial', 8), 
-                fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
-        
-        self.ai_strategy_var = tk.StringVar(value="BALANCED")
-        self.ai_strategy_combo = ttk.Combobox(
-            ai_btn_row, textvariable=self.ai_strategy_var, 
-            values=["AGGRESSIVE", "BALANCED", "CONSERVATIVE"], 
-            state="readonly", width=12, font=('Arial', 8)
+        self.trading_stats_display = tk.Label(
+            stats_frame, text="📈 Opened: 0 | ✅ Closed: 0 | 🎯 Win Rate: 0% | 💵 Total PnL: $0.00", 
+            font=('Arial', 8), fg='#ced4da', bg='#16213e'
         )
-        self.ai_strategy_combo.pack(side=tk.LEFT, padx=2)
-        
-        # AI Portfolio Buttons
-        self.ai_rebalance_btn = tk.Button(
-            ai_btn_row, text="⚖️ Force Rebalance",
-            font=('Arial', 8, 'bold'), bg='#ffd43b', fg='#1a1a2e',
-            relief='raised', bd=2, width=14, command=self.force_ai_rebalance
-        )
-        self.ai_rebalance_btn.pack(side=tk.LEFT, padx=2)
-        
-        self.ai_optimize_btn = tk.Button(
-            ai_btn_row, text="🚀 AI Optimize",
-            font=('Arial', 8, 'bold'), bg='#6f42c1', fg='#ffffff',
-            relief='raised', bd=2, width=12, command=self.run_ai_optimization
-        )
-        self.ai_optimize_btn.pack(side=tk.LEFT, padx=2)
-        
-        # Recovery System Section (Right)
-        recovery_frame = tk.Frame(ai_controls_row, bg='#16213e', relief='groove', bd=1)
-        recovery_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
-        
-        tk.Label(recovery_frame, text="💊 Portfolio Recovery", 
-                font=('Arial', 9, 'bold'), fg='#ff6b6b', bg='#16213e').pack()
-        
-        recovery_btn_row = tk.Frame(recovery_frame, bg='#16213e')
-        recovery_btn_row.pack(pady=2)
-        
-        # Recovery Buttons
-        self.manual_recovery_btn = tk.Button(
-            recovery_btn_row, text="💊 Manual Recovery",
-            font=('Arial', 8, 'bold'), bg='#ff6b6b', fg='#ffffff',
-            relief='raised', bd=2, width=15, command=self.manual_trigger_recovery
-        )
-        self.manual_recovery_btn.pack(side=tk.LEFT, padx=2)
-        
-        self.auto_recovery_btn = tk.Button(
-            recovery_btn_row, text="🤖 Auto: OFF",
-            font=('Arial', 8, 'bold'), bg='#6c757d', fg='#ffffff',
-            relief='raised', bd=2, width=10, command=self.toggle_auto_recovery
-        )
-        self.auto_recovery_btn.pack(side=tk.LEFT, padx=2)
-        
-        # Row 3: Status Information
-        status_row = tk.Frame(control_frame, bg='#16213e')
-        status_row.pack(fill=tk.X, pady=2, padx=5)
-        
-        # AI Strategy Description (Left)
-        self.ai_strategy_desc = tk.Label(
-            status_row, text="⚖️ BALANCED: Smart pair closing + auto hedging",
-            font=('Arial', 8), fg='#adb5bd', bg='#16213e'
-        )
-        self.ai_strategy_desc.pack(side=tk.LEFT)
-        
-        # Recovery Status (Right)
-        self.recovery_status_display = tk.Label(
-            status_row, text="💊 Ready: Auto-trigger at -$50",
-            font=('Arial', 8), fg='#adb5bd', bg='#16213e'
-        )
-        self.recovery_status_display.pack(side=tk.RIGHT)
+        self.trading_stats_display.pack(anchor=tk.W)
+
+    def add_trading_stats_to_gui(self):
+        """เพิ่มส่วนสถิติลงใน GUI ที่มีอยู่"""
+        try:
+            # หาส่วนที่เหมาะสมใน控制面板
+            for widget in self.root.winfo_children():
+                if isinstance(widget, tk.LabelFrame) and "Portfolio Health Monitor" in widget.cget("text"):
+                    self.create_trading_stats_section(widget)
+                    break
+        except Exception as e:
+            print(f"❌ Add trading stats error: {e}")
+
+    # เพิ่มฟังก์ชันใหม่ในคลาส AIGoldTradingGUI
+    def enhanced_start_trading(self):
+        """เริ่มเทรดพร้อม Enhanced Features"""
+        try:
+            if not self.is_connected:
+                messagebox.showwarning("Warning", "Please connect to MT5 first")
+                return
+                
+            if self.is_trading:
+                messagebox.showinfo("Info", "Trading is already active")
+                return
+            
+            # ตรวจสอบการคำนวณ
+            if not self.current_calculations:
+                messagebox.showwarning("Warning", "Please calculate survivability parameters first")
+                return
+            
+            # เริ่มระบบ Grid Trading
+            self.grid_trader = AIGoldGrid(
+                self.mt5_connector,
+                self.current_calculations,
+                self.config
+            )
+            
+            # เริ่ม trading
+            success = self.grid_trader.start_trading()
+            
+            if success:
+                self.is_trading = True
+                
+                # อัพเดท GUI
+                self.start_btn.config(state='disabled', bg='#6c757d')
+                self.stop_btn.config(state='normal', bg='#ff6b6b')
+                self.trading_status.config(text="🟢 ACTIVE", fg='#51cf66')
+                
+                # เพิ่มส่วนสถิติถ้ายังไม่มี
+                self.add_trading_stats_to_gui()
+                
+                # Log
+                self.log_message("🚀 Enhanced Trading Started Successfully", "SUCCESS")
+                self.log_message(f"🛡️ Survivability: {self.current_calculations.get('realistic_survivability', 0):,} points", "INFO")
+                self.log_message(f"🎯 Portfolio Health Monitoring: ACTIVE", "INFO")
+                
+            else:
+                messagebox.showerror("Error", "Failed to start trading")
+                
+        except Exception as e:
+            self.log_message(f"❌ Enhanced start trading error: {e}", "ERROR")
+            messagebox.showerror("Error", f"Failed to start enhanced trading: {e}")
 
     def create_compact_log_section(self, parent):
         """Create very compact log section"""
@@ -1250,148 +1837,7 @@ class AIGoldTradingGUI:
         except Exception as e:
             print(f"❌ Real-time stats error: {e}")
             return {}
-    
-    def start_trading(self):
-        """Start AI Portfolio Trading System"""
-        if not self.is_connected:
-            messagebox.showwarning("Warning", "Please connect to MT5 first")
-            return
-            
-        if not self.current_calculations:
-            messagebox.showwarning("Warning", "Please calculate survivability first")
-            return
-            
-        # AI Portfolio confirmation
-        confirm_msg = f"""🧠 AI PORTFOLIO TRADING CONFIRMATION
-
-You are starting AI-powered portfolio management:
-
-• Account Balance: ${self.current_calculations['account_balance']:,.2f}
-• Starting Positions: 2 (1 BUY + 1 SELL)
-• AI will manage portfolio dynamically
-• No stop losses - AI rebalances automatically
-
-🤖 AI Features:
-• Smart pair closing for profits
-• Automatic hedging for large losses  
-• Dynamic position rebalancing
-• Portfolio health monitoring
-
-This is REAL trading with AI management!
-
-Are you ready to start?"""
-
-        if not messagebox.askyesno("🧠 AI PORTFOLIO CONFIRMATION", confirm_msg):
-            return
-            
-        try:
-            # Initialize AI Portfolio system
-            gold_symbol = self.mt5_connector.get_gold_symbol()
-            self.grid_trader = AIGoldGrid(
-                self.mt5_connector,
-                self.current_calculations,
-                self.config
-            )
-            
-            # Initialize the AI portfolio
-            self.log_message("🧠 Initializing AI Portfolio Trading System...", "INFO")
-            if not self.grid_trader.initialize_grid():
-                raise Exception("Failed to initialize AI portfolio system")
-            
-            # Start AI trading
-            if self.grid_trader.start_trading():
-                self.is_trading = True
-                self.start_btn.config(state='disabled', bg='#6c757d')
-                self.stop_btn.config(state='normal', bg='#dc3545')
-                
-                self.log_message("🧠 AI Portfolio Trading Started!", "SUCCESS")
-                self.log_message(f"🤖 AI managing {gold_symbol} with smart portfolio optimization", "INFO")
-                self.log_message(f"🎯 Magic Number: {self.grid_trader.magic_number}", "INFO")
-                
-                # Start trading monitoring thread
-                self.trading_thread = threading.Thread(target=self.run_trading_loop, daemon=True)
-                self.trading_thread.start()
-                
-                # Start real-time monitoring
-                self.start_real_time_monitoring()
-            else:
-                raise Exception("Failed to start AI portfolio system")
-            
-        except Exception as e:
-            self.log_message(f"❌ Start AI Portfolio Error: {str(e)}", "ERROR")
-            messagebox.showerror("AI Portfolio Error", f"Failed to start AI portfolio:\n{str(e)}")
-
-    def stop_trading(self):
-        """Stop trading system gracefully"""
-        if not self.is_trading:
-            return
-            
-        try:
-            confirm_msg = "Stop AI Grid Trading?\n\nThis will:\n• Stop placing new orders\n• Keep existing positions open\n• Cancel pending orders\n\nContinue?"
-            
-            if messagebox.askyesno("Stop Trading", confirm_msg):
-                self.is_trading = False
-                
-                if self.grid_trader:
-                    self.grid_trader.stop_trading()
                     
-                    # Cancel pending orders
-                    cancelled = self.grid_trader.cancel_all_orders()
-                    self.log_message(f"🔴 Cancelled {cancelled} pending orders", "WARNING")
-                    
-                self.start_btn.config(state='normal', bg='#51cf66')
-                self.stop_btn.config(state='disabled', bg='#6c757d')
-                
-                self.log_message("⏹️ AI Grid Trading System Stopped", "WARNING")
-                
-                # Show final status
-                if self.grid_trader:
-                    status = self.grid_trader.get_grid_status()
-                    self.log_message(f"📊 Final Status: {status['active_positions']} positions, Total PnL: ${status['total_pnl']:.2f}", "INFO")
-                
-        except Exception as e:
-            self.log_message(f"❌ Stop Trading Error: {str(e)}", "ERROR")
-            
-    def emergency_stop(self):
-        """Emergency stop - close all positions immediately"""
-        if not self.is_trading:
-            messagebox.showwarning("Warning", "Trading is not active")
-            return
-            
-        emergency_msg = """🚨 EMERGENCY STOP WARNING 🚨
-
-This will IMMEDIATELY:
-• Close ALL open positions at market price
-• Cancel ALL pending orders  
-• Stop the trading system completely
-
-This action cannot be undone!
-Use only in emergency situations.
-
-Proceed with emergency stop?"""
-
-        if messagebox.askyesno("🚨 EMERGENCY STOP", emergency_msg):
-            try:
-                self.log_message("🚨 EMERGENCY STOP INITIATED!", "ERROR")
-                
-                if self.grid_trader:
-                    # Emergency close all
-                    self.grid_trader.emergency_close_all()
-                    
-                    # Get final status
-                    status = self.grid_trader.get_grid_status()
-                    self.log_message(f"🚨 Emergency Stop Completed - Final PnL: ${status['total_pnl']:.2f}", "ERROR")
-                    
-                self.is_trading = False
-                self.start_btn.config(state='normal', bg='#51cf66')
-                self.stop_btn.config(state='disabled', bg='#6c757d')
-                
-                messagebox.showinfo("Emergency Stop", "Emergency stop completed!\nAll positions have been closed.")
-                
-            except Exception as e:
-                self.log_message(f"❌ Emergency Stop Error: {str(e)}", "ERROR")
-                messagebox.showerror("Emergency Stop Error", f"Error during emergency stop:\n{str(e)}")
-                
     def run_trading_loop(self):
         """Main trading monitoring loop"""
         if not self.grid_trader:

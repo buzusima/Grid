@@ -262,102 +262,6 @@ class AIGoldGrid:
         except Exception as e:
             print(f"❌ Balanced grid error: {e}")
 
-    def place_smart_rebalance_order(self, direction: str, price: float, lot_size: float) -> bool:
-        """วาง rebalance order - บังคับใช้ Market Execution เท่านั้น"""
-        try:
-            # ✅ ข้ามการวาง pending orders ทั้งหมด - ใช้ market execution เลย
-            print(f"🚀 Force Market Execution: {direction} {lot_size:.3f} (skip pending orders)")
-            
-            # Get current market data
-            tick = mt5.symbol_info_tick(self.gold_symbol)
-            if not tick:
-                print(f"❌ Cannot get tick data for {self.gold_symbol}")
-                return False
-            
-            current_bid = tick.bid
-            current_ask = tick.ask
-            
-            # ✅ ใช้ market execution ทันที
-            if direction == "BUY":
-                trade_type = mt5.ORDER_TYPE_BUY
-                execution_price = current_ask  # BUY ที่ Ask
-            else:
-                trade_type = mt5.ORDER_TYPE_SELL
-                execution_price = current_bid  # SELL ที่ Bid
-            
-            # ✅ Validate lot size
-            symbol_info = mt5.symbol_info(self.gold_symbol)
-            if symbol_info:
-                min_volume = symbol_info.volume_min
-                volume_step = symbol_info.volume_step
-                
-                if lot_size < min_volume:
-                    lot_size = min_volume
-                lot_size = round(lot_size / volume_step) * volume_step
-                lot_size = round(lot_size, 3)
-            
-            print(f"📍 Market Order: {direction} {lot_size:.3f} @ ${execution_price:.2f}")
-            
-            # ✅ สร้าง market order request
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.gold_symbol,
-                "volume": lot_size,
-                "type": trade_type,
-                "price": execution_price,
-                "deviation": 100,  # ใหญ่ๆ เพื่อให้ได้
-                "magic": self.magic_number,
-                "comment": f"SmartMarket_{direction}_{int(time.time())}",
-                "type_filling": mt5.ORDER_FILLING_IOC
-            }
-            
-            # ✅ ลอง filling modes ต่างๆ สำหรับ market order
-            filling_modes = [
-                (mt5.ORDER_FILLING_IOC, "IOC"),
-                (mt5.ORDER_FILLING_RETURN, "RETURN"), 
-                (mt5.ORDER_FILLING_FOK, "FOK")
-            ]
-            
-            for filling_mode, mode_name in filling_modes:
-                request["type_filling"] = filling_mode
-                
-                result = mt5.order_send(request)
-                
-                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                    print(f"✅ Market execution successful ({mode_name}): {direction} @ ${execution_price:.2f}")
-                    
-                    # ✅ สร้าง GridLevel สำหรับ track
-                    level_id = f"MARKET_{direction}_{int(time.time())}"
-                    
-                    new_level = GridLevel(
-                        level_id=level_id,
-                        price=execution_price,
-                        lot_size=lot_size,
-                        direction=direction,
-                        status=PositionStatus.ACTIVE,  # ไม่ใช่ PENDING
-                        position_id=result.order,
-                        entry_time=datetime.now()
-                    )
-                    
-                    # ✅ เพิ่มเข้า active positions (ไม่ใช่ pending)
-                    self.grid_levels.append(new_level)
-                    self.active_positions[result.order] = new_level
-                    
-                    return True
-                    
-                else:
-                    error_msg = f"Market {mode_name} failed"
-                    if result:
-                        error_msg += f": {result.retcode} - {result.comment}"
-                    print(f"❌ {error_msg}")
-                    continue
-            
-            print(f"❌ All market execution attempts failed")
-            return False
-                
-        except Exception as e:
-            print(f"❌ Force market execution error: {e}")
-            return False
 
     # ✅ เพิ่ม method สำหรับสถานการณ์ที่ต้องการ pending orders จริงๆ
     def place_pending_order_aggressive(self, direction: str, price: float, lot_size: float) -> bool:
@@ -1519,45 +1423,6 @@ class AIGoldGrid:
             print(f"   ❌ Market hedge error: {e}")
             return False
 
-    def place_pending_order_with_retry(self, grid_level: GridLevel) -> Optional[int]:
-        """วาง Pending Order พร้อม retry หลายครั้ง"""
-        
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                print(f"   🔄 Hedge order attempt {retry_count + 1}/{max_retries}")
-                
-                # ใช้ method เดิมที่มีอยู่แล้ว
-                order_result = self.place_pending_order(grid_level)
-                
-                if order_result:
-                    print(f"   ✅ Hedge order successful on attempt {retry_count + 1}")
-                    return order_result
-                else:
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        print(f"   ⚠️ Attempt {retry_count} failed, retrying...")
-                        time.sleep(1)  # รอ 1 วินาทีก่อน retry
-                        
-                        # ปรับราคาเล็กน้อยสำหรับ retry
-                        if grid_level.direction == "BUY":
-                            grid_level.price -= 10 * self.point_value  # ลดราคา 10 points
-                        else:
-                            grid_level.price += 10 * self.point_value  # เพิ่มราคา 10 points
-                            
-                        grid_level.price = round(grid_level.price, 2)
-                        print(f"   📝 Price adjusted to ${grid_level.price:.2f} for retry")
-                        
-            except Exception as e:
-                print(f"   ❌ Retry {retry_count + 1} error: {e}")
-                retry_count += 1
-                if retry_count < max_retries:
-                    time.sleep(2)  # รอนานขึ้นถ้า error
-        
-        print(f"   ❌ All {max_retries} hedge order attempts failed")
-        return None
 
     def monitor_hedge_effectiveness(self):
         """ตรวจสอบประสิทธิภาพของ Hedge"""
@@ -3615,30 +3480,213 @@ class AIGoldGrid:
         except Exception as e:
             print(f"❌ ULTRA-CLOSE orders error: {e}")
 
-    def has_nearby_order(self, price: float, direction: str, min_distance_points: int = 80) -> bool:
-        """แก้ไข method ให้รองรับ 2-3 parameters"""
+    def get_pending_orders(self) -> List[Dict]:
+        """ดึงรายการ pending orders ทั้งหมดของระบบ"""
         try:
-            # ✅ แก้ไข: รองรับทั้ง 2 และ 3 parameters
-            min_distance = min_distance_points * 0.01  # แปลง points เป็น dollars
+            # Method 1: ดึงจาก MT5 โดยตรง
+            orders = mt5.orders_get(symbol=self.gold_symbol)
+            if orders:
+                our_orders = [order for order in orders if order.magic == self.magic_number]
+                
+                formatted_orders = []
+                for order in our_orders:
+                    # แปลง order type เป็น direction
+                    if order.type in [mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP]:
+                        direction = "BUY"
+                        order_type = "BUY_LIMIT"
+                    else:
+                        direction = "SELL"
+                        order_type = "SELL_LIMIT"
+                    
+                    formatted_orders.append({
+                        'ticket': order.ticket,
+                        'type': order_type,
+                        'direction': direction,
+                        'price': order.price_open,
+                        'lot_size': order.volume_initial,
+                        'symbol': order.symbol,
+                        'time_setup': order.time_setup if hasattr(order, 'time_setup') else 0,
+                        'comment': order.comment if hasattr(order, 'comment') else ""
+                    })
+                
+                print(f"📋 Found {len(formatted_orders)} pending orders from MT5")
+                return formatted_orders
             
-            # เช็ค pending orders
-            for grid_level in self.pending_orders.values():
-                if (grid_level.direction == direction and 
-                    abs(grid_level.price - price) < min_distance):
-                    return True
-                    
-            # เช็ค active positions
-            for grid_level in self.active_positions.values():
-                if (grid_level.direction == direction and 
-                    abs(grid_level.price - price) < min_distance):
-                    return True
-                    
+            # Method 2: ดึงจาก internal tracking (fallback)
+            if hasattr(self, 'pending_orders') and self.pending_orders:
+                internal_orders = []
+                
+                for order_id, grid_level in self.pending_orders.items():
+                    if grid_level.status == PositionStatus.PENDING:
+                        internal_orders.append({
+                            'ticket': order_id,
+                            'type': f"{grid_level.direction}_LIMIT",
+                            'direction': grid_level.direction,
+                            'price': grid_level.price,
+                            'lot_size': grid_level.lot_size,
+                            'symbol': self.gold_symbol,
+                            'time_setup': int(grid_level.entry_time.timestamp()) if grid_level.entry_time else 0,
+                            'comment': f"Grid_{grid_level.level_id}"
+                        })
+                
+                print(f"📋 Found {len(internal_orders)} pending orders from internal tracking")
+                return internal_orders
+            
+            # Method 3: สร้างจาก grid_levels (last resort)
+            if hasattr(self, 'grid_levels') and self.grid_levels:
+                grid_orders = []
+                
+                for grid_level in self.grid_levels:
+                    if grid_level.status == PositionStatus.PENDING and grid_level.order_id:
+                        grid_orders.append({
+                            'ticket': grid_level.order_id,
+                            'type': f"{grid_level.direction}_LIMIT",
+                            'direction': grid_level.direction,
+                            'price': grid_level.price,
+                            'lot_size': grid_level.lot_size,
+                            'symbol': self.gold_symbol,
+                            'time_setup': int(grid_level.entry_time.timestamp()) if grid_level.entry_time else 0,
+                            'comment': f"Grid_{grid_level.level_id}"
+                        })
+                
+                print(f"📋 Found {len(grid_orders)} pending orders from grid levels")
+                return grid_orders
+            
+            print("📋 No pending orders found")
+            return []
+            
+        except Exception as e:
+            print(f"❌ Get pending orders error: {e}")
+            return []
+
+    def has_nearby_order(self, target_price: float, direction: str, min_distance: float = 1.0) -> bool:
+        """ตรวจสอบว่ามี order ใกล้ราคาที่กำหนดหรือไม่"""
+        try:
+            pending_orders = self.get_pending_orders()
+            
+            for order in pending_orders:
+                if order['direction'] == direction:
+                    price_diff = abs(order['price'] - target_price)
+                    if price_diff < min_distance:  # ใกล้กันเกินไป
+                        return True
+            
             return False
             
         except Exception as e:
-            print(f"❌ Nearby order check error: {e}")
-            return True  # ถ้า error ให้ถือว่ามี order แล้ว (ป้องกัน)
+            print(f"❌ Check nearby order error: {e}")
+            return False  # ถ้า error ให้ถือว่าไม่มี order ใกล้เคียง
 
+    def place_smart_rebalance_order(self, direction: str, price: float, lot_size: float) -> bool:
+        """วาง order สำหรับ rebalancing อย่างชาญฉลาด"""
+        try:
+            # ตรวจสอบว่ามี order ใกล้เคียงหรือไม่
+            if self.has_nearby_order(price, direction, 0.5):  # ห่าง 50 cents
+                print(f"   ⚠️ Order too close to existing {direction} order @ ${price:.2f}")
+                return False
+            
+            # สร้าง GridLevel ใหม่
+            level_id = f"REBALANCE_{direction}_{int(time.time())}"
+            
+            new_level = GridLevel(
+                level_id=level_id,
+                price=round(price, 2),
+                lot_size=lot_size,
+                direction=direction,
+                status=PositionStatus.PENDING,
+                entry_time=datetime.now()
+            )
+            
+            # วาง pending order
+            order_result = self.place_pending_order_with_retry(new_level)
+            
+            if order_result:
+                new_level.order_id = order_result
+                self.grid_levels.append(new_level)
+                self.pending_orders[order_result] = new_level
+                
+                print(f"   ✅ Rebalance order: {direction} {lot_size:.3f} @ ${price:.2f}")
+                return True
+            else:
+                print(f"   ❌ Failed to place rebalance order: {direction} @ ${price:.2f}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Smart rebalance order error: {e}")
+            return False
+
+    def place_pending_order_with_retry(self, grid_level: GridLevel) -> Optional[int]:
+        """วาง pending order พร้อม retry logic"""
+        try:
+            max_retries = 3
+            
+            for attempt in range(max_retries):
+                order_result = self.place_pending_order(grid_level)
+                
+                if order_result:
+                    return order_result
+                
+                if attempt < max_retries - 1:
+                    print(f"   🔄 Retry {attempt + 1}/{max_retries} for {grid_level.level_id}")
+                    time.sleep(1)  # รอ 1 วินาทีก่อน retry
+            
+            # ถ้า pending order ไม่ได้ ลอง market order
+            print(f"   🎯 Pending failed, trying market execution for {grid_level.direction}")
+            return self.force_market_execution(grid_level.direction, grid_level.lot_size)
+            
+        except Exception as e:
+            print(f"❌ Pending order retry error: {e}")
+            return None
+
+    def force_market_execution(self, direction: str, lot_size: float) -> Optional[int]:
+        """บังคับ execute ด้วย market order เมื่อ pending ไม่ได้"""
+        try:
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                return None
+            
+            if direction == "BUY":
+                order_type = mt5.ORDER_TYPE_BUY
+                execution_price = tick.ask
+            else:
+                order_type = mt5.ORDER_TYPE_SELL
+                execution_price = tick.bid
+            
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": self.gold_symbol,
+                "volume": lot_size,
+                "type": order_type,
+                "price": execution_price,
+                "deviation": 50,
+                "magic": self.magic_number,
+                "comment": f"FORCE_MARKET_{direction}",
+                "type_filling": self.order_filling_mode
+            }
+            
+            # ลอง filling mode ต่างๆ
+            filling_modes = [
+                (mt5.ORDER_FILLING_IOC, "IOC"),
+                (mt5.ORDER_FILLING_RETURN, "RETURN"), 
+                (mt5.ORDER_FILLING_FOK, "FOK")
+            ]
+            
+            for filling_mode, mode_name in filling_modes:
+                request["type_filling"] = filling_mode
+                
+                result = mt5.order_send(request)
+                
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    print(f"   ✅ Market execution successful ({mode_name}): {direction} @ ${execution_price:.2f}")
+                    return result.order
+                elif result:
+                    print(f"   ❌ {mode_name} failed: {result.retcode}")
+            
+            return None
+            
+        except Exception as e:
+            print(f"❌ Force market execution error: {e}")
+            return None
+        
     def force_create_tight_grid(self):
         """สร้าง grid แน่นๆ ใกล้ราคาปัจจุบัน"""
         try:
