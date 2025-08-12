@@ -268,52 +268,224 @@ class AIGoldGrid:
             print(f"❌ Balanced grid error: {e}")
 
     def place_smart_rebalance_order(self, direction: str, price: float, lot_size: float) -> bool:
-        """วาง order สำหรับ rebalancing - FIXED VERSION with validation"""
+        """วาง rebalance order - บังคับใช้ Market Execution เท่านั้น"""
         try:
-            # ✅ FIX: เพิ่มการตรวจสอบราคาให้สมเหตุสมผล
-            current_price = self.get_current_price()
-            distance_points = abs(price - current_price) / 0.01
+            # ✅ ข้ามการวาง pending orders ทั้งหมด - ใช้ market execution เลย
+            print(f"🚀 Force Market Execution: {direction} {lot_size:.3f} (skip pending orders)")
             
-            # ตรวจสอบระยะห่างสูงสุด
-            max_distance = 1000  # ไม่เกิน 1000 points
-            if distance_points > max_distance:
-                print(f"   ⚠️ Order too far: {distance_points:.0f} points > limit {max_distance}")
+            # Get current market data
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                print(f"❌ Cannot get tick data for {self.gold_symbol}")
                 return False
             
-            # ตรวจสอบทิศทางที่ถูกต้อง
-            if direction == "BUY" and price >= current_price:
-                print(f"   ⚠️ Invalid BUY price: ${price:.2f} >= current ${current_price:.2f}")
-                return False
-            elif direction == "SELL" and price <= current_price:
-                print(f"   ⚠️ Invalid SELL price: ${price:.2f} <= current ${current_price:.2f}")
-                return False
+            current_bid = tick.bid
+            current_ask = tick.ask
             
-            # สร้าง grid level
-            new_level = GridLevel(
-                level_id=f"SMART_{direction}_{int(time.time())}",
-                price=round(price, 2),  # ปัดเป็น 2 ทศนิยม
-                lot_size=round(lot_size, 3),  # ปัดเป็น 3 ทศนิยม
-                direction=direction,
-                status=PositionStatus.PENDING,
-                entry_time=datetime.now()
-            )
+            # ✅ ใช้ market execution ทันที
+            if direction == "BUY":
+                trade_type = mt5.ORDER_TYPE_BUY
+                execution_price = current_ask  # BUY ที่ Ask
+            else:
+                trade_type = mt5.ORDER_TYPE_SELL
+                execution_price = current_bid  # SELL ที่ Bid
             
-            # วาง order
-            order_result = self.place_pending_order(new_level)
-            if order_result:
-                new_level.order_id = order_result
-                self.grid_levels.append(new_level)
-                self.pending_orders[order_result] = new_level
+            # ✅ Validate lot size
+            symbol_info = mt5.symbol_info(self.gold_symbol)
+            if symbol_info:
+                min_volume = symbol_info.volume_min
+                volume_step = symbol_info.volume_step
                 
-                print(f"   🎯 Order placed: {direction} {lot_size:.3f} @ ${price:.2f} ({distance_points:.0f} points)")
+                if lot_size < min_volume:
+                    lot_size = min_volume
+                lot_size = round(lot_size / volume_step) * volume_step
+                lot_size = round(lot_size, 3)
+            
+            print(f"📍 Market Order: {direction} {lot_size:.3f} @ ${execution_price:.2f}")
+            
+            # ✅ สร้าง market order request
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": self.gold_symbol,
+                "volume": lot_size,
+                "type": trade_type,
+                "price": execution_price,
+                "deviation": 100,  # ใหญ่ๆ เพื่อให้ได้
+                "magic": self.magic_number,
+                "comment": f"SmartMarket_{direction}_{int(time.time())}",
+                "type_filling": mt5.ORDER_FILLING_IOC
+            }
+            
+            # ✅ ลอง filling modes ต่างๆ สำหรับ market order
+            filling_modes = [
+                (mt5.ORDER_FILLING_IOC, "IOC"),
+                (mt5.ORDER_FILLING_RETURN, "RETURN"), 
+                (mt5.ORDER_FILLING_FOK, "FOK")
+            ]
+            
+            for filling_mode, mode_name in filling_modes:
+                request["type_filling"] = filling_mode
+                
+                result = mt5.order_send(request)
+                
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    print(f"✅ Market execution successful ({mode_name}): {direction} @ ${execution_price:.2f}")
+                    
+                    # ✅ สร้าง GridLevel สำหรับ track
+                    level_id = f"MARKET_{direction}_{int(time.time())}"
+                    
+                    new_level = GridLevel(
+                        level_id=level_id,
+                        price=execution_price,
+                        lot_size=lot_size,
+                        direction=direction,
+                        status=PositionStatus.ACTIVE,  # ไม่ใช่ PENDING
+                        position_id=result.order,
+                        entry_time=datetime.now()
+                    )
+                    
+                    # ✅ เพิ่มเข้า active positions (ไม่ใช่ pending)
+                    self.grid_levels.append(new_level)
+                    self.active_positions[result.order] = new_level
+                    
+                    return True
+                    
+                else:
+                    error_msg = f"Market {mode_name} failed"
+                    if result:
+                        error_msg += f": {result.retcode} - {result.comment}"
+                    print(f"❌ {error_msg}")
+                    continue
+            
+            print(f"❌ All market execution attempts failed")
+            return False
+                
+        except Exception as e:
+            print(f"❌ Force market execution error: {e}")
+            return False
+
+    # ✅ เพิ่ม method สำหรับสถานการณ์ที่ต้องการ pending orders จริงๆ
+    def place_pending_order_aggressive(self, direction: str, price: float, lot_size: float) -> bool:
+        """วาง pending order ด้วยระยะห่างมหาศาล (สำหรับกรณีพิเศษ)"""
+        try:
+            # Get current market data
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                return False
+            
+            current_bid = tick.bid
+            current_ask = tick.ask
+            
+            # ✅ ใช้ระยะห่างมหาศาล 500 points!
+            massive_distance_points = 500
+            massive_distance_price = massive_distance_points * self.point_value
+            
+            if direction == "BUY":
+                safe_price = current_bid - massive_distance_price
+                order_type = mt5.ORDER_TYPE_BUY_LIMIT
+            else:
+                safe_price = current_ask + massive_distance_price
+                order_type = mt5.ORDER_TYPE_SELL_LIMIT
+            
+            print(f"🔥 MASSIVE distance: {direction} @ ${safe_price:.2f} ({massive_distance_points}pts)")
+            
+            # Validate lot size
+            symbol_info = mt5.symbol_info(self.gold_symbol)
+            if symbol_info:
+                min_volume = symbol_info.volume_min
+                volume_step = symbol_info.volume_step
+                if lot_size < min_volume:
+                    lot_size = min_volume
+                lot_size = round(lot_size / volume_step) * volume_step
+                lot_size = round(lot_size, 3)
+            
+            level_id = f"MASSIVE_{direction}_{int(time.time())}"
+            
+            request = {
+                "action": mt5.TRADE_ACTION_PENDING,
+                "symbol": self.gold_symbol,
+                "volume": lot_size,
+                "type": order_type,
+                "price": safe_price,
+                "deviation": 100,
+                "magic": self.magic_number,
+                "comment": level_id,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": mt5.ORDER_FILLING_IOC
+            }
+            
+            result = mt5.order_send(request)
+            
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                new_level = GridLevel(
+                    level_id=level_id,
+                    price=safe_price,
+                    lot_size=lot_size,
+                    direction=direction,
+                    status=PositionStatus.PENDING,
+                    entry_time=datetime.now()
+                )
+                
+                new_level.order_id = result.order
+                self.grid_levels.append(new_level)
+                self.pending_orders[result.order] = new_level
+                
+                print(f"✅ MASSIVE distance order placed: {level_id} @ ${safe_price:.2f}")
                 return True
             else:
-                print(f"   ❌ Failed to place {direction} order @ ${price:.2f}")
+                print(f"❌ Even MASSIVE distance failed: {result.retcode if result else 'No response'}")
                 return False
-                    
+                
         except Exception as e:
-            print(f"❌ Smart rebalance order error: {e}")
+            print(f"❌ Massive distance order error: {e}")
             return False
+
+    # ✅ Method สำหรับ debug broker requirements
+    def debug_broker_requirements(self):
+        """Debug broker requirements สำหรับ pending orders"""
+        try:
+            symbol_info = mt5.symbol_info(self.gold_symbol)
+            if not symbol_info:
+                print("❌ Cannot get symbol info")
+                return
+                
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                print("❌ Cannot get tick info")
+                return
+                
+            print(f"\n🔍 === BROKER REQUIREMENTS DEBUG ===")
+            print(f"Symbol: {self.gold_symbol}")
+            print(f"Current Bid: ${tick.bid:.2f}")
+            print(f"Current Ask: ${tick.ask:.2f}")
+            print(f"Spread: {(tick.ask - tick.bid)/self.point_value:.1f} points")
+            print(f"Point Value: {self.point_value}")
+            
+            if hasattr(symbol_info, 'trade_stops_level'):
+                stops_level = symbol_info.trade_stops_level
+                print(f"Trade Stops Level: {stops_level} points")
+            
+            if hasattr(symbol_info, 'trade_freeze_level'):
+                freeze_level = symbol_info.trade_freeze_level  
+                print(f"Trade Freeze Level: {freeze_level} points")
+                
+            print(f"Volume Min: {symbol_info.volume_min}")
+            print(f"Volume Max: {symbol_info.volume_max}")
+            print(f"Volume Step: {symbol_info.volume_step}")
+            
+            # ลองทดสอบ order ที่ระยะต่างๆ
+            test_distances = [100, 200, 300, 500, 1000]
+            
+            print(f"\n🧪 Testing minimum distances:")
+            for distance in test_distances:
+                buy_price = tick.bid - (distance * self.point_value)
+                sell_price = tick.ask + (distance * self.point_value)
+                print(f"  {distance} points: BUY @ ${buy_price:.2f}, SELL @ ${sell_price:.2f}")
+                
+            print(f"{'='*50}")
+            
+        except Exception as e:
+            print(f"❌ Debug broker requirements error: {e}")
 
     # ✅ เพิ่ม method ตรวจสอบระบบ
     def validate_grid_orders(self):
@@ -3125,49 +3297,60 @@ class AIGoldGrid:
             print(f"❌ Error closing hedge positions: {e}")
 
     def calculate_rebalancing_targets(self):
-        """คำนวณเป้าหมาย orders ตามขนาดเงินทุน"""
+        """คำนวณเป้าหมาย orders ตามขนาดเงินทุน - ปรับปรุงแล้ว"""
         
         account_info = self.mt5_connector.get_account_info()
         balance = account_info.get('balance', 1000) if account_info else 1000
         
-        # Base targets
+        # ✅ ปรับ: เพิ่มจำนวน orders ทุกระดับ (เพิ่ม 30-50%)
         if balance >= 50000:
             # เงินทุนใหญ่มาก - coverage เยอะ
             self.target_orders = {
-                'near_buy': 10, 'near_sell': 10,
-                'medium_buy': 8, 'medium_sell': 8, 
-                'far_buy': 4, 'far_sell': 4
+                'near_buy': 15, 'near_sell': 15,      # เพิ่มจาก 10→15
+                'medium_buy': 12, 'medium_sell': 12,  # เพิ่มจาก 8→12
+                'far_buy': 6, 'far_sell': 6           # เพิ่มจาก 4→6
             }
         elif balance >= 25000:
             # เงินทุนใหญ่ - coverage ปานกลาง
             self.target_orders = {
-                'near_buy': 8, 'near_sell': 8,
-                'medium_buy': 6, 'medium_sell': 6,
-                'far_buy': 3, 'far_sell': 3
+                'near_buy': 12, 'near_sell': 12,      # เพิ่มจาก 8→12
+                'medium_buy': 9, 'medium_sell': 9,    # เพิ่มจาก 6→9
+                'far_buy': 4, 'far_sell': 4           # เพิ่มจาก 3→4
             }
         elif balance >= 10000:
             # เงินทุนกลาง - coverage มาตรฐาน
             self.target_orders = {
-                'near_buy': 6, 'near_sell': 6,
-                'medium_buy': 4, 'medium_sell': 4,
-                'far_buy': 2, 'far_sell': 2
+                'near_buy': 9, 'near_sell': 9,        # เพิ่มจาก 6→9
+                'medium_buy': 6, 'medium_sell': 6,    # เพิ่มจาก 4→6
+                'far_buy': 3, 'far_sell': 3           # เพิ่มจาก 2→3
             }
         elif balance >= 5000:
             # เงินทุนเล็ก - coverage น้อย
             self.target_orders = {
-                'near_buy': 4, 'near_sell': 4,
-                'medium_buy': 3, 'medium_sell': 3,
-                'far_buy': 2, 'far_sell': 2
+                'near_buy': 6, 'near_sell': 6,        # เพิ่มจาก 4→6
+                'medium_buy': 4, 'medium_sell': 4,    # เพิ่มจาก 3→4
+                'far_buy': 3, 'far_sell': 3           # เพิ่มจาก 2→3
             }
         else:
             # เงินทุนจิ๋ว - coverage ขั้นต่ำ
             self.target_orders = {
-                'near_buy': 3, 'near_sell': 3,
-                'medium_buy': 2, 'medium_sell': 2,
-                'far_buy': 1, 'far_sell': 1
+                'near_buy': 4, 'near_sell': 4,        # เพิ่มจาก 3→4
+                'medium_buy': 3, 'medium_sell': 3,    # เพิ่มจาก 2→3
+                'far_buy': 2, 'far_sell': 2           # เพิ่มจาก 1→2
             }
         
-        print(f"🎯 Rebalancing targets for ${balance:,.0f}: {self.target_orders}")
+        # ✅ ปรับ: ลดขนาด zones ให้ไม้หนาแน่นขึ้น
+        self.near_zone_levels = 3    # ลดจาก 5 เป็น 3 (ใกล้ขึ้น)
+        self.medium_zone_levels = 10 # ลดจาก 15 เป็น 10
+        self.far_zone_levels = 25    # ลดจาก 30 เป็น 25
+        
+        # คำนวณยอดรวม
+        total_target = sum(self.target_orders.values())
+        
+        print(f"🎯 Enhanced targets (Balance: ${balance:,.0f}): {total_target} total orders")
+        print(f"   Near: {self.target_orders['near_buy']+self.target_orders['near_sell']} orders")
+        print(f"   Medium: {self.target_orders['medium_buy']+self.target_orders['medium_sell']} orders") 
+        print(f"   Far: {self.target_orders['far_buy']+self.target_orders['far_sell']} orders")
 
     def analyze_current_grid_distribution(self) -> Dict:
         """วิเคราะห์การกระจายตัวของ orders ปัจจุบัน"""
@@ -3255,36 +3438,41 @@ class AIGoldGrid:
         return removed_count
 
     def add_near_zone_orders(self, current_price: float, distribution: Dict) -> int:
-        """เพิ่ม orders ในโซนใกล้ถ้าไม่เพียงพอ"""
+        """เพิ่ม orders ในโซนใกล้ถ้าไม่เพียงพอ - ปรับปรุงแล้ว"""
         
         added_count = 0
         near_zone = self.near_zone_levels * self.grid_spacing
         
+        # ✅ ปรับ: เพิ่มเป้าหมายในโซนใกล้
+        min_near_orders = 3  # เพิ่มจาก 2 เป็น 3
+        
         # เช็ค BUY orders ในโซนใกล้
-        buy_deficit = self.target_orders['near_buy'] - distribution['near_buy']
+        buy_deficit = max(min_near_orders - distribution['near_buy'], 0)
         if buy_deficit > 0:
-            # เพิ่ม BUY orders ทีละ 1-2 ตัว
-            to_add = min(buy_deficit, 2)  # ไม่เกิน 2 orders ต่อรอบ
+            # ✅ ปรับ: เพิ่มทีละ 3 orders แทน 2
+            to_add = min(buy_deficit, 3)  # เพิ่มจาก 2 เป็น 3 orders ต่อรอบ
             
             for i in range(to_add):
-                # หาตำแหน่งที่เหมาะสม
-                level = i + distribution['near_buy'] + 1
-                buy_price = current_price - (level * self.grid_spacing * self.point_value)
+                # ✅ ปรับ: ใช้ spacing แคบขึ้น
+                level_spacing = 80 + (i * 40)  # 80, 120, 160 จุด
+                buy_price = current_price - (level_spacing * self.point_value)
                 
                 if self.add_single_grid_order("BUY", buy_price, f"NEAR_BUY_{int(time.time())}_{i}"):
                     added_count += 1
+                    print(f"   ➕ Added near BUY @ ${buy_price:.2f} ({level_spacing}pts)")
         
         # เช็ค SELL orders ในโซนใกล้  
-        sell_deficit = self.target_orders['near_sell'] - distribution['near_sell']
+        sell_deficit = max(min_near_orders - distribution['near_sell'], 0)
         if sell_deficit > 0:
-            to_add = min(sell_deficit, 2)
+            to_add = min(sell_deficit, 3)  # เพิ่มจาก 2 เป็น 3
             
             for i in range(to_add):
-                level = i + distribution['near_sell'] + 1
-                sell_price = current_price + (level * self.grid_spacing * self.point_value)
+                level_spacing = 80 + (i * 40)  # 80, 120, 160 จุด
+                sell_price = current_price + (level_spacing * self.point_value)
                 
                 if self.add_single_grid_order("SELL", sell_price, f"NEAR_SELL_{int(time.time())}_{i}"):
                     added_count += 1
+                    print(f"   ➕ Added near SELL @ ${sell_price:.2f} ({level_spacing}pts)")
         
         return added_count
 
@@ -3456,7 +3644,6 @@ class AIGoldGrid:
             print(f"❌ Nearby order check error: {e}")
             return True  # ถ้า error ให้ถือว่ามี order แล้ว (ป้องกัน)
 
-    # แก้ไขใน ai_gold_grid.py - เพิ่ม method ใหม่
     def force_create_tight_grid(self):
         """สร้าง grid แน่นๆ ใกล้ราคาปัจจุบัน"""
         try:
