@@ -185,61 +185,66 @@ class AIGoldGrid:
             print(f"❌ Portfolio analysis error: {e}")
             return {}
 
-
-
     def add_strategic_sell_orders(self, current_price: float, imbalance_size: float):
-        """เพิ่ม SELL orders เพื่อ balance portfolio"""
+        """เพิ่ม SELL orders เพื่อ balance portfolio - FASTER VERSION"""
         try:
-            # คำนวณจำนวน SELL ที่ต้องเพิ่ม
-            needed_sell_exposure = abs(imbalance_size) * 0.6  # ปรับ 60%
+            needed_sell_exposure = abs(imbalance_size) * 0.6
             
-            # Grid spacing ใหม่ (ถี่ขึ้น)
-            tight_spacing = 150  # จาก 333 เป็น 150
+            # ✅ แก้ไขจาก 150 → 100 points (เร็วขึ้น)
+            tight_spacing = 100  # จาก 150 → 100
             
             # วาง SELL orders ในระยะใกล้-กลาง
             levels_to_add = [
                 current_price + tight_spacing,
                 current_price + tight_spacing * 2,
                 current_price + tight_spacing * 3,
+                current_price + tight_spacing * 4,  # เพิ่ม level 4
             ]
             
             lot_per_level = max(self.min_lot, needed_sell_exposure / len(levels_to_add))
             
             added_count = 0
             for price in levels_to_add:
-                if not self.has_nearby_order(price, "SELL") and added_count < 3:
+                distance = (price - current_price) / 0.01
+                if distance <= 500 and not self.has_nearby_order(price, "SELL") and added_count < 4:
                     if self.place_smart_rebalance_order("SELL", price, lot_per_level):
                         added_count += 1
+                        print(f"   ⚡ Strategic SELL: @ ${price:.2f} (+{distance:.0f}pts)")
                         
-            print(f"✅ Added {added_count} strategic SELL orders")
+            print(f"✅ Added {added_count} fast strategic SELL orders")
             
         except Exception as e:
-            print(f"❌ Strategic SELL error: {e}")
+            print(f"❌ Fast strategic SELL error: {e}")
 
     def add_strategic_buy_orders(self, current_price: float, imbalance_size: float):
-        """เพิ่ม BUY orders เพื่อ balance portfolio"""
+        """เพิ่ม BUY orders เพื่อ balance portfolio - FASTER VERSION"""
         try:
             needed_buy_exposure = abs(imbalance_size) * 0.6
-            tight_spacing = 150
+            
+            # ✅ แก้ไขจาก 150 → 100 points (เร็วขึ้น)
+            tight_spacing = 100  # จาก 150 → 100
             
             levels_to_add = [
                 current_price - tight_spacing,
                 current_price - tight_spacing * 2,
                 current_price - tight_spacing * 3,
+                current_price - tight_spacing * 4,  # เพิ่ม level 4
             ]
             
             lot_per_level = max(self.min_lot, needed_buy_exposure / len(levels_to_add))
             
             added_count = 0
             for price in levels_to_add:
-                if not self.has_nearby_order(price, "BUY") and added_count < 3:
+                distance = (current_price - price) / 0.01
+                if distance <= 500 and not self.has_nearby_order(price, "BUY") and added_count < 4:
                     if self.place_smart_rebalance_order("BUY", price, lot_per_level):
                         added_count += 1
+                        print(f"   ⚡ Strategic BUY: @ ${price:.2f} (-{distance:.0f}pts)")
                         
-            print(f"✅ Added {added_count} strategic BUY orders")
+            print(f"✅ Added {added_count} fast strategic BUY orders")
             
         except Exception as e:
-            print(f"❌ Strategic BUY error: {e}")
+            print(f"❌ Fast strategic BUY error: {e}")
 
     def add_balanced_grid_orders(self, current_price: float):
         """เพิ่ม orders ทั้งสองด้านแบบสมดุล"""
