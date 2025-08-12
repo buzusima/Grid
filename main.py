@@ -728,10 +728,15 @@ class AIGoldTradingGUI:
             if success:
                 self.is_trading = True
                 
-                # อัพเดท GUI
-                self.start_btn.config(state='disabled', bg='#6c757d')
-                self.stop_btn.config(state='normal', bg='#ff6b6b')
-                self.trading_status.config(text="🟢 AI ACTIVE", fg='#51cf66')
+                # อัพเดท GUI - เพิ่มการตรวจสอบ attributes ก่อนใช้
+                if hasattr(self, 'start_btn'):
+                    self.start_btn.config(state='disabled', bg='#6c757d')
+                if hasattr(self, 'stop_btn'):
+                    self.stop_btn.config(state='normal', bg='#ff6b6b')
+                
+                # แก้ไขตรงนี้ - ตรวจสอบ trading_status ก่อนใช้
+                if hasattr(self, 'trading_status'):
+                    self.trading_status.config(text="🟢 AI ACTIVE", fg='#51cf66')
                 
                 # AI Brain notification
                 survivability = self.current_calculations.get('realistic_survivability', 0)
@@ -755,6 +760,25 @@ class AIGoldTradingGUI:
             self.log_ai_brain_activity("RISK", f"❌ System error: {str(e)}")
             self.log_message(f"❌ AI System Error: {str(e)}", "ERROR")
             messagebox.showerror("Error", f"Failed to start AI trading:\n{str(e)}")
+
+    # เพิ่ม method สำหรับอัพเดทสถานะ
+    def update_trading_status(self, status_text: str, color: str = '#ffffff'):
+        """อัพเดทสถานะการเทรดใน GUI"""
+        try:
+            # หา component ที่ใช้แสดงสถานะ
+            if hasattr(self, 'trading_status'):
+                self.trading_status.config(text=status_text, fg=color)
+            elif hasattr(self, 'status_label'):
+                self.status_label.config(text=status_text, fg=color)
+            elif hasattr(self, 'account_label'):
+                # อัพเดทใน account_label
+                base_text = self.account_label.cget('text').split(' | ')[0]  # เอาส่วนแรก
+                self.account_label.config(text=f"{base_text} | {status_text}", fg=color)
+            else:
+                # ถ้าไม่มี component ใดเลย ใช้ log แทน
+                self.log_message(f"Status: {status_text}", "INFO")
+        except Exception as e:
+            print(f"Error updating status: {e}")
 
     def stop_trading(self):
         """หยุดเทรด - เพิ่ม AI Brain logging"""
@@ -780,8 +804,15 @@ class AIGoldTradingGUI:
                 
                 self.log_ai_brain_activity("ACTION", f"📊 Final Status: {positions_count} positions, PnL: ${final_pnl:.2f}")
                 
-            self.start_btn.config(state='normal', bg='#51cf66')
-            self.stop_btn.config(state='disabled', bg='#6c757d')
+            # อัพเดท GUI - เพิ่มการตรวจสอบ attributes ก่อนใช้
+            if hasattr(self, 'start_btn'):
+                self.start_btn.config(state='normal', bg='#51cf66')
+            if hasattr(self, 'stop_btn'):
+                self.stop_btn.config(state='disabled', bg='#6c757d')
+            
+            # แก้ไขการแสดงสถานะ - ตรวจสอบ trading_status ก่อนใช้
+            if hasattr(self, 'trading_status'):
+                self.trading_status.config(text="🔴 STOPPED", fg='#ff6b6b')
             
             self.update_ai_brain_status(
                 task="😴 AI System hibernating...",
@@ -794,6 +825,45 @@ class AIGoldTradingGUI:
         except Exception as e:
             self.log_ai_brain_activity("RISK", f"❌ Shutdown error: {str(e)}")
             self.log_message(f"❌ Stop Trading Error: {str(e)}", "ERROR")
+
+    # และแก้ไข emergency_stop() ด้วย
+    def emergency_stop(self):
+        """หยุดฉุกเฉิน - Fixed version"""
+        if not self.is_trading:
+            messagebox.showinfo("Info", "Trading is not active")
+            return
+            
+        # ยืนยันการหยุดฉุกเฉิน
+        result = messagebox.askyesno(
+            "Emergency Stop", 
+            "🚨 EMERGENCY STOP 🚨\n\nThis will:\n• Stop all trading immediately\n• Close all open positions\n• Cannot be undone\n\nAre you sure?"
+        )
+        
+        if not result:
+            return
+            
+        try:
+            if self.grid_trader:
+                # หยุดฉุกเฉิน
+                self.grid_trader.emergency_stop()
+                
+            self.is_trading = False
+            
+            # อัพเดท GUI
+            if hasattr(self, 'start_btn'):
+                self.start_btn.config(state='normal', bg='#51cf66')
+            if hasattr(self, 'stop_btn'):
+                self.stop_btn.config(state='disabled', bg='#6c757d')
+                
+            # อัพเดทสถานะ
+            self.update_trading_status("🚨 EMERGENCY STOPPED", '#ff0000')
+            
+            self.log_message("🚨 EMERGENCY STOP EXECUTED", "ERROR")
+            messagebox.showinfo("Emergency Stop", "Emergency stop completed")
+            
+        except Exception as e:
+            self.log_message(f"❌ Emergency stop error: {str(e)}", "ERROR")
+            messagebox.showerror("Error", f"Emergency stop error: {str(e)}")
 
     def update_portfolio_health_display(self):
         """อัพเดท Portfolio Health Display ใหม่"""
@@ -1014,56 +1084,6 @@ class AIGoldTradingGUI:
                     break
         except Exception as e:
             print(f"❌ Add trading stats error: {e}")
-
-    # เพิ่มฟังก์ชันใหม่ในคลาส AIGoldTradingGUI
-    def enhanced_start_trading(self):
-        """เริ่มเทรดพร้อม Enhanced Features"""
-        try:
-            if not self.is_connected:
-                messagebox.showwarning("Warning", "Please connect to MT5 first")
-                return
-                
-            if self.is_trading:
-                messagebox.showinfo("Info", "Trading is already active")
-                return
-            
-            # ตรวจสอบการคำนวณ
-            if not self.current_calculations:
-                messagebox.showwarning("Warning", "Please calculate survivability parameters first")
-                return
-            
-            # เริ่มระบบ Grid Trading
-            self.grid_trader = AIGoldGrid(
-                self.mt5_connector,
-                self.current_calculations,
-                self.config
-            )
-            
-            # เริ่ม trading
-            success = self.grid_trader.start_trading()
-            
-            if success:
-                self.is_trading = True
-                
-                # อัพเดท GUI
-                self.start_btn.config(state='disabled', bg='#6c757d')
-                self.stop_btn.config(state='normal', bg='#ff6b6b')
-                self.trading_status.config(text="🟢 ACTIVE", fg='#51cf66')
-                
-                # เพิ่มส่วนสถิติถ้ายังไม่มี
-                self.add_trading_stats_to_gui()
-                
-                # Log
-                self.log_message("🚀 Enhanced Trading Started Successfully", "SUCCESS")
-                self.log_message(f"🛡️ Survivability: {self.current_calculations.get('realistic_survivability', 0):,} points", "INFO")
-                self.log_message(f"🎯 Portfolio Health Monitoring: ACTIVE", "INFO")
-                
-            else:
-                messagebox.showerror("Error", "Failed to start trading")
-                
-        except Exception as e:
-            self.log_message(f"❌ Enhanced start trading error: {e}", "ERROR")
-            messagebox.showerror("Error", f"Failed to start enhanced trading: {e}")
 
     def create_compact_log_section(self, parent):
         """Create very compact log section"""
