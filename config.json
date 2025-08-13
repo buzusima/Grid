@@ -1,61 +1,67 @@
 {
-    "target_survivability": 20000,
-    "default_trading_mode": "BALANCED",
-    "safety_ratio": 0.6,
-    "fast_rebalancing": {
-        "enabled": true,
-        "tight_spacing": 150,
-        "ultra_tight_spacing": 100,
-        "min_positions": 6,
-        "max_gap_tolerance": 300,
-        "profit_threshold": 1.5,
-        "update_interval": 3,
-        "nearby_order_distance": 80
+  "target_survivability": 20000,
+  "default_trading_mode": "BALANCED",
+  "safety_ratio": 0.6,
+  "emergency_stop_percentage": 50,
+  "daily_loss_limit_percentage": 10,
+  "hedge_triggers": [
+    0.15,
+    0.3,
+    0.45,
+    0.6
+  ],
+  "hedge_multipliers": [
+    0.5,
+    1.0,
+    1.5,
+    2.0
+  ],
+  "log_level": "INFO",
+  "auto_connect_mt5": true,
+  "gold_symbols": [
+    "XAUUSD",
+    "GOLD",
+    "XAU/USD",
+    "XAUUSD.cmd",
+    "GOLD#"
+  ],
+  "portfolio_recovery": {
+    "enabled": true,
+    "trigger_loss": -50,
+    "auto_mode": true
+  },
+  "smart_profit": {
+    "default_strategy": "BALANCED",
+    "quick_profit_enabled": true,
+    "auto_reposition": true,
+    "trailing_stop_distance": 50
+  },
+  "fast_rebalancing": {
+    "enabled": true,
+    "tight_spacing": 150,
+    "ultra_tight_spacing": 100,
+    "min_positions": 6,
+    "max_gap_tolerance": 300,
+    "profit_threshold": 1.5,
+    "update_interval": 3,
+    "nearby_order_distance": 80
+  },
+  "trading_modes": {
+    "SAFE": {
+      "description": "Maximum protection with 20,000 points survivability",
+      "recommended_for": "Conservative traders, large accounts"
     },
-    "emergency_stop_percentage": 50,
-    "daily_loss_limit_percentage": 10,
-    "hedge_triggers": [
-        0.15,
-        0.3,
-        0.45,
-        0.6
-    ],
-    "hedge_multipliers": [
-        0.5,
-        1.0,
-        1.5,
-        2.0
-    ],
-    "log_level": "INFO",
-    "auto_connect_mt5": true,
-    "gold_symbols": [
-        "XAUUSD",
-        "GOLD",
-        "XAU/USD",
-        "XAUUSD.cmd",
-        "GOLD#"
-    ],
-    "portfolio_recovery": {
-        "enabled": true,
-        "trigger_loss": -50,
-        "auto_mode": false
+    "BALANCED": {
+      "description": "Good balance with 10,000 points survivability",
+      "recommended_for": "Most traders, medium accounts"
     },
-    "trading_modes": {
-        "SAFE": {
-            "description": "Maximum protection with 20,000 points survivability",
-            "recommended_for": "Conservative traders, large accounts"
-        },
-        "BALANCED": {
-            "description": "Good balance with 10,000 points survivability",
-            "recommended_for": "Most traders, medium accounts"
-        },
-        "AGGRESSIVE": {
-            "description": "Higher risk/reward with 8,000 points survivability",
-            "recommended_for": "Experienced traders, fast growth"
-        },
-        "TURBO": {
-            "description": "Maximum speed with 5,000 points survivability",
-            "recommended_for": "Expert traders only, high risk tolerance"
-        }
+    "AGGRESSIVE": {
+      "description": "Higher risk/reward with 8,000 points survivability",
+      "recommended_for": "Experienced traders, fast growth"
+    },
+    "TURBO": {
+      "description": "Maximum speed with 5,000 points survivability",
+      "recommended_for": "Expert traders only, high risk tolerance"
     }
+  }
 }
