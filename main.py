@@ -694,39 +694,37 @@ class AISmartProfitGUI:
             self.log_message(f"❌ Stop trading error: {str(e)}", "ERROR")
 
     def emergency_stop(self):
-        """Emergency stop with position closure"""
+        """Emergency stop - แก้ไขแล้ว ไม่มั่วซั่ว"""
         if not self.is_trading:
             return
             
-        # Confirm emergency stop
+        # ✅ ยืนยันก่อน stop
         result = messagebox.askyesno(
-            "Emergency Stop", 
-            "🚨 EMERGENCY STOP 🚨\n\nThis will:\n• Stop all AI trading immediately\n• Close all open positions\n• Cancel all pending orders\n\nCannot be undone!\n\nAre you sure?"
+            "Stop Trading", 
+            "🛑 STOP TRADING SYSTEM\n\nThis will:\n• Stop all AI trading\n• Cancel pending orders\n• Keep positions open\n\nPositions will NOT be closed automatically.\n\nContinue?"
         )
         
         if not result:
             return
             
         try:
-            self.log_message("🚨 EMERGENCY STOP ACTIVATED!", "ERROR")
+            self.log_message("🛑 Emergency stop requested by user", "WARNING")
             
             self.is_trading = False
             
             if self.smart_profit_trader:
-                # Trigger emergency stop in Smart Profit Manager
-                self.smart_profit_trader.trigger_emergency_stop()
+                # ✅ เรียกแค่ stop_trading ปกติ
+                self.smart_profit_trader.stop_trading()
                 
             # Update GUI
             self.start_btn.config(state='normal', bg='#51cf66')
             self.stop_btn.config(state='disabled', bg='#6c757d')
             self.emergency_btn.config(state='disabled', bg='#6c757d')
             
-            self.log_message("🚨 EMERGENCY STOP COMPLETED", "ERROR")
-            messagebox.showinfo("Emergency Stop", "Emergency stop completed successfully")
+            self.log_message("✅ Trading system stopped safely", "SUCCESS")
             
         except Exception as e:
-            self.log_message(f"❌ Emergency stop error: {str(e)}", "ERROR")
-            messagebox.showerror("Error", f"Emergency stop error: {str(e)}")
+            self.log_message(f"❌ Stop error: {str(e)}", "ERROR")
 
     def toggle_auto_recovery(self):
         """Toggle auto recovery mode"""

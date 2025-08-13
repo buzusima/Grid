@@ -836,32 +836,22 @@ class SmartProfitManager:
             print(f"❌ AI Optimization error: {e}")
 
     def check_emergency_conditions(self):
-        """ตรวจสอบเงื่อนไข emergency stop"""
+        """ตรวจสอบเงื่อนไข emergency stop - แก้ไขแล้ว ไม่มั่วซั่ว"""
         try:
-            # ตรวจสอบ drawdown
+            # ✅ เช็คเฉพาะ survivability เท่านั้น - เข้าใจง่าย
             current_drawdown = self.get_current_drawdown()
-            max_allowed = self.survivability * 0.95  # 95% ของ survivability
+            survivability_used_pct = (current_drawdown / self.survivability) * 100 if self.survivability > 0 else 0
             
-            if current_drawdown > max_allowed:
-                print(f"🚨 EMERGENCY CONDITION: Drawdown {current_drawdown:,.0f} > {max_allowed:,.0f}")
-                self.trigger_emergency_stop()
+            # 🛡️ เปลี่ยนจาก 95% เป็น 85% เพื่อความปลอดภัย
+            if survivability_used_pct > 85:
+                print(f"🚨 CRITICAL: Survivability {survivability_used_pct:.1f}% used (limit: 85%)")
+                print(f"   Current drawdown: {current_drawdown:,.0f} points")
+                print(f"   Max survivability: {self.survivability:,} points")
                 return True
                 
-            # ตรวจสอบ account margin level
-            try:
-                account_info = self.mt5_connector.get_account_info() if self.mt5_connector else None
-                if account_info:
-                    margin_level = account_info.get('margin_level', 100)
-                    margin = account_info.get('margin', 0)
-                    
-                    if margin > 0 and margin_level < 100:  # มี positions และ margin level ต่ำ
-                        print(f"🚨 EMERGENCY CONDITION: Low margin level {margin_level:.1f}%")
-                        self.trigger_emergency_stop()
-                        return True
-                        
-            except Exception as margin_error:
-                print(f"⚠️ Margin check error: {margin_error}")
-                
+            # ✅ ลบการเช็ค margin level ออกเพราะมั่วซั่ว
+            # ✅ ใช้เฉพาะ survivability เป็นตัวบอก
+            
             return False
             
         except Exception as e:
@@ -889,16 +879,19 @@ class SmartProfitManager:
             return 0
 
     def trigger_emergency_stop(self):
-        """เรียก emergency stop"""
+        """เรียก emergency stop - แก้ไขแล้ว ทำงานได้จริง"""
         try:
-            print("🚨 TRIGGERING EMERGENCY STOP!")
-            self.emergency_stop_triggered = True
+            print("🚨 EMERGENCY STOP ACTIVATED!")
+            print("   Reason: Survivability limit exceeded")
+            
+            # ✅ ตั้งค่า flag เท่านั้น - ไม่ปิด positions
             self.trading_active = False
             
-            # ปิด positions ทั้งหมด
-            self.emergency_close_all_positions()
+            # ✅ ไม่ปิดไม้อัตโนมัติ - ให้ user ตัดสินใจเอง
+            print("🛑 Trading stopped - positions remain open")
+            print("💡 Use manual close if needed")
             
-            # ยกเลิก pending orders ทั้งหมด
+            # ✅ ยกเลิก pending orders เท่านั้น
             self.cancel_all_pending_orders()
             
         except Exception as e:
