@@ -414,54 +414,24 @@ class SmartProfitManager:
             print(f"❌ Smart grid creation error: {e}")
             return False
 
-    def place_pending_order(self, price: float, direction: str, lot_size: float):
-        """Place a pending order"""
-        try:
-            current_price = self.get_current_price()
-            if not current_price:
-                return False
-                
-            if direction == "BUY":
-                order_type = mt5.ORDER_TYPE_BUY_STOP if price > current_price else mt5.ORDER_TYPE_BUY_LIMIT
-            else:
-                order_type = mt5.ORDER_TYPE_SELL_STOP if price < current_price else mt5.ORDER_TYPE_SELL_LIMIT
-                
-            request = {
-                "action": mt5.TRADE_ACTION_PENDING,
-                "symbol": self.gold_symbol,
-                "volume": lot_size,
-                "type": order_type,
-                "price": price,
-                "magic": self.magic_number,
-                "comment": f"AI_SMART_{direction}",
-                "type_filling": self.order_filling_mode
-            }
-            
-            result = mt5.order_send(request)
-            
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                self.pending_orders[result.order] = {
-                    'order_id': result.order,
-                    'price': price,
-                    'direction': direction,
-                    'lot_size': lot_size,
-                    'time': datetime.now()
-                }
-                print(f"✅ Order placed: {direction} {lot_size} @ ${price:.2f}")
-                return True
-            else:
-                print(f"❌ Order failed: {result.comment if result else 'No response'}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Place order error: {e}")
-            return False
-
     def place_market_order(self, direction: str, lot_size: float, comment: str = "AI_MARKET"):
-        """Place market order immediately"""
+        """Place market order immediately - แก้ไข filling mode สำหรับทุกโบรกเกอร์"""
         try:
+            # ✅ เพิ่มการตรวจสอบ lot size
+            min_lot = self.symbol_info.get('volume_min', 0.01)
+            max_lot = self.symbol_info.get('volume_max', 100.0)
+            lot_step = self.symbol_info.get('volume_step', 0.01)
+            
+            # ปรับ lot size ให้ถูกต้อง
+            import math
+            adjusted_lot = round(lot_size / lot_step) * lot_step
+            adjusted_lot = max(min_lot, min(adjusted_lot, max_lot))
+            
+            print(f"   🔍 Lot adjustment: {lot_size:.3f} → {adjusted_lot:.3f}")
+            
             tick = mt5.symbol_info_tick(self.gold_symbol)
             if not tick:
+                print(f"   ❌ Cannot get tick data for {direction}")
                 return False
                 
             if direction == "BUY":
@@ -471,29 +441,255 @@ class SmartProfitManager:
                 order_type = mt5.ORDER_TYPE_SELL
                 price = tick.bid
                 
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.gold_symbol,
-                "volume": lot_size,
-                "type": order_type,
-                "price": price,
-                "deviation": 30,
-                "magic": self.magic_number,
-                "comment": comment,
-                "type_filling": self.order_filling_mode
-            }
+            print(f"   🎯 Market {direction}: {adjusted_lot} lots @ ${price:.2f}")
             
-            result = mt5.order_send(request)
+            # ✅ ลอง filling modes ตามลำดับความปลอดภัย + เพิ่ม None
+            filling_modes = [
+                None,                      # ไม่ระบุ filling mode (ให้ MT5 เลือก)
+                mt5.ORDER_FILLING_IOC,     
+                mt5.ORDER_FILLING_FOK,     
+                mt5.ORDER_FILLING_RETURN   
+            ]
             
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                print(f"✅ Market order: {direction} {lot_size} @ ${price:.2f}")
-                return result.order
-            else:
-                print(f"❌ Market order failed: {result.comment if result else 'No response'}")
-                return False
+            for i, filling_mode in enumerate(filling_modes):
+                request = {
+                    "action": mt5.TRADE_ACTION_DEAL,
+                    "symbol": self.gold_symbol,
+                    "volume": adjusted_lot,
+                    "type": order_type,
+                    "price": price,
+                    "deviation": 50,
+                    "magic": self.magic_number,
+                    "comment": comment
+                }
                 
+                # ✅ เพิ่ม filling mode เฉพาะเมื่อไม่ใช่ None
+                if filling_mode is not None:
+                    request["type_filling"] = filling_mode
+                    
+                mode_name = "AUTO" if filling_mode is None else str(filling_mode)
+                print(f"   🔄 Trying mode {i+1}: {mode_name}")
+                
+                result = mt5.order_send(request)
+                
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    print(f"   ✅ Market {direction} SUCCESS with mode {i+1}")
+                    return result.order
+                else:
+                    error_msg = f"Mode {i+1} failed"
+                    if result:
+                        error_msg += f" - Code: {result.retcode}"
+                        if hasattr(result, 'comment'):
+                            error_msg += f", {result.comment}"
+                    print(f"   ⚠️ {error_msg}")
+                    
+                    # ถ้า volume ยังผิด ลองใช้ minimum lot
+                    if result and result.retcode == 10014 and adjusted_lot != min_lot:
+                        print(f"   🔄 Retrying with minimum lot: {min_lot}")
+                        adjusted_lot = min_lot
+                        continue
+                    elif result and result.retcode in [10018, 10030]:  # Filling mode errors
+                        continue  # ลอง mode ถัดไป
+                    elif result and result.retcode == 10025:  # Autotrading disabled
+                        print(f"   ❌ Autotrading is disabled - cannot place orders")
+                        break
+                    elif result and result.retcode not in [10018, 10030]:  # ถ้าไม่ใช่ filling mode error
+                        break
+                        
+            print(f"   ❌ All filling modes failed for {direction}")
+            return False
+            
         except Exception as e:
             print(f"❌ Market order error: {e}")
+            return False
+
+    def place_pending_order(self, price: float, direction: str, lot_size: float):
+        """วาง pending order - แก้ไข filling mode สำหรับทุกโบรกเกอร์"""
+        try:
+            # ✅ เพิ่มการตรวจสอบ lot size
+            min_lot = self.symbol_info.get('volume_min', 0.01)
+            max_lot = self.symbol_info.get('volume_max', 100.0)
+            lot_step = self.symbol_info.get('volume_step', 0.01)
+            
+            # ปรับ lot size ให้ถูกต้อง
+            import math
+            adjusted_lot = round(lot_size / lot_step) * lot_step
+            adjusted_lot = max(min_lot, min(adjusted_lot, max_lot))
+            
+            current_price = self.get_current_price()
+            if not current_price:
+                print(f"   ❌ Cannot get current price for {direction} order")
+                return False
+                
+            print(f"   🎯 Placing {direction} order: {adjusted_lot} lots @ ${price:.2f}")
+            print(f"      Lot adjustment: {lot_size:.3f} → {adjusted_lot:.3f}")
+            print(f"      Current price: ${current_price:.2f}")
+            print(f"      Distance: {abs(price - current_price):.2f}")
+                
+            if direction == "BUY":
+                order_type = mt5.ORDER_TYPE_BUY_STOP if price > current_price else mt5.ORDER_TYPE_BUY_LIMIT
+            else:
+                order_type = mt5.ORDER_TYPE_SELL_STOP if price < current_price else mt5.ORDER_TYPE_SELL_LIMIT
+                
+            print(f"      Order type: {order_type}")
+            
+            # ✅ ลอง filling modes ตามลำดับความปลอดภัย + เพิ่ม None
+            filling_modes = [
+                None,                      # ไม่ระบุ filling mode (ให้ MT5 เลือก)
+                mt5.ORDER_FILLING_RETURN,
+                mt5.ORDER_FILLING_IOC,
+                mt5.ORDER_FILLING_FOK
+            ]
+            
+            for i, filling_mode in enumerate(filling_modes):
+                request = {
+                    "action": mt5.TRADE_ACTION_PENDING,
+                    "symbol": self.gold_symbol,
+                    "volume": adjusted_lot,
+                    "type": order_type,
+                    "price": price,
+                    "magic": self.magic_number,
+                    "comment": f"AI_SMART_{direction}"
+                }
+                
+                # ✅ เพิ่ม filling mode เฉพาะเมื่อไม่ใช่ None
+                if filling_mode is not None:
+                    request["type_filling"] = filling_mode
+                    
+                mode_name = "AUTO" if filling_mode is None else str(filling_mode)
+                print(f"      🔄 Trying mode {i+1}: {mode_name}")
+                
+                result = mt5.order_send(request)
+                
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    self.pending_orders[result.order] = {
+                        'order_id': result.order,
+                        'price': price,
+                        'direction': direction,
+                        'lot_size': adjusted_lot,
+                        'time': datetime.now()
+                    }
+                    print(f"   ✅ {direction} order SUCCESS with mode {i+1}: {result.order} @ ${price:.2f}")
+                    return True
+                else:
+                    error_msg = f"Mode {i+1} failed"
+                    if result:
+                        error_msg += f" - Code: {result.retcode}"
+                        if hasattr(result, 'comment'):
+                            error_msg += f", {result.comment}"
+                    print(f"   ⚠️ {error_msg}")
+                    
+                    # ถ้า volume ยังผิด ลองใช้ minimum lot
+                    if result and result.retcode == 10014 and adjusted_lot != min_lot:
+                        print(f"   🔄 Retrying with minimum lot: {min_lot}")
+                        adjusted_lot = min_lot
+                        continue
+                    elif result and result.retcode in [10018, 10030]:  # Filling mode errors
+                        continue  # ลอง mode ถัดไป
+                    elif result and result.retcode == 10025:  # Autotrading disabled
+                        print(f"   ❌ Autotrading is disabled - cannot place orders")
+                        break
+                    elif result and result.retcode not in [10018, 10030]:  # ถ้าไม่ใช่ filling mode error
+                        break
+                        
+            print(f"   ❌ All filling modes failed for {direction} pending order")
+            return False
+                    
+        except Exception as e:
+            print(f"   ❌ Place {direction} order exception: {e}")
+            return False
+
+    def close_entire_position(self, position) -> bool:
+        """ปิด position ทั้งหมด - แก้ไข filling mode"""
+        
+        try:
+            # ดึง position จาก MT5
+            if isinstance(position, SmartPosition):
+                position_id = position.position_id
+            else:
+                position_id = position.get('ticket') or position.get('position_id')
+                
+            positions = mt5.positions_get(ticket=position_id)
+            if not positions or len(positions) == 0:
+                print(f"   Position {position_id} not found or already closed")
+                return True  # ถือว่าปิดแล้ว
+                
+            mt5_position = positions[0]
+            
+            # เตรียม close request
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if not tick:
+                print(f"   Cannot get tick data")
+                return False
+                
+            if mt5_position.type == mt5.POSITION_TYPE_BUY:
+                close_price = tick.bid
+                order_type = mt5.ORDER_TYPE_SELL
+            else:
+                close_price = tick.ask
+                order_type = mt5.ORDER_TYPE_BUY
+                
+            print(f"   🎯 Closing position {position_id}: {mt5_position.volume} lots @ ${close_price:.2f}")
+            
+            # ✅ ลอง filling modes ตามลำดับความปลอดภัย + เพิ่ม None
+            filling_modes = [
+                None,                      # ไม่ระบุ filling mode
+                mt5.ORDER_FILLING_IOC,
+                mt5.ORDER_FILLING_FOK,
+                mt5.ORDER_FILLING_RETURN
+            ]
+            
+            for i, filling_mode in enumerate(filling_modes):
+                request = {
+                    "action": mt5.TRADE_ACTION_DEAL,
+                    "symbol": self.gold_symbol,
+                    "volume": mt5_position.volume,
+                    "type": order_type,
+                    "position": position_id,
+                    "price": close_price,
+                    "deviation": 50,
+                    "magic": self.magic_number,
+                    "comment": "AI_SMART_CLOSE"
+                }
+                
+                # ✅ เพิ่ม filling mode เฉพาะเมื่อไม่ใช่ None
+                if filling_mode is not None:
+                    request["type_filling"] = filling_mode
+                    
+                mode_name = "AUTO" if filling_mode is None else str(filling_mode)
+                print(f"      🔄 Trying close mode {i+1}: {mode_name}")
+                
+                result = mt5.order_send(request)
+                
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    print(f"   ✅ Position {position_id} closed with mode {i+1}")
+                    
+                    # Update internal tracking
+                    if position_id in self.active_positions:
+                        del self.active_positions[position_id]
+                        
+                    return True
+                else:
+                    error_msg = f"Close mode {i+1} failed"
+                    if result:
+                        error_msg += f" - Code: {result.retcode}"
+                        if hasattr(result, 'comment'):
+                            error_msg += f", {result.comment}"
+                    print(f"   ⚠️ {error_msg}")
+                    
+                    if result and result.retcode in [10018, 10030]:  # Filling mode errors
+                        continue  # ลอง mode ถัดไป
+                    elif result and result.retcode == 10025:  # Autotrading disabled
+                        print(f"   ❌ Autotrading is disabled - cannot close positions")
+                        break
+                    elif result and result.retcode not in [10018, 10030]:  # ถ้าไม่ใช่ filling mode error
+                        break
+                        
+            print(f"   ❌ All close modes failed for position {position_id}")
+            return False
+                    
+        except Exception as e:
+            print(f"❌ Close position error: {e}")
             return False
 
     def get_current_price(self):
@@ -694,30 +890,6 @@ class SmartProfitManager:
                 
         except Exception as e:
             print(f"❌ Error removing filled order: {e}")
-
-    def consider_replacement_order(self, filled_position):
-        """Consider placing replacement order"""
-        try:
-            # Maintain grid coverage
-            if len(self.pending_orders) < 4:
-                current_price = self.get_current_price()
-                if not current_price:
-                    return
-                    
-                spacing_dollars = self.grid_spacing * 0.01
-                direction = filled_position['direction']
-                
-                if direction == 'BUY':
-                    # Place new BUY order further down
-                    new_price = filled_position['price_open'] - (spacing_dollars * 2)
-                else:
-                    # Place new SELL order further up
-                    new_price = filled_position['price_open'] + (spacing_dollars * 2)
-                    
-                self.place_pending_order(new_price, direction, self.base_lot)
-                
-        except Exception as e:
-            print(f"❌ Error considering replacement: {e}")
 
     def check_pending_orders(self):
         """Check pending orders status"""
@@ -1079,20 +1251,30 @@ class SmartProfitManager:
         }
 
     def run_smart_profit_management(self):
-        """🧠 AI หลัก - วิเคราะห์และจัดการ Portfolio อัจฉริยะ"""
+        """🧠 AI หลัก - เพิ่มการเช็ค balance"""
         
         try:
             # 1. 🧠 AI วิเคราะห์ positions ปัจจุบัน
             portfolio = self.analyze_portfolio_positions()
             if 'error' in portfolio or portfolio.get('total_positions', 0) == 0:
                 print("🔄 No positions detected - AI creating intelligent grid")
-                self.create_grid_immediately()  # ✅ ใช้ AI version
+                self.create_grid_immediately()
                 return
                 
             positions = portfolio.get('grid_positions', [])
             total_pnl = portfolio.get('total_pnl', 0)
             
-            print(f"📊 Portfolio Status: {len(positions)} positions, PnL: ${total_pnl:.2f}")
+            # เพิ่ม: แสดงข้อมูล portfolio balance
+            buy_positions = [p for p in positions if p.direction == "BUY"]
+            sell_positions = [p for p in positions if p.direction == "SELL"]
+            
+            print(f"📊 Portfolio: {len(buy_positions)} BUY, {len(sell_positions)} SELL, PnL: ${total_pnl:.2f}")
+            
+            # เพิ่ม: เช็ค imbalance และแก้ไข
+            position_imbalance = abs(len(buy_positions) - len(sell_positions))
+            if position_imbalance > 3:  # ถ้าไม่ balanced มาก
+                print(f"⚖️ AI: Position imbalance detected ({position_imbalance}), adding orders...")
+                self.create_grid_immediately()  # เพิ่ม orders ใหม่
             
             # 🧠 AI ตรวจสอบ survivability ปัจจุบัน
             if hasattr(self, 'ai_grid_config'):
@@ -1104,7 +1286,6 @@ class SmartProfitManager:
                 
                 if survivability_ratio < 0.6:  # น้อยกว่า 60% ของ target
                     print("🚨 AI: SURVIVABILITY CRITICAL - Adding protective positions")
-                    # ✅ แก้ไข: ใช้ method ที่มีอยู่จริง
                     self.rebalance_portfolio_if_needed(positions)
                     return
             
@@ -1123,7 +1304,6 @@ class SmartProfitManager:
                 # 🧠 AI เช็คว่าหลังปิดแล้ว survivability ยังพอหรือไม่
                 if len(positions) < 4:
                     print("🔧 AI: Post-close analysis - Need more coverage")
-                    # ✅ แก้ไข: ใช้ method ที่มีอยู่จริง
                     self.rebalance_portfolio_if_needed(positions)
             
             # 3. 🧠 AI Portfolio Recovery (ถ้าขาดทุน)
@@ -1134,65 +1314,305 @@ class SmartProfitManager:
             print(f"❌ Smart profit management error: {e}")
 
     def create_grid_immediately(self):
-        """สร้าง grid ใหม่ทันที (AI version) - เช็ค existing ก่อน"""
+        """สร้าง grid ใหม่ทันที - แก้ไขให้กระจายห่างขึ้น"""
         try:
             # เช็คว่ามี pending orders อยู่แล้วหรือไม่
-            if len(self.pending_orders) >= 4:
-                print(f"🔄 Sufficient orders exist ({len(self.pending_orders)}) - skipping grid creation")
+            if len(self.pending_orders) >= 10:  # เพิ่มจาก 6 เป็น 10
+                print(f"🔄 Sufficient orders exist ({len(self.pending_orders)}) - checking spread")
+                self.ensure_proper_grid_spread()
                 return
                 
-            print("🧠 AI: Creating immediate grid coverage...")
+            print("🧠 AI: Creating wide-spread grid coverage...")
             
             current_price = self.get_current_price()
             if not current_price:
                 print("❌ Cannot get current price")
                 return
                 
-            spacing_dollars = self.grid_spacing * 0.01
+            # ✅ เพิ่ม spacing ให้กว้างขึ้น
+            base_spacing = self.grid_spacing * 0.01
+            wide_spacing = base_spacing * 1.5  # เพิ่ม 50%
             
-            # AI สร้าง grid แบบ balanced - เฉพาะที่ขาด
+            print(f"   📏 Base spacing: ${base_spacing:.2f}")
+            print(f"   📏 Wide spacing: ${wide_spacing:.2f}")
+            
             orders_created = 0
             
             # นับ orders ที่มีอยู่
-            buy_orders = len([o for o in self.pending_orders.values() if o['direction'] == 'BUY'])
-            sell_orders = len([o for o in self.pending_orders.values() if o['direction'] == 'SELL'])
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
             
-            # BUY orders (ถ้าขาด)
-            if buy_orders < 2:
-                for i in range(1, 3):
-                    buy_price = current_price - (spacing_dollars * i)
-                    if not self.has_order_near_price(buy_price, 'BUY'):
-                        if self.place_pending_order(buy_price, 'BUY', self.base_lot):
-                            orders_created += 1
-                        
-            # SELL orders (ถ้าขาด)
-            if sell_orders < 2:
-                for i in range(1, 3):
-                    sell_price = current_price + (spacing_dollars * i)
-                    if not self.has_order_near_price(sell_price, 'SELL'):
+            print(f"📊 Current orders: {len(buy_orders)} BUY, {len(sell_orders)} SELL")
+            
+            # ✅ BUY orders - กระจายไกลขึ้น
+            if len(buy_orders) < 5:  # เพิ่มเป้าหมาย
+                print("🟢 Creating BUY ladder:")
+                for i in range(1, 8):  # เพิ่มระดับ
+                    # ใช้ progressive spacing - ยิ่งไกลยิ่งห่าง
+                    distance_multiplier = 1.0 + (i * 0.2)  # 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2
+                    buy_price = current_price - (wide_spacing * i * distance_multiplier)
+                    
+                    print(f"   🎯 Level {i}: ${buy_price:.2f} (distance: {wide_spacing * i * distance_multiplier:.2f})")
+                    
+                    if buy_price > 100:  # ป้องกันราคาต่ำเกิน
+                        if not self.has_order_near_price(buy_price, 'BUY', tolerance=wide_spacing * 0.3):
+                            if self.place_pending_order(buy_price, 'BUY', self.base_lot):
+                                orders_created += 1
+                                print(f"   ✅ BUY placed: ${buy_price:.2f}")
+                                
+                            # หยุดถ้าได้เป้าหมายแล้ว
+                            current_buy_count = len([o for o in self.pending_orders.values() if o['direction'] == 'BUY'])
+                            if current_buy_count >= 5:
+                                break
+                                
+            # ✅ SELL orders - กระจายไกลขึ้น
+            if len(sell_orders) < 5:  # เพิ่มเป้าหมาย
+                print("🔴 Creating SELL ladder:")
+                for i in range(1, 8):  # เพิ่มระดับ
+                    # ใช้ progressive spacing - ยิ่งไกลยิ่งห่าง
+                    distance_multiplier = 1.0 + (i * 0.2)  # 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2
+                    sell_price = current_price + (wide_spacing * i * distance_multiplier)
+                    
+                    print(f"   🎯 Level {i}: ${sell_price:.2f} (distance: {wide_spacing * i * distance_multiplier:.2f})")
+                    
+                    if not self.has_order_near_price(sell_price, 'SELL', tolerance=wide_spacing * 0.3):
                         if self.place_pending_order(sell_price, 'SELL', self.base_lot):
                             orders_created += 1
-                        
+                            print(f"   ✅ SELL placed: ${sell_price:.2f}")
+                            
+                        # หยุดถ้าได้เป้าหมายแล้ว
+                        current_sell_count = len([o for o in self.pending_orders.values() if o['direction'] == 'SELL'])
+                        if current_sell_count >= 5:
+                            break
+                            
             if orders_created > 0:
-                print(f"✅ AI Grid updated: {orders_created} orders added around ${current_price:.2f}")
+                print(f"✅ Wide-spread grid created: {orders_created} orders")
+                self.print_grid_coverage()
             else:
-                print(f"✅ AI Grid complete: No additional orders needed")
+                print(f"✅ Grid coverage adequate")
                 
         except Exception as e:
-            print(f"❌ AI Grid creation error: {e}")
-    
-    def has_order_near_price(self, target_price, direction, tolerance=0.50):
-        """ตรวจสอบว่ามี order ใกล้ราคานี้หรือไม่"""
+            print(f"❌ Grid creation error: {e}")
+
+    def ensure_proper_grid_spread(self):
+        """ใหม่ - ตรวจสอบและแก้ไข grid spread"""
         try:
+            current_price = self.get_current_price()
+            if not current_price:
+                return
+                
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            if not buy_orders or not sell_orders:
+                return
+                
+            # ✅ เช็ค coverage range
+            min_buy_price = min(o['price'] for o in buy_orders)
+            max_sell_price = max(o['price'] for o in sell_orders)
+            
+            buy_coverage = current_price - min_buy_price
+            sell_coverage = max_sell_price - current_price
+            
+            target_coverage = self.survivability * 0.01 * 0.3  # 30% ของ survivability
+            
+            print(f"📊 Grid Coverage Check:")
+            print(f"   BUY coverage: ${buy_coverage:.2f} (target: ${target_coverage:.2f})")
+            print(f"   SELL coverage: ${sell_coverage:.2f} (target: ${target_coverage:.2f})")
+            
+            # ✅ ถ้า coverage ไม่พอ ให้เพิ่ม orders ไกลออกไป
+            if buy_coverage < target_coverage:
+                print("🟢 Extending BUY coverage...")
+                extended_buy_price = current_price - target_coverage
+                if not self.has_order_near_price(extended_buy_price, 'BUY', tolerance=50):
+                    self.place_pending_order(extended_buy_price, 'BUY', self.base_lot)
+                    
+            if sell_coverage < target_coverage:
+                print("🔴 Extending SELL coverage...")
+                extended_sell_price = current_price + target_coverage
+                if not self.has_order_near_price(extended_sell_price, 'SELL', tolerance=50):
+                    self.place_pending_order(extended_sell_price, 'SELL', self.base_lot)
+                    
+        except Exception as e:
+            print(f"❌ Grid spread check error: {e}")
+
+    def print_grid_coverage(self):
+        """ใหม่ - แสดงข้อมูล grid coverage"""
+        try:
+            current_price = self.get_current_price()
+            if not current_price:
+                return
+                
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            print(f"📊 GRID COVERAGE SUMMARY:")
+            print(f"   Current price: ${current_price:.2f}")
+            
+            if buy_orders:
+                buy_prices = [o['price'] for o in buy_orders]
+                min_buy = min(buy_prices)
+                max_buy = max(buy_prices)
+                print(f"   BUY range: ${min_buy:.2f} to ${max_buy:.2f} ({len(buy_orders)} orders)")
+                print(f"   BUY coverage: ${current_price - min_buy:.2f}")
+                
+            if sell_orders:
+                sell_prices = [o['price'] for o in sell_orders]
+                min_sell = min(sell_prices)
+                max_sell = max(sell_prices)
+                print(f"   SELL range: ${min_sell:.2f} to ${max_sell:.2f} ({len(sell_orders)} orders)")
+                print(f"   SELL coverage: ${max_sell - current_price:.2f}")
+                
+            total_coverage = 0
+            if buy_orders and sell_orders:
+                total_coverage = max(sell_prices) - min(buy_prices)
+                print(f"   TOTAL coverage: ${total_coverage:.2f}")
+                
+            survivability_coverage = (total_coverage / (self.survivability * 0.01)) * 100
+            print(f"   Survivability coverage: {survivability_coverage:.1f}%")
+                
+        except Exception as e:
+            print(f"❌ Print coverage error: {e}")
+
+    def consider_replacement_order(self, filled_position):
+        """วางไม้ใหม่หลังปิด position - แก้ไขให้กระจายไกลขึ้น"""
+        try:
+            current_price = self.get_current_price()
+            if not current_price:
+                return
+                
+            # ✅ เพิ่ม spacing สำหรับ replacement
+            base_spacing = self.grid_spacing * 0.01
+            replacement_spacing = base_spacing * 2.0  # เพิ่มเป็น 2 เท่า
+            
+            if isinstance(filled_position, SmartPosition):
+                direction = filled_position.direction
+                entry_price = filled_position.entry_price
+            else:
+                direction = filled_position.get('direction')
+                entry_price = filled_position.get('price_open', current_price)
+                
+            # วางไม้ใหม่ไกลออกไป
+            if direction == "BUY":
+                new_price = entry_price - replacement_spacing  # ไกลลงไป
+                if new_price > 100:
+                    success = self.place_pending_order(new_price, 'BUY', self.base_lot)
+                    if success:
+                        print(f"   🔄 Replacement BUY: ${new_price:.2f} (spacing: ${replacement_spacing:.2f})")
+            else:
+                new_price = entry_price + replacement_spacing  # ไกลขึ้นไป
+                success = self.place_pending_order(new_price, 'SELL', self.base_lot)
+                if success:
+                    print(f"   🔄 Replacement SELL: ${new_price:.2f} (spacing: ${replacement_spacing:.2f})")
+                    
+            # เช็ค balance หลังวางไม้ใหม่
+            self.ensure_balanced_orders()
+                    
+        except Exception as e:
+            print(f"❌ Replacement order error: {e}")
+
+    def ensure_balanced_orders(self):
+        """แก้ไข method นี้ - เพิ่ม debug และ force BUY orders"""
+        try:
+            current_price = self.get_current_price()
+            if not current_price:
+                print("❌ Cannot get current price for balance")
+                return
+                
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            print(f"🔍 BALANCE DEBUG:")
+            print(f"   Current price: ${current_price:.2f}")
+            print(f"   BUY orders: {len(buy_orders)}")
+            print(f"   SELL orders: {len(sell_orders)}")
+            print(f"   Pending orders total: {len(self.pending_orders)}")
+            
+            imbalance = abs(len(buy_orders) - len(sell_orders))
+            
+            if imbalance > 2:  # ไม่ balanced
+                print(f"⚖️ CRITICAL IMBALANCE: {len(buy_orders)} BUY vs {len(sell_orders)} SELL")
+                
+                spacing_dollars = self.grid_spacing * 0.01
+                
+                # ✅ Force BUY orders if missing
+                if len(buy_orders) < len(sell_orders):
+                    needed = len(sell_orders) - len(buy_orders)
+                    print(f"🟢 FORCING {needed} BUY orders")
+                    
+                    # วาง BUY orders หลายระดับ
+                    for i in range(1, min(needed + 3, 8)):  # วางสูงสุด 7 orders
+                        buy_price = current_price - (spacing_dollars * i * 0.6)  # ใกล้ขึ้น
+                        
+                        print(f"   🎯 Attempting BUY at ${buy_price:.2f}")
+                        
+                        if buy_price > 100:  # ป้องกันราคาต่ำเกิน
+                            if not self.has_order_near_price(buy_price, 'BUY', tolerance=1.0):
+                                success = self.place_pending_order(buy_price, 'BUY', self.base_lot)
+                                if success:
+                                    print(f"   ✅ BUY order placed: ${buy_price:.2f}")
+                                else:
+                                    print(f"   ❌ BUY order FAILED: ${buy_price:.2f}")
+                                    # ลองราคาใกล้ขึ้น
+                                    retry_price = current_price - (spacing_dollars * i * 0.4)
+                                    if retry_price > 100:
+                                        retry_success = self.place_pending_order(retry_price, 'BUY', self.base_lot)
+                                        if retry_success:
+                                            print(f"   🔄 BUY retry SUCCESS: ${retry_price:.2f}")
+                            else:
+                                print(f"   ⚠️ BUY order exists near ${buy_price:.2f}")
+                                
+                        # เช็คว่าเพิ่มได้แล้วหรือยัง
+                        current_buy_count = len([o for o in self.pending_orders.values() if o['direction'] == 'BUY'])
+                        if current_buy_count >= len(sell_orders) - 1:
+                            print(f"   ✅ Balance achieved: {current_buy_count} BUY orders")
+                            break
+                            
+                # ✅ Force SELL orders if missing (น่าจะไม่ใช่กรณีนี้)
+                elif len(sell_orders) < len(buy_orders):
+                    needed = len(buy_orders) - len(sell_orders)
+                    print(f"🔴 FORCING {needed} SELL orders")
+                    
+                    for i in range(1, needed + 2):
+                        sell_price = current_price + (spacing_dollars * i * 0.6)
+                        if not self.has_order_near_price(sell_price, 'SELL', tolerance=1.0):
+                            success = self.place_pending_order(sell_price, 'SELL', self.base_lot)
+                            if success:
+                                print(f"   ✅ SELL order placed: ${sell_price:.2f}")
+                            else:
+                                print(f"   ❌ SELL order FAILED: ${sell_price:.2f}")
+            else:
+                print(f"✅ Grid balanced: {len(buy_orders)} BUY, {len(sell_orders)} SELL")
+                
+        except Exception as e:
+            print(f"❌ Balance check error: {e}")
+
+    def has_order_near_price(self, target_price, direction, tolerance=0.50):
+        """เพิ่ม tolerance parameter และ debug"""
+        try:
+            found_near = False
+            closest_distance = float('inf')
+            
             for order_info in self.pending_orders.values():
-                if (order_info['direction'] == direction and 
-                    abs(order_info['price'] - target_price) < tolerance):
-                    return True
-            return False
+                if order_info['direction'] == direction:
+                    distance = abs(order_info['price'] - target_price)
+                    if distance < closest_distance:
+                        closest_distance = distance
+                    if distance < tolerance:
+                        found_near = True
+                        
+            if found_near:
+                print(f"   📍 Found {direction} order near ${target_price:.2f} (distance: {closest_distance:.2f})")
+            else:
+                print(f"   🆕 No {direction} order near ${target_price:.2f} (closest: {closest_distance:.2f})")
+                
+            return found_near
+            
         except Exception as e:
             print(f"❌ Check order near price error: {e}")
             return False
 
+        
     def rebalance_portfolio_if_needed(self, positions):
         """Rebalance portfolio if needed"""
         try:
@@ -1330,150 +1750,298 @@ class SmartProfitManager:
             return 0
 
     def find_profitable_pairs(self, positions):
-        """🧠 AI หาคู่ไม้ที่ควรปิด - ฉลาดที่สุด"""
+        """🧠 AI หาคู่ไม้ที่ควรปิด - Enhanced with Portfolio Protection & Higher Thresholds"""
         
         try:
-            if len(positions) < 2:
+            if len(positions) < 1:
                 return []
                 
-            print(f"🧠 AI ANALYZING {len(positions)} positions for intelligent closure...")
+            print(f"🧠 AI ANALYZING {len(positions)} positions for fast intelligent closure...")
             
             current_price = self.get_current_price()
             buy_positions = [p for p in positions if p.direction == "BUY"]
             sell_positions = [p for p in positions if p.direction == "SELL"]
             
+            # ✅ เช็ค margin level ก่อน
+            margin_level = self.get_current_margin_level()
+            margin_pressure = margin_level < 300 if margin_level > 0 else False
+            
             print(f"📊 Portfolio: {len(buy_positions)} BUY, {len(sell_positions)} SELL, Market: ${current_price:.2f}")
-            
-            # 🧠 AI จัดหมวดหมู่ไม้อัจฉริยะ
-            hedging_positions = []      # ไม้ค้ำพอร์ต
-            profit_generators = []      # ไม้กำไรดี  
-            losing_positions = []       # ไม้ขาดทุน
-            dead_weight = []           # ไม้ไม่มีประโยชน์
-            
-            # 🧠 วิเคราะห์ไม้แต่ละตัว
-            for pos in positions:
-                distance_from_market = abs(pos.entry_price - current_price) / 0.01  # points
-                
-                # 🛡️ ไม้ค้ำพอร์ต = อยู่ห่างจากตลาด > 500 points และมี potential กำไร
-                if distance_from_market > 500:
-                    potential_profit = 0
-                    if pos.direction == "BUY" and current_price < pos.entry_price:
-                        potential_profit = (pos.entry_price - current_price) * pos.lot_size * 100
-                    elif pos.direction == "SELL" and current_price > pos.entry_price:
-                        potential_profit = (current_price - pos.entry_price) * pos.lot_size * 100
-                    
-                    if potential_profit > 5:  # มี potential > $5
-                        hedging_positions.append(pos)
-                        print(f"   🛡️ HEDGE: {pos.direction} @ ${pos.entry_price:.2f} (${pos.pnl:.2f}) - Potential: +${potential_profit:.2f}")
-                        continue
-                
-                # 💰 ไม้กำไรดี = กำไร > $2 และอยู่ใกล้ตลาด
-                if pos.pnl > 2 and distance_from_market < 300:
-                    profit_generators.append(pos)
-                    print(f"   💰 PROFIT GEN: {pos.direction} @ ${pos.entry_price:.2f} (+${pos.pnl:.2f})")
-                    continue
-                
-                # 📉 ไม้ขาดทุน = ขาดทุน > $1
-                elif pos.pnl < -1:
-                    losing_positions.append(pos)
-                    print(f"   📉 LOSING: {pos.direction} @ ${pos.entry_price:.2f} (${pos.pnl:.2f})")
-                    continue
-                
-                # 🗑️ ไม้ไม่มีประโยชน์ = กำไรน้อย และไม่ค้ำพอร์ต
-                else:
-                    dead_weight.append(pos)
-                    print(f"   🗑️ DEAD WEIGHT: {pos.direction} @ ${pos.entry_price:.2f} (${pos.pnl:.2f})")
-            
-            print(f"📊 Classification: 🛡️{len(hedging_positions)} 💰{len(profit_generators)} 📉{len(losing_positions)} 🗑️{len(dead_weight)}")
+            print(f"📊 Margin Level: {margin_level:.1f}%, Pressure: {'HIGH' if margin_pressure else 'OK'}")
             
             smart_pairs = []
             
-            # 🎯 STRATEGY 1: ใช้ไม้กำไรดีปิดไม้ขาดทุน (สำคัญที่สุด)
-            for profit_pos in profit_generators:
-                for loss_pos in losing_positions:
-                    net_pnl = profit_pos.pnl + loss_pos.pnl
-                    margin_freed = (profit_pos.lot_size + loss_pos.lot_size) * 500  # ประมาณการ margin
-                    
-                    if net_pnl > -1:  # ยอมขาดทุนสุทธิไม่เกิน $1
-                        smart_pairs.append({
-                            'losing_positions': [loss_pos],
-                            'profitable_positions': [profit_pos],
-                            'net_profit': net_pnl,
-                            'total_positions': 2,
-                            'pair_type': "SMART_RECOVERY",
-                            'priority_score': 2000 + abs(loss_pos.pnl) + margin_freed/100,  # Priority สูงสุด
-                            'position_ids': {profit_pos.position_id, loss_pos.position_id},
-                            'margin_impact': f"+${margin_freed:.0f} freed",
-                            'reason': f"Use profit ${profit_pos.pnl:.2f} to close loss ${loss_pos.pnl:.2f}"
-                        })
-                        print(f"   🎯 SMART RECOVERY: Use +${profit_pos.pnl:.2f} to close ${loss_pos.pnl:.2f} = ${net_pnl:.2f}")
-            
-            # 🎯 STRATEGY 2: ปิด Dead Weight ที่มีกำไรเล็กน้อย
-            for dead_pos in dead_weight:
-                if dead_pos.pnl > 0.5:  # กำไรเล็กๆ
+            # 🚀 STRATEGY 1: FAST PROFIT CLOSE (เน้นเร็ว)
+            print("🚀 Strategy 1: Fast profit opportunities")
+            for pos in positions:
+                # Quick profit close - ปิดเร็วถ้ากำไรดี
+                if pos.pnl > 2.0:  # กำไรเกิน $2
                     smart_pairs.append({
                         'losing_positions': [],
-                        'profitable_positions': [dead_pos],
-                        'net_profit': dead_pos.pnl,
+                        'profitable_positions': [pos],
+                        'net_profit': pos.pnl,
                         'total_positions': 1,
-                        'pair_type': "CLEANUP_PROFIT",
-                        'priority_score': 1500 + dead_pos.pnl,
-                        'position_ids': {dead_pos.position_id},
-                        'margin_impact': f"+${dead_pos.lot_size * 500:.0f} freed",
-                        'reason': f"Clean small profit ${dead_pos.pnl:.2f} + free margin"
+                        'pair_type': "FAST_PROFIT",
+                        'priority_score': 3000 + pos.pnl * 10,  # Priority สูงสุด
+                        'position_ids': {pos.position_id},
+                        'margin_impact': f"+${pos.lot_size * 400:.0f} freed",
+                        'reason': f"Fast profit close: ${pos.pnl:.2f}"
                     })
-                    print(f"   🧹 CLEANUP: Small profit ${dead_pos.pnl:.2f} + margin free")
+                    print(f"   🚀 FAST PROFIT: {pos.direction} ${pos.pnl:.2f}")
+                
+                # Medium profit with time consideration
+                elif pos.pnl > 1.0:
+                    position_age = self.calculate_position_age(pos)
+                    if position_age > 30:  # อายุเกิน 30 นาที
+                        smart_pairs.append({
+                            'losing_positions': [],
+                            'profitable_positions': [pos],
+                            'net_profit': pos.pnl,
+                            'total_positions': 1,
+                            'pair_type': "TIMED_PROFIT",
+                            'priority_score': 2500 + pos.pnl * 10 + position_age,
+                            'position_ids': {pos.position_id},
+                            'margin_impact': f"+${pos.lot_size * 400:.0f} freed",
+                            'reason': f"Timed profit: ${pos.pnl:.2f} (age: {position_age}min)"
+                        })
+                        print(f"   ⏰ TIMED PROFIT: {pos.direction} ${pos.pnl:.2f} (age: {position_age}min)")
             
-            # 🎯 STRATEGY 3: ปิดคู่กำไรปกติ (ถ้าไม่มี recovery opportunities)
-            if len(smart_pairs) < 2:  # ถ้ายังไม่มีคู่ดีๆ
+            # 🛡️ STRATEGY 2: ENHANCED RESCUE WITH MULTI-SOURCE
+            print("🛡️ Strategy 2: Enhanced rescue operations")
+            
+            # หาไม้ที่ต้องช่วย (ขาดทุนหนัก + ค้างนาน)
+            rescue_targets = []
+            for pos in positions:
+                if pos.pnl < -2.0:  # ขาดทุนเกิน $2
+                    position_age = self.calculate_position_age(pos)
+                    rescue_urgency = abs(pos.pnl) + (position_age / 60)  # ยิ่งนาน + ขาดทุนมาก = ยิ่งเร่งด่วน
+                    rescue_targets.append((pos, rescue_urgency))
+                    
+            # เรียงตามความเร่งด่วน
+            rescue_targets.sort(key=lambda x: x[1], reverse=True)
+            
+            for target_pos, urgency in rescue_targets[:3]:  # ช่วยสูงสุด 3 ตัว
+                print(f"   🆘 RESCUE TARGET: {target_pos.direction} ${target_pos.pnl:.2f} (urgency: {urgency:.1f})")
+                
+                # ✅ หา helpers จากทุกแหล่ง (BUY + SELL)
+                potential_helpers = []
+                
+                # Helper Type 1: BUY positions ที่กำไร
                 for buy_pos in buy_positions:
-                    for sell_pos in sell_positions:
-                        # ✅ ตรวจสอบว่าไม่ใช่ไม้ค้ำพอร์ต
-                        if buy_pos in hedging_positions or sell_pos in hedging_positions:
-                            continue
-                            
-                        net_pnl = buy_pos.pnl + sell_pos.pnl
+                    if buy_pos.pnl > 0.5 and buy_pos != target_pos:
+                        net_loss = target_pos.pnl + buy_pos.pnl
+                        potential_helpers.append({
+                            'helper': buy_pos,
+                            'net_result': net_loss,
+                            'helper_type': 'BUY_RESCUE'
+                        })
+                
+                # Helper Type 2: SELL positions ที่กำไร
+                for sell_pos in sell_positions:
+                    if sell_pos.pnl > 0.5 and sell_pos != target_pos:
+                        net_loss = target_pos.pnl + sell_pos.pnl
+                        potential_helpers.append({
+                            'helper': sell_pos,
+                            'net_result': net_loss,
+                            'helper_type': 'SELL_RESCUE'
+                        })
+                
+                # เรียงตาม net result ดีที่สุด
+                potential_helpers.sort(key=lambda x: x['net_result'], reverse=True)
+                
+                # ✅ เลือก helper ที่ดีที่สุดที่ผ่านเงื่อนไข
+                for helper_info in potential_helpers:
+                    helper_pos = helper_info['helper']
+                    net_result = helper_info['net_result']
+                    
+                    # ✅ Enhanced Loss Control with Emergency Mode
+                    portfolio_imbalance = abs(len(buy_positions) - len(sell_positions))
+                    total_losing_amount = sum(abs(p.pnl) for p in positions if p.pnl < -2)
+
+                    # Emergency conditions
+                    is_emergency = (
+                        portfolio_imbalance > 8 or           # Portfolio ไม่สมดุลมาก
+                        total_losing_amount > 50 or          # ขาดทุนรวมเกิน $50
+                        len([p for p in positions if p.pnl < -5]) > 5  # มีไม้ขาดทุนหนัก > 5 ตัว
+                    )
+
+                    if is_emergency:
+                        max_acceptable_loss = min(
+                            abs(target_pos.pnl) * 0.6,      # เพิ่มเป็น 60% (จาก 25%)
+                            5.0                             # เพิ่มเป็น $5 (จาก $1.5)
+                        )
+                        print(f"      🚨 EMERGENCY MODE: Higher loss tolerance ${max_acceptable_loss:.2f}")
+                    else:
+                        max_acceptable_loss = min(
+                            abs(target_pos.pnl) * 0.4,      # เพิ่มเป็น 40% (จาก 25%)
+                            3.0 if not margin_pressure else 2.0  # เพิ่มเป็น $3/$2 (จาก $1.5/$0.5)
+                        )
+                    
+                    print(f"      🤔 Consider {helper_info['helper_type']}: helper ${helper_pos.pnl:.2f} → net ${net_result:.2f}")
+                    print(f"         Max acceptable loss: ${max_acceptable_loss:.2f}")
+                    
+                    # ✅ เช็คว่าคุ้มค่าไหม
+                    if net_result >= -max_acceptable_loss:
+                        # ✅ Margin ROI Check
+                        freed_margin = (abs(target_pos.pnl) + helper_pos.pnl) * 20  # ประมาณการ margin freed
+                        margin_roi_per_hour = freed_margin * 0.05  # 5% ROI per hour (conservative)
+                        breakeven_hours = abs(net_result) / margin_roi_per_hour if margin_roi_per_hour > 0 else 999
                         
-                        if net_pnl > 1.2:  # threshold ปกติ
-                            margin_freed = (buy_pos.lot_size + sell_pos.lot_size) * 500
-                            
+                        if breakeven_hours < 3:  # คืนทุนใน 3 ชั่วโมง
                             smart_pairs.append({
-                                'losing_positions': [buy_pos if buy_pos.pnl < 0 else sell_pos] if min(buy_pos.pnl, sell_pos.pnl) < 0 else [],
-                                'profitable_positions': [p for p in [buy_pos, sell_pos] if p.pnl > 0],
-                                'net_profit': net_pnl,
+                                'losing_positions': [target_pos],
+                                'profitable_positions': [helper_pos],
+                                'net_profit': net_result,
                                 'total_positions': 2,
-                                'pair_type': "STANDARD_PAIR",
-                                'priority_score': 1000 + net_pnl,
-                                'position_ids': {buy_pos.position_id, sell_pos.position_id},
-                                'margin_impact': f"+${margin_freed:.0f} freed",
-                                'reason': f"Standard pair close: ${buy_pos.pnl:.2f} + ${sell_pos.pnl:.2f}"
+                                'pair_type': f"ENHANCED_RESCUE_{helper_info['helper_type']}",
+                                'priority_score': 2000 + urgency * 10 - abs(net_result) * 5,
+                                'position_ids': {target_pos.position_id, helper_pos.position_id},
+                                'margin_impact': f"+${freed_margin:.0f} freed, ROI breakeven: {breakeven_hours:.1f}h",
+                                'reason': f"Enhanced rescue: {helper_info['helper_type']} ${helper_pos.pnl:.2f} saves ${target_pos.pnl:.2f}"
                             })
+                            print(f"   ✅ ENHANCED RESCUE: {helper_info['helper_type']} approved (breakeven: {breakeven_hours:.1f}h)")
+                            break  # เลือกแค่ helper ตัวแรกที่ดีที่สุด
+                    else:
+                        print(f"      ❌ Net loss ${net_result:.2f} > limit ${max_acceptable_loss:.2f}")
+            
+            # 🎯 STRATEGY 3: STANDARD PAIRS (แก้ไขเงื่อนไข)
+            print("🎯 Strategy 3: Standard profitable pairs")
+            for buy_pos in buy_positions:
+                for sell_pos in sell_positions:
+                    net_pnl = buy_pos.pnl + sell_pos.pnl
+                    
+                    # ✅ ลดเงื่อนไขจาก 1.2 เป็น 0.8 เพื่อความเร็ว
+                    profit_threshold = 0.8 if not margin_pressure else 0.5  # ถ้า margin pressure = ลดเงื่อนไข
+                    
+                    if net_pnl > profit_threshold:
+                        margin_freed = (buy_pos.lot_size + sell_pos.lot_size) * 400
+                        
+                        smart_pairs.append({
+                            'losing_positions': [buy_pos if buy_pos.pnl < 0 else sell_pos] if min(buy_pos.pnl, sell_pos.pnl) < 0 else [],
+                            'profitable_positions': [p for p in [buy_pos, sell_pos] if p.pnl > 0],
+                            'net_profit': net_pnl,
+                            'total_positions': 2,
+                            'pair_type': "STANDARD_PAIR",
+                            'priority_score': 1500 + net_pnl * 10,
+                            'position_ids': {buy_pos.position_id, sell_pos.position_id},
+                            'margin_impact': f"+${margin_freed:.0f} freed",
+                            'reason': f"Standard pair: ${buy_pos.pnl:.2f} + ${sell_pos.pnl:.2f}"
+                        })
+            
+            # ✅ STRATEGY 4: MARGIN PRESSURE EMERGENCY
+            if margin_pressure:
+                print("🚨 Strategy 4: Margin pressure emergency")
+                # ถ้า margin level ต่ำ = บังคับปิดเพื่อ free margin
+                for pos in positions:
+                    if pos.pnl > 0.3:  # กำไรเล็กๆ ก็ปิด
+                        smart_pairs.append({
+                            'losing_positions': [],
+                            'profitable_positions': [pos],
+                            'net_profit': pos.pnl,
+                            'total_positions': 1,
+                            'pair_type': "MARGIN_EMERGENCY",
+                            'priority_score': 2800 + pos.pnl * 20,  # Priority สูง
+                            'position_ids': {pos.position_id},
+                            'margin_impact': f"+${pos.lot_size * 400:.0f} freed (URGENT)",
+                            'reason': f"Margin emergency: ${pos.pnl:.2f}"
+                        })
             
             # เรียงตาม priority
             smart_pairs.sort(key=lambda x: x['priority_score'], reverse=True)
-            final_pairs = smart_pairs[:3]  # เอาแค่ 3 คู่ดีที่สุด
-           
+            final_pairs = smart_pairs[:5]  # เพิ่มจาก 3 เป็น 5 เพื่อความเร็ว
+        
+            # ✅ เพิ่ม Portfolio Protection ก่อน return
+            print("🛡️ PORTFOLIO PROTECTION CHECK:")
+            protected_pairs = []
+
+            for pair in final_pairs:
+                # เช็คว่าการปิด pair นี้จะทำให้ portfolio เสียสมดุลไหม
+                closing_positions = pair['losing_positions'] + pair['profitable_positions']
+                
+                # นับ positions ที่เหลือหลังปิด
+                remaining_buy = len([p for p in buy_positions 
+                                    if p.position_id not in pair['position_ids']])
+                remaining_sell = len([p for p in sell_positions 
+                                    if p.position_id not in pair['position_ids']])
+                
+                imbalance_after_close = abs(remaining_buy - remaining_sell)
+                
+                # เช็คว่าจะเหลือ helper positions พอไหม
+                remaining_helpers = []
+                for p in positions:
+                    if (p.position_id not in pair['position_ids'] and 
+                        p.pnl > 0.5):  # helper candidates
+                        remaining_helpers.append(p)
+                
+                print(f"   Pair {pair['pair_type']}: After close → {remaining_buy} BUY, {remaining_sell} SELL")
+                print(f"   Imbalance: {imbalance_after_close}, Remaining helpers: {len(remaining_helpers)}")
+                
+                # ✅ Portfolio Protection Rules
+                should_protect = False
+                protection_reason = ""
+                
+                # Rule 1: ห้ามปิดจนเหลือฝั่งเดียว < 2 ตัว
+                if remaining_buy < 2 and len(buy_positions) <= 3:
+                    should_protect = True
+                    protection_reason = "Would leave too few BUY positions"
+                elif remaining_sell < 2 and len(sell_positions) <= 3:
+                    should_protect = True
+                    protection_reason = "Would leave too few SELL positions"
+                
+                # Rule 2: ห้ามปิด helper สุดท้าย
+                elif (len(remaining_helpers) < 2 and 
+                    len([p for p in positions if p.pnl < -3]) > 5):  # มีไม้ค้างเยอะ
+                    should_protect = True
+                    protection_reason = "Would remove last helper positions"
+                
+                # Rule 3: ห้าม imbalance เกิน 10
+                elif imbalance_after_close > 10:
+                    should_protect = True
+                    protection_reason = f"Would create extreme imbalance ({imbalance_after_close})"
+                
+                if should_protect:
+                    print(f"   🛡️ PROTECTED: {pair['pair_type']} - {protection_reason}")
+                else:
+                    protected_pairs.append(pair)
+                    print(f"   ✅ APPROVED: {pair['pair_type']} - Safe to close")
+
+            # ใช้ protected_pairs แทน final_pairs
+            final_pairs = protected_pairs
+            
             if final_pairs:
                 print(f"🧠 AI DECISION: Found {len(final_pairs)} intelligent pairs to close")
                 for i, pair in enumerate(final_pairs, 1):
                     print(f"   {i}. {pair['pair_type']}: {pair['reason']} → {pair['margin_impact']}")
-                    
-                # 🛡️ เตือนถ้าจะปิดไม้ค้ำพอร์ต
-                hedging_ids = {pos.position_id for pos in hedging_positions}
-                for pair in final_pairs:
-                    if hedging_ids.intersection(pair['position_ids']):
-                        print(f"   ⚠️ WARNING: Pair contains hedging position - reconsider!")
             else:
-                print("🤔 AI DECISION: No intelligent closing opportunities found")
-                print(f"   💡 Keeping {len(hedging_positions)} hedge positions")
-                print(f"   💡 Monitoring {len(profit_generators)} profit generators")
+                print("🤔 AI DECISION: No safe closing opportunities found")
+                print(f"   💡 Monitoring {len(positions)} positions for future opportunities")
             
             return final_pairs
             
         except Exception as e:
             print(f"❌ AI analysis error: {e}")
             return []
-        
+
+    def calculate_position_age(self, position):
+        """คำนวณอายุของ position ในหน่วยนาที"""
+        try:
+            if hasattr(position, 'entry_time'):
+                age = (datetime.now() - position.entry_time).total_seconds() / 60
+                return max(0, age)
+            return 0
+        except:
+            return 0
+
+    def get_current_margin_level(self):
+        """ดึง margin level ปัจจุบัน"""
+        try:
+            if self.mt5_connector:
+                account_info = self.mt5_connector.get_account_info()
+                if account_info:
+                    return account_info.get('margin_level', 0)
+            return 0
+        except:
+            return 0        
 
     def find_wrong_side_pairs(self, buy_positions, sell_positions, current_price):
         """🚨 หาคู่ที่มีไม้อยู่ผิดข้างตลาด (Priority สูงสุด)"""
@@ -1588,70 +2156,6 @@ class SmartProfitManager:
             print(f"❌ Smart close error: {e}")
             return False
 
-    def close_entire_position(self, position) -> bool:
-        """ปิด position ทั้งหมด"""
-        
-        try:
-            # ดึง position จาก MT5
-            if isinstance(position, SmartPosition):
-                position_id = position.position_id
-            else:
-                position_id = position.get('ticket') or position.get('position_id')
-                
-            positions = mt5.positions_get(ticket=position_id)
-            if not positions or len(positions) == 0:
-                print(f"   Position {position_id} not found or already closed")
-                return True  # ถือว่าปิดแล้ว
-                
-            mt5_position = positions[0]
-            
-            # เตรียม close request
-            tick = mt5.symbol_info_tick(self.gold_symbol)
-            if not tick:
-                print(f"   Cannot get tick data")
-                return False
-                
-            if mt5_position.type == mt5.POSITION_TYPE_BUY:
-                close_price = tick.bid
-                order_type = mt5.ORDER_TYPE_SELL
-            else:
-                close_price = tick.ask
-                order_type = mt5.ORDER_TYPE_BUY
-                
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": self.gold_symbol,
-                "volume": mt5_position.volume,
-                "type": order_type,
-                "position": position_id,
-                "price": close_price,
-                "deviation": 30,
-                "magic": self.magic_number,
-                "comment": "AI_SMART_CLOSE",
-                "type_filling": mt5.ORDER_FILLING_FOK
-            }
-            
-            # Execute close
-            result = mt5.order_send(request)
-            
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                print(f"   ✅ Position {position_id} closed at ${close_price:.2f}")
-                
-                # Update internal tracking
-                if position_id in self.active_positions:
-                    del self.active_positions[position_id]
-                    
-                return True
-            else:
-                error_msg = f"Close failed - Code: {result.retcode}" if result else "No response"
-                if result and hasattr(result, 'comment'):
-                    error_msg += f", Comment: {result.comment}"
-                print(f"   ❌ {error_msg}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Close position error: {e}")
-            return False
 
     def place_replacement_after_close(self, closed_position):
         """วางไม้ใหม่หลังปิด position"""
