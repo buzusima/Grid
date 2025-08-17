@@ -1862,414 +1862,534 @@ class SmartProfitManager:
             return 0
 
     def find_profitable_pairs(self, positions):
-        """🧠 AI หาคู่ไม้ที่ควรปิด - Super Flexible Multi-Position with Dynamic Scaling"""
+        """🧠 AI หาคู่ไม้ที่ควรปิด - FLEXIBLE VERSION ยืดหยุ่นข้าม BUY/SELL"""
         
         try:
-            if len(positions) < 1:
+            if len(positions) < 2:
                 return []
                 
-            print(f"🧠 AI ANALYZING {len(positions)} positions for super flexible multi-position closure...")
+            print(f"🧠 AI FLEXIBLE PAIR TRADING: {len(positions)} positions")
             
             current_price = self.get_current_price()
             buy_positions = [p for p in positions if p.direction == "BUY"]
             sell_positions = [p for p in positions if p.direction == "SELL"]
             
-            # ✅ เช็ค account status ก่อนทุกอย่าง
-            account_info = self.mt5_connector.get_account_info()
-            portfolio_profitable = False
-            portfolio_balanced = False
-            actual_loss = 0
-            profit_amount = 0
+            # 🔄 แยกตามประเภท กำไร/ขาดทุน (ไม่สนใจ BUY/SELL)
+            profitable_positions = [p for p in positions if p.pnl > 0.3]  # ลด threshold
+            losing_positions = [p for p in positions if p.pnl < -0.5]     # ลด threshold
             
-            if account_info:
-                balance = account_info.get('balance', 0)
-                equity = account_info.get('equity', 0)
-                profit_amount = equity - balance
-                
-                portfolio_profitable = equity > balance
-                portfolio_balanced = abs(profit_amount) <= 5.0
-                actual_loss = abs(profit_amount) if profit_amount < 0 else 0
-                
-                print(f"💰 Portfolio Reality Check:")
-                print(f"   Balance: ${balance:.2f}, Equity: ${equity:.2f}")
-                print(f"   Net: ${profit_amount:.2f}")
-                print(f"   Status: {'PROFITABLE' if portfolio_profitable else 'BALANCED' if portfolio_balanced else 'LOSING'}")
+            # 🎯 เรียงไม้ขาดทุนตามความรุนแรง (ขาดทุนมากสุดก่อน)
+            losing_positions.sort(key=lambda x: x.pnl)  # เรียงจากขาดทุนมากสุด
             
-            # ✅ เช็ค margin level ก่อน
-            margin_level = self.get_current_margin_level()
-            margin_pressure = margin_level < 300 if margin_level > 0 else False
+            # 🎯 เรียงไม้กำไรตามความแข็งแกร่ง (กำไรมากสุดก่อน)  
+            profitable_positions.sort(key=lambda x: x.pnl, reverse=True)
             
-            print(f"📊 Portfolio: {len(buy_positions)} BUY, {len(sell_positions)} SELL, Market: ${current_price:.2f}")
-            print(f"📊 Margin Level: {margin_level:.1f}%, Pressure: {'HIGH' if margin_pressure else 'OK'}")
+            print(f"📊 Flexible Portfolio Analysis:")
+            print(f"   💰 Profitable positions: {len(profitable_positions)}")
+            print(f"   📉 Losing positions: {len(losing_positions)}")
+            print(f"   🔄 BUY/SELL: {len(buy_positions)}/{len(sell_positions)}")
+            
+            if len(profitable_positions) == 0:
+                print("❌ No profitable positions to help")
+                return []
+            
+            # แสดงไม้ขาดทุนรุนแรงสุด
+            if losing_positions:
+                worst_losses = losing_positions[:5]  # 5 ตัวแย่สุด
+                print(f"   🆘 Worst losing positions:")
+                for i, pos in enumerate(worst_losses, 1):
+                    print(f"      {i}. {pos.direction} ${pos.pnl:.2f} (ID: {pos.position_id})")
             
             smart_pairs = []
             
-            # 🚀 STRATEGY 1: FAST PROFIT CLOSE
-            print("🚀 Strategy 1: Fast profit opportunities")
-            for pos in positions:
-                if pos.pnl > 2.0:
+            # 🎯 STRATEGY 1: HEAVY RESCUE - 1 ขาดทุนหนัก + หลายไม้กำไร (1:N)
+            print("🎯 Strategy 1: Heavy Rescue Operations (1:N)")
+            
+            for losing_pos in losing_positions:
+                print(f"\n   🆘 TARGETING LOSS: {losing_pos.direction} ${losing_pos.pnl:.2f}")
+                
+                # ลองใช้ไม้กำไรหลายตัวช่วย (1:2, 1:3, 1:4, 1:5)
+                for num_helpers in range(2, min(6, len(profitable_positions) + 1)):
+                    
+                    # เลือกไม้กำไรที่ดีที่สุด
+                    best_helpers = profitable_positions[:num_helpers]
+                    total_helper_profit = sum(h.pnl for h in best_helpers)
+                    net_result = losing_pos.pnl + total_helper_profit
+                    
+                    print(f"      🧮 1:{num_helpers} Test: ${losing_pos.pnl:.2f} + ${total_helper_profit:.2f} = ${net_result:.2f}")
+                    
+                    # เงื่อนไขการยอมรับ
+                    loss_ratio = abs(losing_pos.pnl) / total_helper_profit if total_helper_profit > 0 else 999
+                    
+                    acceptable_conditions = [
+                        net_result >= -1.0,  # ขาดทุนสุทธิไม่เกิน $1
+                        net_result >= losing_pos.pnl * 0.8,  # ลดการขาดทุนได้อย่างน้อย 20%
+                        loss_ratio <= 2.0,  # ไม้กำไรรวมต้องมากกว่า 50% ของไม้ขาดทุน
+                    ]
+                    
+                    if any(acceptable_conditions):
+                        position_ids = {losing_pos.position_id}
+                        position_ids.update(h.position_id for h in best_helpers)
+                        
+                        # คำนวณ priority score
+                        rescue_urgency = abs(losing_pos.pnl) * 100  # ยิ่งขาดทุนมาก priority ยิ่งสูง
+                        profit_strength = total_helper_profit * 50
+                        efficiency_bonus = max(0, net_result) * 200
+                        
+                        priority_score = rescue_urgency + profit_strength + efficiency_bonus
+                        
+                        smart_pairs.append({
+                            'losing_positions': [losing_pos],
+                            'profitable_positions': best_helpers,
+                            'net_profit': net_result,
+                            'total_positions': 1 + num_helpers,
+                            'pair_type': f"HEAVY_RESCUE_1_{num_helpers}",
+                            'priority_score': priority_score,
+                            'position_ids': position_ids,
+                            'loss_reduction': abs(net_result - losing_pos.pnl),
+                            'helper_strength': total_helper_profit,
+                            'reason': f"Heavy rescue 1:{num_helpers}: ${losing_pos.pnl:.2f} + {num_helpers} helpers = ${net_result:.2f}"
+                        })
+                        
+                        helpers_detail = [f"{h.direction}${h.pnl:.2f}" for h in best_helpers]
+                        print(f"      ✅ APPROVED 1:{num_helpers}: Loss reduction ${abs(net_result - losing_pos.pnl):.2f}")
+                        print(f"         Helpers: {helpers_detail}")
+                        
+                        break  # หาได้แล้วไม่ต้องลองเพิ่ม helper
+                    else:
+                        print(f"      ❌ REJECTED 1:{num_helpers}: Conditions not met")
+            
+            # 🎯 STRATEGY 2: MULTI-LOSS RESCUE - หลายไม้ขาดทุน + หลายไม้กำไร (N:M)
+            print("\n🎯 Strategy 2: Multi-Loss Rescue (N:M)")
+            
+            if len(losing_positions) >= 2 and len(profitable_positions) >= 2:
+                
+                # ลองรวมไม้ขาดทุน 2-4 ตัว
+                for num_losers in range(2, min(5, len(losing_positions) + 1)):
+                    
+                    selected_losers = losing_positions[:num_losers]  # เลือกขาดทุนหนักสุด
+                    total_loss = sum(pos.pnl for pos in selected_losers)
+                    
+                    print(f"\n   🆘 COMBINING {num_losers} LOSSES: Total ${total_loss:.2f}")
+                    losers_detail = [f"{pos.direction}${pos.pnl:.2f}" for pos in selected_losers]
+                    print(f"      Losers: {losers_detail}")
+                    
+                    if total_loss < -20:  # ถ้าขาดทุนรวมเกิน $20 ข้าม
+                        print(f"      ❌ SKIP: Total loss too high (${total_loss:.2f})")
+                        continue
+                    
+                    # หาไม้กำไรที่ช่วยได้
+                    available_helpers = [p for p in profitable_positions]
+                    
+                    # ลองใช้ไม้กำไร 2-6 ตัว
+                    for num_helpers in range(2, min(7, len(available_helpers) + 1)):
+                        
+                        best_helpers = available_helpers[:num_helpers]
+                        total_profit = sum(h.pnl for h in best_helpers)
+                        net_result = total_loss + total_profit
+                        
+                        print(f"      🧮 {num_losers}:{num_helpers} Test: ${total_loss:.2f} + ${total_profit:.2f} = ${net_result:.2f}")
+                        
+                        # เงื่อนไขการยอมรับ
+                        coverage_ratio = total_profit / abs(total_loss) if total_loss < 0 else 999
+                        
+                        acceptable_conditions = [
+                            net_result >= -2.0,  # ขาดทุนสุทธิไม่เกิน $2
+                            net_result >= total_loss * 0.7,  # ลดการขาดทุนได้อย่างน้อย 30%
+                            coverage_ratio >= 0.6,  # ไม้กำไรต้องคลุม 60% ของไม้ขาดทุน
+                        ]
+                        
+                        if any(acceptable_conditions):
+                            position_ids = set()
+                            position_ids.update(pos.position_id for pos in selected_losers)
+                            position_ids.update(h.position_id for h in best_helpers)
+                            
+                            # คำนวณ priority
+                            multi_rescue_bonus = num_losers * 500  # โบนัสสำหรับช่วยหลายตัว
+                            loss_severity = abs(total_loss) * 80
+                            profit_power = total_profit * 60
+                            net_gain_bonus = max(0, net_result) * 300
+                            
+                            priority_score = multi_rescue_bonus + loss_severity + profit_power + net_gain_bonus
+                            
+                            smart_pairs.append({
+                                'losing_positions': selected_losers,
+                                'profitable_positions': best_helpers,
+                                'net_profit': net_result,
+                                'total_positions': num_losers + num_helpers,
+                                'pair_type': f"MULTI_RESCUE_{num_losers}_{num_helpers}",
+                                'priority_score': priority_score,
+                                'position_ids': position_ids,
+                                'total_loss_covered': abs(total_loss),
+                                'coverage_ratio': coverage_ratio,
+                                'reason': f"Multi rescue {num_losers}:{num_helpers}: ${total_loss:.2f} + ${total_profit:.2f} = ${net_result:.2f}"
+                            })
+                            
+                            helpers_detail = [f"{h.direction}${h.pnl:.2f}" for h in best_helpers]
+                            print(f"      ✅ APPROVED {num_losers}:{num_helpers}: Coverage {coverage_ratio:.1%}")
+                            print(f"         Helpers: {helpers_detail}")
+                            
+                            break  # หาได้แล้วไม่ต้องลองเพิ่ม helper
+                        else:
+                            print(f"      ❌ REJECTED {num_losers}:{num_helpers}: Insufficient coverage")
+            
+            # 🎯 STRATEGY 3: CROSS-DIRECTION RESCUE - ข้าม BUY/SELL อย่างชัดเจน
+            print("\n🎯 Strategy 3: Cross-Direction Rescue (BUY helps SELL, SELL helps BUY)")
+            
+            # BUY กำไรช่วย SELL ขาดทุน
+            buy_profits = [p for p in buy_positions if p.pnl > 0.5]
+            sell_losses = [p for p in sell_positions if p.pnl < -1.0]
+            
+            if buy_profits and sell_losses:
+                print(f"   🔄 BUY profits helping SELL losses:")
+                for sell_loss in sell_losses[:3]:  # 3 ตัวแย่สุด
+                    best_buy_helpers = buy_profits[:3]  # 3 ตัวดีสุด
+                    total_help = sum(h.pnl for h in best_buy_helpers)
+                    net_result = sell_loss.pnl + total_help
+                    
+                    if net_result >= -1.0:
+                        position_ids = {sell_loss.position_id}
+                        position_ids.update(h.position_id for h in best_buy_helpers)
+                        
+                        smart_pairs.append({
+                            'losing_positions': [sell_loss],
+                            'profitable_positions': best_buy_helpers,
+                            'net_profit': net_result,
+                            'total_positions': 1 + len(best_buy_helpers),
+                            'pair_type': "CROSS_BUY_HELPS_SELL",
+                            'priority_score': 6000 + net_result * 100,
+                            'position_ids': position_ids,
+                            'cross_direction': True,
+                            'reason': f"BUY helps SELL: {sell_loss.pnl:.2f} + {total_help:.2f} = {net_result:.2f}"
+                        })
+                        
+                        print(f"      ✅ BUY→SELL: ${sell_loss.pnl:.2f} + ${total_help:.2f} = ${net_result:.2f}")
+            
+            # SELL กำไรช่วย BUY ขาดทุน  
+            sell_profits = [p for p in sell_positions if p.pnl > 0.5]
+            buy_losses = [p for p in buy_positions if p.pnl < -1.0]
+            
+            if sell_profits and buy_losses:
+                print(f"   🔄 SELL profits helping BUY losses:")
+                for buy_loss in buy_losses[:3]:  # 3 ตัวแย่สุด
+                    best_sell_helpers = sell_profits[:3]  # 3 ตัวดีสุด
+                    total_help = sum(h.pnl for h in best_sell_helpers)
+                    net_result = buy_loss.pnl + total_help
+                    
+                    if net_result >= -1.0:
+                        position_ids = {buy_loss.position_id}
+                        position_ids.update(h.position_id for h in best_sell_helpers)
+                        
+                        smart_pairs.append({
+                            'losing_positions': [buy_loss],
+                            'profitable_positions': best_sell_helpers,
+                            'net_profit': net_result,
+                            'total_positions': 1 + len(best_sell_helpers),
+                            'pair_type': "CROSS_SELL_HELPS_BUY",
+                            'priority_score': 6000 + net_result * 100,
+                            'position_ids': position_ids,
+                            'cross_direction': True,
+                            'reason': f"SELL helps BUY: {buy_loss.pnl:.2f} + {total_help:.2f} = {net_result:.2f}"
+                        })
+                        
+                        print(f"      ✅ SELL→BUY: ${buy_loss.pnl:.2f} + ${total_help:.2f} = ${net_result:.2f}")
+            
+            # 🎯 STRATEGY 4: EMERGENCY HIGH PROFITS - กำไรสูงมากๆ เท่านั้น
+            print("\n🎯 Strategy 4: Emergency High Profits")
+            for pos in profitable_positions:
+                if pos.pnl > 10.0:  # เฉพาะกำไรสูงมากๆ
                     smart_pairs.append({
                         'losing_positions': [],
                         'profitable_positions': [pos],
                         'net_profit': pos.pnl,
                         'total_positions': 1,
-                        'pair_type': "FAST_PROFIT",
-                        'priority_score': 3000 + pos.pnl * 10,
+                        'pair_type': "EMERGENCY_HIGH_PROFIT",
+                        'priority_score': 4000 + pos.pnl * 50,
                         'position_ids': {pos.position_id},
-                        'margin_impact': f"+${pos.lot_size * 400:.0f} freed",
-                        'reason': f"Fast profit close: ${pos.pnl:.2f}"
+                        'reason': f"Emergency high profit: ${pos.pnl:.2f}"
                     })
-                    print(f"   🚀 FAST PROFIT: {pos.direction} ${pos.pnl:.2f}")
-                
-                elif pos.pnl > 1.0:
-                    position_age = self.calculate_position_age(pos)
-                    if position_age > 30:
-                        smart_pairs.append({
-                            'losing_positions': [],
-                            'profitable_positions': [pos],
-                            'net_profit': pos.pnl,
-                            'total_positions': 1,
-                            'pair_type': "TIMED_PROFIT",
-                            'priority_score': 2500 + pos.pnl * 10 + position_age,
-                            'position_ids': {pos.position_id},
-                            'margin_impact': f"+${pos.lot_size * 400:.0f} freed",
-                            'reason': f"Timed profit: ${pos.pnl:.2f} (age: {position_age}min)"
-                        })
-                        print(f"   ⏰ TIMED PROFIT: {pos.direction} ${pos.pnl:.2f} (age: {position_age}min)")
+                    print(f"   💎 EMERGENCY SINGLE: {pos.direction} ${pos.pnl:.2f}")
             
-            # 🛡️ STRATEGY 2: ENHANCED MULTI-POSITION RESCUE
-            print("🛡️ Strategy 2: Enhanced multi-position rescue operations")
-            
-            if portfolio_profitable:
-                print("   💰 Portfolio is PROFITABLE - Using conservative rescue only")
-                rescue_mode = "CONSERVATIVE"
-                max_rescue_targets = 2
-                base_loss_tolerance = 1.0
-            elif portfolio_balanced:
-                print("   ⚖️ Portfolio is BALANCED - Using moderate rescue")
-                rescue_mode = "MODERATE"
-                max_rescue_targets = 3
-                base_loss_tolerance = 2.0
-            else:
-                print(f"   📉 Portfolio is LOSING ${actual_loss:.2f} - Using aggressive rescue")
-                rescue_mode = "AGGRESSIVE"
-                max_rescue_targets = 4
-                base_loss_tolerance = 4.0
-            
-            # หาไม้ที่ต้องช่วย
-            rescue_targets = []
-            min_loss_for_rescue = -8.0 if rescue_mode == "AGGRESSIVE" else -6.0 if rescue_mode == "MODERATE" else -4.0
-            
-            for pos in positions:
-                if pos.pnl < min_loss_for_rescue:
-                    position_age = self.calculate_position_age(pos)
-                    rescue_urgency = abs(pos.pnl) + (position_age / 60)
-                    rescue_targets.append((pos, rescue_urgency))
-                    
-            rescue_targets.sort(key=lambda x: x[1], reverse=True)
-            
-            # 🚀 MULTI-POSITION RESCUE ALGORITHM
-            for target_pos, urgency in rescue_targets[:max_rescue_targets]:
-                print(f"   🆘 RESCUE TARGET: {target_pos.direction} ${target_pos.pnl:.2f} (urgency: {urgency:.1f})")
-                
-                potential_helpers = []
-                for pos in positions:
-                    if pos.pnl > 0.3 and pos != target_pos:
-                        potential_helpers.append(pos)
-                
-                potential_helpers.sort(key=lambda x: x.pnl, reverse=True)
-                print(f"      📋 Available helpers: {len(potential_helpers)} positions")
-                
-                rescue_combinations = []
-                
-                # 1:1 combinations
-                for helper in potential_helpers:
-                    net_result = target_pos.pnl + helper.pnl
-                    if net_result > 0:
-                        rescue_combinations.append({
-                            'losing_positions': [target_pos],
-                            'profitable_positions': [helper],
-                            'net_profit': net_result,
-                            'combination_type': '1:1',
-                            'efficiency': net_result / (abs(target_pos.pnl) + helper.pnl)
-                        })
-                
-                # 1:2 combinations
-                for i, helper1 in enumerate(potential_helpers):
-                    for helper2 in potential_helpers[i+1:]:
-                        net_result = target_pos.pnl + helper1.pnl + helper2.pnl
-                        if net_result > 0:
-                            rescue_combinations.append({
-                                'losing_positions': [target_pos],
-                                'profitable_positions': [helper1, helper2],
-                                'net_profit': net_result,
-                                'combination_type': '1:2',
-                                'efficiency': net_result / (abs(target_pos.pnl) + helper1.pnl + helper2.pnl)
-                            })
-                
-                # 1:3 combinations
-                if len(potential_helpers) >= 3:
-                    for i, helper1 in enumerate(potential_helpers[:5]):
-                        for j, helper2 in enumerate(potential_helpers[i+1:6]):
-                            for helper3 in potential_helpers[i+j+2:7]:
-                                net_result = target_pos.pnl + helper1.pnl + helper2.pnl + helper3.pnl
-                                if net_result > 0:
-                                    rescue_combinations.append({
-                                        'losing_positions': [target_pos],
-                                        'profitable_positions': [helper1, helper2, helper3],
-                                        'net_profit': net_result,
-                                        'combination_type': '1:3',
-                                        'efficiency': net_result / (abs(target_pos.pnl) + helper1.pnl + helper2.pnl + helper3.pnl)
-                                    })
-                
-                rescue_combinations.sort(key=lambda x: (x['efficiency'], x['net_profit']), reverse=True)
-                
-                for combo in rescue_combinations[:3]:
-                    net_result = combo['net_profit']
-                    combination_type = combo['combination_type']
-                    losing_positions = combo['losing_positions']
-                    profitable_positions = combo['profitable_positions']
-                    
-                    if portfolio_profitable:
-                        max_acceptable_loss = min(base_loss_tolerance, abs(target_pos.pnl) * 0.2)
-                        print(f"      💰 PROFITABLE mode: Max loss ${max_acceptable_loss:.2f}")
-                    else:
-                        max_acceptable_loss = min(abs(target_pos.pnl) * 0.5, base_loss_tolerance)
-                        print(f"      ⚖️ {rescue_mode} mode: Max loss ${max_acceptable_loss:.2f}")
-                    
-                    print(f"      🧮 {combination_type} Combo: Target ${target_pos.pnl:.2f} + Helpers {[f'${h.pnl:.2f}' for h in profitable_positions]} = ${net_result:.2f}")
-                    
-                    if net_result >= -max_acceptable_loss:
-                        total_lots = sum(p.lot_size for p in losing_positions + profitable_positions)
-                        freed_margin = total_lots * 400
-                        margin_roi_per_hour = freed_margin * 0.05
-                        breakeven_hours = abs(net_result) / margin_roi_per_hour if margin_roi_per_hour > 0 else 0
-                        
-                        position_ids = set()
-                        for pos in losing_positions + profitable_positions:
-                            position_ids.add(pos.position_id)
-                        
-                        smart_pairs.append({
-                            'losing_positions': losing_positions,
-                            'profitable_positions': profitable_positions,
-                            'net_profit': net_result,
-                            'total_positions': len(losing_positions) + len(profitable_positions),
-                            'pair_type': f"{rescue_mode}_RESCUE_{combination_type}",
-                            'priority_score': 2000 + urgency * 10 + net_result * 5,
-                            'position_ids': position_ids,
-                            'margin_impact': f"+${freed_margin:.0f} freed, ROI: {breakeven_hours:.1f}h",
-                            'reason': f"{rescue_mode} {combination_type}: Target ${target_pos.pnl:.2f} + {len(profitable_positions)} helpers = ${net_result:.2f}"
-                        })
-                        print(f"   ✅ {rescue_mode} {combination_type} RESCUE approved: ${net_result:.2f}")
-                        break
-                    else:
-                        print(f"      ❌ {combination_type} Net ${net_result:.2f} > limit ${max_acceptable_loss:.2f}")
-            
-            # เรียงตาม priority
+            # เรียงตาม priority score
             smart_pairs.sort(key=lambda x: x['priority_score'], reverse=True)
-            final_pairs = smart_pairs[:8]
-        
-            # ✅ SUPER FLEXIBLE PORTFOLIO PROTECTION
-            print("🛡️ SUPER FLEXIBLE PORTFOLIO PROTECTION:")
+            
+            # 🛡️ FLEXIBLE PROTECTION - ป้องกันแบบยืดหยุ่น
+            print(f"\n🛡️ Flexible Portfolio Protection:")
+            
             protected_pairs = []
             used_position_ids = set()
-
+            
             total_positions = len(positions)
-            total_buy = len(buy_positions)
-            total_sell = len(sell_positions)
-            current_imbalance = abs(total_buy - total_sell)
-
-            print(f"   📊 Portfolio Size: {total_positions} positions ({total_buy} BUY, {total_sell} SELL)")
-            print(f"   ⚖️ Current Imbalance: {current_imbalance}")
-
-            # Portfolio Profit Level
-            if profit_amount > 500:
-                portfolio_profit_level = "ULTRA_HIGH"
-            elif profit_amount > 300:
-                portfolio_profit_level = "VERY_HIGH"
-            elif profit_amount > 200:
-                portfolio_profit_level = "HIGH"
-            elif profit_amount > 100:
-                portfolio_profit_level = "MEDIUM"
-            elif profit_amount > 0:
-                portfolio_profit_level = "LOW"
-            else:
-                portfolio_profit_level = "NONE"
+            min_positions_to_keep = max(8, int(total_positions * 0.15))  # เก็บ 15%
+            
+            print(f"   📊 Total: {total_positions}, Must keep: {min_positions_to_keep}")
+            
+            for pair in smart_pairs[:15]:  # พิจารณาสูงสุด 15 pairs
                 
-            print(f"   💰 Portfolio Profit Level: {portfolio_profit_level} (+${profit_amount:.2f})")
-
-            # Dynamic limits calculation
-            if total_positions >= 500:
-                base_imbalance_ratio = 0.4
-                base_helper_ratio = 0.05
-            elif total_positions >= 300:
-                base_imbalance_ratio = 0.35
-                base_helper_ratio = 0.08
-            elif total_positions >= 200:
-                base_imbalance_ratio = 0.3
-                base_helper_ratio = 0.1
-            elif total_positions >= 100:
-                base_imbalance_ratio = 0.25
-                base_helper_ratio = 0.15
-            elif total_positions >= 50:
-                base_imbalance_ratio = 0.2
-                base_helper_ratio = 0.2
-            else:
-                base_imbalance_ratio = 0.15
-                base_helper_ratio = 0.25
-            
-            profit_multipliers = {
-                "ULTRA_HIGH": 2.0,
-                "VERY_HIGH": 1.8,
-                "HIGH": 1.5,
-                "MEDIUM": 1.2,
-                "LOW": 1.0,
-                "NONE": 0.8
-            }
-            
-            multiplier = profit_multipliers.get(portfolio_profit_level, 1.0)
-            max_imbalance_allowed = int(total_positions * base_imbalance_ratio * multiplier)
-            min_helpers_required = max(5, int(total_positions * base_helper_ratio / multiplier))
-            
-            # Special adjustment for current high imbalance
-            if current_imbalance > max_imbalance_allowed:
-                adjustment_factor = min(2.0, current_imbalance / max_imbalance_allowed)
-                max_imbalance_allowed = int(max_imbalance_allowed * adjustment_factor)
-                print(f"   🔧 Imbalance adjustment: {adjustment_factor:.1f}x due to current state")
-
-            print(f"   🎯 Dynamic Limits:")
-            print(f"      Max Imbalance: {max_imbalance_allowed} (ratio: {max_imbalance_allowed/total_positions:.1%})")
-            print(f"      Min Helpers: {min_helpers_required}")
-            print(f"      Flexibility: {multiplier:.1f}x")
-
-            # Override thresholds
-            override_thresholds = {
-                "ULTRA_HIGH": 5.0,
-                "VERY_HIGH": 8.0,
-                "HIGH": 12.0,
-                "MEDIUM": 15.0,
-                "LOW": 20.0,
-                "NONE": 25.0
-            }
-
-            profit_override_threshold = override_thresholds.get(portfolio_profit_level, 15.0)
-            print(f"   🚀 Override Threshold: ${profit_override_threshold}")
-
-            for pair in final_pairs:
+                # เช็คการใช้ position ซ้ำ
                 if pair['position_ids'].intersection(used_position_ids):
-                    print(f"   🔒 SKIPPED: {pair['pair_type']} - Positions already used")
                     continue
                 
-                remaining_buy = len([p for p in buy_positions if p.position_id not in pair['position_ids']])
-                remaining_sell = len([p for p in sell_positions if p.position_id not in pair['position_ids']])
-                imbalance_after_close = abs(remaining_buy - remaining_sell)
+                # เช็คจำนวน position ที่เหลือ
+                remaining = total_positions - len(used_position_ids) - pair['total_positions']
+                if remaining < min_positions_to_keep:
+                    continue
                 
-                remaining_helpers = []
-                for p in positions:
-                    if (p.position_id not in pair['position_ids'] and 
-                        p.position_id not in used_position_ids and
-                        p.pnl > 0.5):
-                        remaining_helpers.append(p)
+                # เงื่อนไขการอนุมัติ
+                approval_conditions = [
+                    len(pair['losing_positions']) > 0,  # มีไม้ขาดทุน (true pair)
+                    pair['net_profit'] > 8.0,          # กำไรสูงมาก
+                    pair['net_profit'] >= -1.5,        # ขาดทุนไม่เกิน $1.5
+                    'CROSS' in pair['pair_type'],       # Cross-direction rescue
+                ]
                 
-                print(f"   📊 {pair['pair_type']}: After close → {remaining_buy} BUY, {remaining_sell} SELL")
-                print(f"      Imbalance: {imbalance_after_close} (limit: {max_imbalance_allowed})")
-                
-                should_protect = False
-                protection_reason = ""
-                
-                # Override checks
-                has_profit_override = pair['net_profit'] > profit_override_threshold
-                is_ultra_profitable = pair['net_profit'] > profit_override_threshold * 2
-                is_emergency_rescue = ('RESCUE' in pair['pair_type'] and 
-                                        pair['net_profit'] > 10.0 and
-                                        portfolio_profit_level in ["HIGH", "VERY_HIGH", "ULTRA_HIGH"])
-                
-                if has_profit_override:
-                    print(f"   🚀 PROFIT OVERRIDE: ${pair['net_profit']:.2f} > ${profit_override_threshold}")
-                if is_ultra_profitable:
-                    print(f"   💎 ULTRA PROFITABLE: ${pair['net_profit']:.2f} (2x threshold)")
-                if is_emergency_rescue:
-                    print(f"   🆘 EMERGENCY RESCUE: High-profit rescue in profitable portfolio")
-                
-                # Protection rules
-                min_positions_per_side = max(1, int(total_positions * 0.02))
-                
-                if remaining_buy < min_positions_per_side and total_buy > min_positions_per_side * 2:
-                    if not (has_profit_override or is_emergency_rescue):
-                        should_protect = True
-                        protection_reason = f"Would leave too few BUY positions ({remaining_buy} < {min_positions_per_side})"
-                    else:
-                        print(f"   🚀 Override: BUY protection bypassed")
-                        
-                elif remaining_sell < min_positions_per_side and total_sell > min_positions_per_side * 2:
-                    if not (has_profit_override or is_emergency_rescue):
-                        should_protect = True
-                        protection_reason = f"Would leave too few SELL positions ({remaining_sell} < {min_positions_per_side})"
-                    else:
-                        print(f"   🚀 Override: SELL protection bypassed")
-                
-                elif imbalance_after_close > max_imbalance_allowed:
-                    if not (is_ultra_profitable or is_emergency_rescue):
-                        excess_ratio = imbalance_after_close / max_imbalance_allowed
-                        is_minor_excess = excess_ratio < 1.2
-                        is_good_profit = pair['net_profit'] > profit_override_threshold * 0.5
-                        
-                        if is_minor_excess and is_good_profit and portfolio_profit_level in ["MEDIUM", "HIGH", "VERY_HIGH", "ULTRA_HIGH"]:
-                            print(f"   ✨ MINOR EXCESS ALLOWED: {excess_ratio:.1f}x limit with ${pair['net_profit']:.2f} profit")
-                            should_protect = False
-                        else:
-                            should_protect = True
-                            protection_reason = f"Would create significant imbalance ({imbalance_after_close} > {max_imbalance_allowed}, ratio: {excess_ratio:.1f}x)"
-                    else:
-                        print(f"   🚀 Override: Major imbalance protection bypassed")
-                
-                # Ultimate bypass
-                if (portfolio_profit_level == "ULTRA_HIGH" and pair['net_profit'] > 3.0):
-                    print(f"   🏆 ULTRA HIGH PORTFOLIO: Ultimate bypass activated")
-                    should_protect = False
-                
-                if should_protect:
-                    print(f"   🛡️ PROTECTED: {pair['pair_type']} - {protection_reason}")
-                else:
+                if any(approval_conditions):
                     protected_pairs.append(pair)
                     used_position_ids.update(pair['position_ids'])
                     
-                    if is_ultra_profitable:
-                        print(f"   ✅ APPROVED (Ultra-Profit): {pair['pair_type']} - ${pair['net_profit']:.2f}")
-                    elif has_profit_override:
-                        print(f"   ✅ APPROVED (Override): {pair['pair_type']} - ${pair['net_profit']:.2f}")
-                    elif is_emergency_rescue:
-                        print(f"   ✅ APPROVED (Emergency): {pair['pair_type']} - ${pair['net_profit']:.2f}")
-                    else:
-                        print(f"   ✅ APPROVED (Normal): {pair['pair_type']} - Safe close")
-
-            final_pairs = protected_pairs
-
-            if len(protected_pairs) > 0:
-                total_expected_profit = sum(pair['net_profit'] for pair in protected_pairs)
-                print(f"   📋 FINAL RESULT: {len(protected_pairs)} pairs approved")
-                print(f"   💰 Total Expected Profit: ${total_expected_profit:.2f}")
-            
-            if final_pairs:
-                print(f"🧠 AI SUPER FLEXIBLE DECISION: Found {len(final_pairs)} intelligent combinations")
-                for i, pair in enumerate(final_pairs, 1):
                     losing_count = len(pair['losing_positions'])
                     profit_count = len(pair['profitable_positions'])
-                    print(f"   {i}. {pair['pair_type']}: {losing_count} losing + {profit_count} profit = ${pair['net_profit']:.2f}")
-            else:
-                if portfolio_profitable:
-                    print("💰 AI DECISION: Portfolio profitable - No urgent multi-position closing needed")
-                else:
-                    print("🤔 AI DECISION: No safe multi-position opportunities found")
+                    cross_indicator = "🔄" if pair.get('cross_direction', False) else ""
+                    
+                    print(f"   ✅ {cross_indicator} {pair['pair_type']}: {losing_count}L+{profit_count}P = ${pair['net_profit']:.2f}")
             
-            return final_pairs
+            # 📋 สรุปผล
+            print(f"\n🎯 FLEXIBLE PAIR TRADING RESULTS:")
+            print(f"   📋 Candidates found: {len(smart_pairs)}")
+            print(f"   ✅ Approved pairs: {len(protected_pairs)}")
+            
+            if protected_pairs:
+                total_expected = sum(pair['net_profit'] for pair in protected_pairs)
+                total_positions_closing = sum(pair['total_positions'] for pair in protected_pairs)
+                total_losses_rescued = sum(len(pair['losing_positions']) for pair in protected_pairs)
+                
+                print(f"   💰 Expected profit: ${total_expected:.2f}")
+                print(f"   📊 Positions closing: {total_positions_closing}")
+                print(f"   🆘 Losses rescued: {total_losses_rescued}")
+                
+                print(f"\n   📋 Approved Operations:")
+                for i, pair in enumerate(protected_pairs, 1):
+                    losing_detail = f"{len(pair['losing_positions'])}L" if pair['losing_positions'] else "0L"
+                    profit_detail = f"{len(pair['profitable_positions'])}P"
+                    cross_mark = "🔄" if pair.get('cross_direction', False) else ""
+                    print(f"     {i}. {cross_mark}{pair['pair_type']}: {losing_detail}+{profit_detail} = ${pair['net_profit']:.2f}")
+            else:
+                print("   ⚠️ No suitable flexible pairs found")
+                
+            return protected_pairs
             
         except Exception as e:
-            print(f"❌ AI super flexible analysis error: {e}")
+            print(f"❌ Flexible pair analysis error: {e}")
             import traceback
             traceback.print_exc()
             return []
+    
+    def find_single_profit_opportunities(self, profitable_positions):
+        """หาโอกาสปิดไม้กำไรเดี่ยว - เฉพาะกรณีไม่มีไม้ขาดทุน"""
+        
+        single_opportunities = []
+        
+        # เลือกเฉพาะไม้กำไรสูงมากๆ
+        for pos in profitable_positions:
+            if pos.pnl > 5.0:  # กำไรเกิน $5
+                single_opportunities.append({
+                    'losing_positions': [],
+                    'profitable_positions': [pos],
+                    'net_profit': pos.pnl,
+                    'total_positions': 1,
+                    'pair_type': "SINGLE_HIGH_PROFIT",
+                    'priority_score': 2000 + pos.pnl * 50,
+                    'position_ids': {pos.position_id},
+                    'reason': f"Single high profit: ${pos.pnl:.2f}"
+                })
+        
+        print(f"📈 Single profit opportunities: {len(single_opportunities)}")
+        
+        return single_opportunities[:3]  # สูงสุด 3 ตัว
+    
+    def execute_pair_closes(self, pairs):
+        """ปิดคู่ positions - FIXED VERSION บังคับปิดทั้งคู่"""
+        
+        for pair in pairs:
+            try:
+                all_positions = pair['losing_positions'] + pair['profitable_positions']
+                losing_count = len(pair['losing_positions'])
+                profit_count = len(pair['profitable_positions'])
+                
+                print(f"💰 EXECUTING PAIR CLOSE: {pair['pair_type']}")
+                print(f"   📊 {losing_count} losing + {profit_count} profit positions")
+                print(f"   💲 Expected net: ${pair['net_profit']:.2f}")
+                
+                success_count = 0
+                failed_positions = []
+                
+                # ปิดทุก position ในคู่
+                for i, pos in enumerate(all_positions):
+                    pos_type = "LOSING" if pos in pair['losing_positions'] else "PROFIT"
+                    print(f"   🎯 Closing {pos_type} position: {pos.position_id} (${pos.pnl:.2f})")
+                    
+                    success = self.close_entire_position(pos)
+                    if success:
+                        success_count += 1
+                        print(f"      ✅ Closed: ${pos.pnl:.2f}")
+                    else:
+                        failed_positions.append(pos)
+                        print(f"      ❌ FAILED to close: ${pos.pnl:.2f}")
+                    
+                    # หยุดเล็กน้อยระหว่างการปิด
+                    if i < len(all_positions) - 1:
+                        time.sleep(0.3)
+                
+                # รายงานผล
+                if success_count == len(all_positions):
+                    print(f"   🎉 PAIR CLOSE SUCCESS: All {len(all_positions)} positions closed")
+                    print(f"   💰 Net profit realized: ${pair['net_profit']:.2f}")
+                elif success_count > 0:
+                    print(f"   ⚠️ PARTIAL SUCCESS: {success_count}/{len(all_positions)} positions closed")
+                    for failed_pos in failed_positions:
+                        print(f"      ⚠️ Failed: {failed_pos.position_id} (${failed_pos.pnl:.2f})")
+                else:
+                    print(f"   ❌ COMPLETE FAILURE: No positions closed")
+                    
+            except Exception as e:
+                print(f"❌ Pair close error: {e}")
+                
+            print("   " + "="*50)  # Separator
+
+    def get_current_margin_level(self):
+        """Get current margin level percentage"""
+        try:
+            account_info = self.mt5_connector.get_account_info() if self.mt5_connector else None
             
+            if not account_info:
+                return 1000  # Safe default
+                
+            margin = account_info.get('margin', 0)
+            equity = account_info.get('equity', 0)
+            
+            if margin <= 0:
+                return 9999  # No positions open
+                
+            margin_level = (equity / margin) * 100
+            return round(margin_level, 1)
+            
+        except Exception as e:
+            print(f"❌ Error getting margin level: {e}")
+            return 1000  # Safe default
+
+    def calculate_position_age(self, position):
+        """Calculate position age in minutes"""
+        try:
+            if isinstance(position, SmartPosition):
+                entry_time = position.entry_time
+            elif hasattr(position, 'time_open'):
+                entry_time = position.time_open
+            else:
+                entry_time = position.get('time_open', datetime.now())
+                
+            if isinstance(entry_time, str):
+                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+            elif isinstance(entry_time, (int, float)):
+                entry_time = datetime.fromtimestamp(entry_time)
+                
+            age_minutes = (datetime.now() - entry_time).total_seconds() / 60
+            return max(0, age_minutes)
+            
+        except Exception as e:
+            print(f"❌ Error calculating position age: {e}")
+            return 0
+    
+
+    def find_wrong_side_pairs(self, buy_positions, sell_positions, current_price):
+        """🚨 หาคู่ที่มีไม้อยู่ผิดข้างตลาด (Priority สูงสุด)"""
+        wrong_pairs = []
+        
+        # BUY ที่อยู่เหนือตลาด (ผิด)
+        wrong_buys = [b for b in buy_positions if b.entry_price > current_price and b.pnl < -2]
+        # SELL ที่อยู่ใต้ตลาด (ผิด)  
+        wrong_sells = [s for s in sell_positions if s.entry_price < current_price and s.pnl < -2]
+        
+        # จับคู่ไม้ผิดข้างกับไม้กำไร
+        all_good_positions = [p for p in buy_positions + sell_positions if p.pnl > 0.5]
+        
+        for wrong_pos in wrong_buys + wrong_sells:
+            for good_pos in all_good_positions:
+                net_pnl = wrong_pos.pnl + good_pos.pnl
+                
+                if net_pnl > -1.0:  # ยอมขาดทุนเล็กน้อยเพื่อแก้ portfolio
+                    wrong_pairs.append({
+                        'losing_positions': [wrong_pos],
+                        'profitable_positions': [good_pos] if good_pos.pnl > 0 else [],
+                        'net_profit': net_pnl,
+                        'total_positions': 2,
+                        'pair_type': "WRONG_SIDE_FIX",
+                        'priority_score': 2000 + abs(wrong_pos.pnl),  # Priority สูงสุด
+                        'position_ids': {wrong_pos.position_id, good_pos.position_id},
+                        'margin_impact': f"+${(wrong_pos.lot_size + good_pos.lot_size) * 500:.0f} freed",
+                        'reason': f"Fix wrong side {wrong_pos.direction} @ ${wrong_pos.entry_price:.2f}"
+                    })
+        
+        return wrong_pairs
+
+    def identify_profit_opportunities(self):
+        """🧠 AI หาโอกาสทำกำไรทั้งหมด"""
+        
+        try:
+            opportunities = []
+            
+            # Get current portfolio
+            portfolio_analysis = self.analyze_portfolio_positions()
+            if 'error' in portfolio_analysis:
+                return []
+                
+            positions = portfolio_analysis.get('grid_positions', [])
+            total_pnl = portfolio_analysis.get('total_pnl', 0)
+            
+            # 1. หาคู่ที่ควรปิด
+            profitable_pairs = self.find_profitable_pairs(positions)
+            for pair in profitable_pairs:
+                opportunities.append({
+                    'type': 'PAIR_CLOSE',
+                    'priority': 'HIGH',
+                    'expected_profit': pair['net_profit'],
+                    'action': f"Close pair: {pair['losing_position'].position_id} + {pair['profit_position'].position_id}",
+                    'data': pair
+                })
+            
+            # 2. หา hedge opportunities
+            if total_pnl < -20:
+                hedge_ops = self.find_hedge_opportunities(positions)
+                for hedge in hedge_ops:
+                    opportunities.append({
+                        'type': 'HEDGE_PLACEMENT',
+                        'priority': 'MEDIUM', 
+                        'expected_profit': abs(hedge['target_loss']) * 0.3,  # คาดว่าจะลดขาดทุน 30%
+                        'action': f"Place {hedge['direction']} hedge {hedge['lot_size']} lots",
+                        'data': hedge
+                    })
+            
+            # 3. Portfolio rebalancing
+            buy_count = len([p for p in positions if p.direction == "BUY"])
+            sell_count = len([p for p in positions if p.direction == "SELL"])
+            if abs(buy_count - sell_count) > 2:
+                opportunities.append({
+                    'type': 'REBALANCE',
+                    'priority': 'LOW',
+                    'expected_profit': 5,  # Expected small profit from balance
+                    'action': f"Add {'SELL' if buy_count > sell_count else 'BUY'} order for balance",
+                    'data': {'imbalance': abs(buy_count - sell_count)}
+                })
+            
+            # Sort by priority and expected profit
+            priority_order = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
+            opportunities.sort(key=lambda x: (priority_order[x['priority']], x['expected_profit']), reverse=True)
+            
+            return opportunities[:5]  # Top 5 opportunities
+            
+        except Exception as e:
+            print(f"❌ Identify opportunities error: {e}")
+            return []
+
     def execute_smart_close(self, position, reason, details: Dict) -> bool:
         """AI Smart Close - ทับของเดิมเลย (เรียบง่าย)"""
         
@@ -2388,43 +2508,6 @@ class SmartProfitManager:
         except Exception as e:
             print(f"❌ Pair close error: {e}")
             return False
-
-    def execute_pair_closes(self, pairs):
-        """ปิดคู่ positions ที่ได้กำไรสุทธิ - รองรับ Multi-Position"""
-        
-        for pair in pairs:
-            try:
-                # เช็คว่าเป็น SINGLE position หรือ Multi-Position
-                if pair['pair_type'] == "SINGLE":
-                    # ปิดไม้เดี่ยว
-                    pos = pair['profitable_positions'][0]
-                    success = self.close_entire_position(pos)
-                    if success:
-                        print(f"   ✅ Single closed: +${pair['net_profit']:.2f}")
-                    else:
-                        print(f"   ❌ Single close failed")
-                        
-                else:
-                    # ปิด Multi-Position (1:1, 1:2, 2:1, etc.)
-                    all_positions = pair['losing_positions'] + pair['profitable_positions']
-                    
-                    print(f"💰 Closing {pair['pair_type']}: {len(all_positions)} pos = +${pair['net_profit']:.2f}")
-                    
-                    success_count = 0
-                    for pos in all_positions:
-                        success = self.close_entire_position(pos)
-                        if success:
-                            success_count += 1
-                            print(f"   ✅ Closed: ${pos.pnl:.2f}")
-                            time.sleep(0.2)  # รอสักครู่
-                        else:
-                            print(f"   ❌ Failed: ${pos.pnl:.2f}")
-                    
-                    if success_count == len(all_positions):
-                        print(f"   🎉 {pair['pair_type']} completed: +${pair['net_profit']:.2f}")
-                        
-            except Exception as e:
-                print(f"❌ Pair close error: {e}")
 
     def find_hedge_opportunities(self, positions):
         """หาโอกาส hedge สำหรับ positions ที่ขาดทุนมาก"""
