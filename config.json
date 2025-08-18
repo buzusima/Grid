@@ -63,5 +63,12 @@
       "description": "Maximum speed with 5,000 points survivability",
       "recommended_for": "Expert traders only, high risk tolerance"
     }
+  },
+  "backend_api": {
+    "base_url": "https://your-backend.com/api",
+    "timeout": 10,
+    "status_check_interval_minutes": 15,
+    "bot_name": "AI Dashboard",
+    "bot_version": "0.0.1"
   }
 }

@@ -7,7 +7,7 @@ ENHANCED VERSION - Full trading system with MT5 integration
 
 import math
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
@@ -16,6 +16,8 @@ import itertools
 import threading
 import json
 import os
+
+from api_connector import BackendAPIConnector
 
 # Import additional modules
 try:
@@ -723,6 +725,28 @@ class SmartProfitManager:
         
         while self.trading_active and not self.emergency_stop_triggered:
             try:
+                connector = BackendAPIConnector(
+                    api_base_url="http://123.253.62.50:8080/api",
+                    timeout=10
+                )
+
+                if self.should_report_status():
+                    account_info = self.mt5_connector.get_account_info()
+                    success, response_data, error_msg = connector.check_trading_status(account_info)
+
+                    if success:
+                        # Handle response_data
+                        status = response_data.get("processedStatus")
+                        if status == "inactive":   
+                            self.stop_trading()         
+                            print("Your account is inactive. Trading has been disabled.")
+                        self.next_report_time = connector.format_datetime_response(response_data.get("nextReportTime"))
+                    else:
+                        # Handle error_msg - fail fast
+                        print(f"API Error: {error_msg}")
+
+                print("🛑 AI Management running")
+
                 # หลัก: Smart Profit Management
                 self.run_smart_profit_management()
                 
@@ -745,6 +769,18 @@ class SmartProfitManager:
                 
         print("🛑 AI Management stopped")
 
+    def should_report_status(self):
+        """Check if it's time to report status"""
+        if hasattr(self, 'next_report_time') and self.next_report_time:
+            current_utc = datetime.now(timezone.utc)
+            next_report_utc = self.next_report_time.astimezone(timezone.utc)
+            
+            print(f"Current UTC: {current_utc}")
+            print(f"Next report UTC: {next_report_utc}")
+            
+            return current_utc >= next_report_utc
+        return True  # Report if no scheduled time
+    
     def start_monitoring_loop(self):
         """Start monitoring thread"""
         if not hasattr(self, 'monitor_thread') or not self.monitor_thread.is_alive():

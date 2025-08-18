@@ -398,11 +398,31 @@ class MT5AutoConnector:
             account_info = mt5.account_info()
             if account_info:
                 self.account_info.update({
+                    # ข้อมูลระบุตัวตน
+                    'account_id': account_info.login,
+                    'account_name': account_info.name or f"Account {account_info.login}",
+                    'broker_name': account_info.company,
+                    'server': account_info.server,
+                    
+                    # ข้อมูลเงิน (สำหรับ backend API)
+                    # 'current_balance': str(account_info.balance),
+                    # 'current_profit': str(account_info.profit),
+                    'currency': account_info.currency,
+                    
+                    # ข้อมูลเพิ่มเติม
                     'balance': account_info.balance,
                     'equity': account_info.equity,
                     'margin': account_info.margin,
                     'free_margin': account_info.margin_free,
-                    'margin_level': account_info.margin_level if account_info.margin > 0 else 0
+                    'margin_level': account_info.margin_level if account_info.margin > 0 else 0,
+                    'leverage': account_info.leverage,
+                    
+                    # สิทธิ์การเทรด
+                    'trade_allowed': account_info.trade_allowed,
+                    'expert_allowed': account_info.trade_expert,
+                    
+                    # เวลาอัพเดท
+                    'last_updated': datetime.now().isoformat()
                 })
                 return self.account_info
             return None

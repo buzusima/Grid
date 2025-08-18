@@ -10,10 +10,14 @@ from tkinter import ttk, messagebox, scrolledtext
 import json
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import os
 import sys
+
+import requests
+
+from api_connector import BackendAPIConnector
 
 # Import custom modules
 try:
@@ -35,6 +39,9 @@ class AISmartProfitGUI:
         self.create_gui()
         self.setup_status_monitoring()
         self.current_trading_mode = TradingMode.BALANCED
+        
+        self.api_base_url ="http://123.253.62.50:8080/api"
+
     
     def setup_main_window(self):
         """Setup main window properties"""
@@ -967,7 +974,7 @@ class AISmartProfitGUI:
         except Exception as e:
             print(f"Closing error: {e}")
             self.root.destroy()
-
+    
     def run(self):
         """Run the application"""
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
