@@ -33,10 +33,10 @@ class BackendAPIConnector:
             'User-Agent': f'{bot_name}/{bot_version}'
         })
         
-        print(f"🔗 Backend API Connector initialized")
-        print(f"   Base URL: {self.api_base_url}")
-        print(f"   Bot: {self.bot_name} v{self.bot_version}")
-        print(f"   Timeout: {self.timeout}s")
+        # print(f"🔗 Backend API Connector initialized")
+        # print(f"   Base URL: {self.api_base_url}")
+        # print(f"   Bot: {self.bot_name} v{self.bot_version}")
+        # print(f"   Timeout: {self.timeout}s")
 
     def check_trading_status(self, account_data: Dict) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
@@ -58,7 +58,7 @@ class BackendAPIConnector:
             # print(f"📊 Account: {payload.get('tradingAccountId')} | Balance: ${payload.get('currentBalance', 0):,.2f}")
             
             # Make API request
-            start_time = time.time()
+            # start_time = time.time()
             response = self.session.post(
                 f"{self.api_base_url}/customer-clients/status",
                 json=payload,
@@ -75,9 +75,9 @@ class BackendAPIConnector:
                 #     "botVersion": "0.0.1"
                 # },
             )
-            request_duration = time.time() - start_time
+            # request_duration = time.time() - start_time
             
-            print(f"📡 API Response: {response.status_code} ({request_duration:.2f}s)")
+            # print(f"📡 API Response: {response.status_code} ({request_duration:.2f}s)")
             
             # Handle response
             if response.status_code == 200:

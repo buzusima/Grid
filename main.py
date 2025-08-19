@@ -990,24 +990,25 @@ class AISmartProfitGUI:
 def main():
     """Main entry point"""
     try:
-        # Check if required files exist
-        required_files = [
-            'mt5_auto_connector.py',
-            'smart_profit_manager.py', 
-            'survivability_engine.py',
-            'ai_money_manager.py',
-            'gold_hedge_calculator.py'
-        ]
-        
-        missing_files = [f for f in required_files if not os.path.exists(f)]
-        
-        if missing_files:
-            print("⚠️ Missing required files:")
-            for file in missing_files:
-                print(f"   - {file}")
-            print("\nPlease ensure all modules are in the same directory.")
-            print("Note: ai_gold_grid.py is no longer required - using Smart Profit Manager!")
-            input("Press Enter to continue anyway...")
+        if not getattr(sys, 'frozen', False):
+            # Check if required files exist
+            required_files = [
+                'mt5_auto_connector.py',
+                'smart_profit_manager.py', 
+                'survivability_engine.py',
+                'ai_money_manager.py',
+                'gold_hedge_calculator.py'
+            ]
+            
+            missing_files = [f for f in required_files if not os.path.exists(f)]
+            
+            if missing_files:
+                print("⚠️ Missing required files:")
+                for file in missing_files:
+                    print(f"   - {file}")
+                print("\nPlease ensure all modules are in the same directory.")
+                print("Note: ai_gold_grid.py is no longer required - using Smart Profit Manager!")
+                input("Press Enter to continue anyway...")
             
         # Start GUI
         app = AISmartProfitGUI()
