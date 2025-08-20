@@ -30,11 +30,27 @@
     "trigger_loss": -50,
     "auto_mode": true
   },
+  "ai_smart_profit": {
+    "analysis_interval": 3,
+    "market_memory_size": 100,
+    "decision_confidence_threshold": 0.6,
+    "max_positions_per_direction": 5,
+    "dynamic_spacing_enabled": true,
+    "cross_direction_trading": true,
+    "adaptive_risk_management": true
+  },
   "smart_profit": {
     "default_strategy": "BALANCED",
     "quick_profit_enabled": true,
     "auto_reposition": true,
     "trailing_stop_distance": 50
+  },
+  "ai_settings": {
+    "grid_intelligence": "FULLY_AI",
+    "cleanup_auto": true,
+    "max_order_age": 45,
+    "auto_execute_pairs": true,
+    "aggressiveness": 3
   },
   "fast_rebalancing": {
     "enabled": true,
