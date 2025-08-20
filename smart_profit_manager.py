@@ -1073,8 +1073,9 @@ class SmartProfitManager:
             print(f"❌ Error removing filled order: {e}")
 
     def check_pending_orders(self):
-        """Check pending orders status"""
+        """🧹 AI Order Cleanup & Management System - ระบบทำความสะอาดไม้อัจฉริยะ"""
         try:
+            # 🧠 Phase 1: Standard Order Status Check (เดิม)
             orders = mt5.orders_get(symbol=self.gold_symbol)
             if orders is None:
                 return
@@ -1084,14 +1085,410 @@ class SmartProfitManager:
                 if order.magic == self.magic_number:
                     current_order_ids.add(order.ticket)
                     
-            # Remove orders that no longer exist
+            # Remove orders that no longer exist (filled or cancelled)
+            removed_orders = []
             for order_id in list(self.pending_orders.keys()):
                 if order_id not in current_order_ids:
+                    removed_orders.append(self.pending_orders[order_id])
                     del self.pending_orders[order_id]
                     
+            if removed_orders:
+                print(f"🔄 Detected {len(removed_orders)} order changes")
+                
+            # 🧠 Phase 2: AI Order Quality Analysis & Cleanup
+            if len(self.pending_orders) > 0:
+                cleanup_results = self.ai_order_cleanup_analysis()
+                
+                if cleanup_results['cleanup_performed']:
+                    print(f"🧹 AI Cleanup completed: {cleanup_results['summary']}")
+                    
+            # 🧠 Phase 3: Order Age Tracking Update
+            self.update_order_age_tracking()
+            
         except Exception as e:
-            print(f"❌ Error checking pending orders: {e}")
+            print(f"❌ Order cleanup error: {e}")
 
+    def ai_order_cleanup_analysis(self):
+        """🧠 AI วิเคราะห์และทำความสะอาดไม้อัจฉริยะ"""
+        try:
+            print("🧹 AI ORDER CLEANUP: Analyzing order quality...")
+            
+            current_price = self.get_current_price()
+            if not current_price:
+                return {'cleanup_performed': False, 'summary': 'No current price'}
+                
+            cleanup_results = {
+                'cleanup_performed': False,
+                'orders_removed': 0,
+                'orders_analyzed': len(self.pending_orders),
+                'cleanup_reasons': [],
+                'summary': ''
+            }
+            
+            # 🧠 Analysis Categories
+            orders_to_remove = []
+            
+            # 1. Age-based cleanup
+            stale_orders = self.find_stale_orders()
+            orders_to_remove.extend(stale_orders)
+            
+            # 2. Distance-based cleanup  
+            distant_orders = self.find_distant_orders(current_price)
+            orders_to_remove.extend(distant_orders)
+            
+            # 3. Redundant orders cleanup
+            redundant_orders = self.find_redundant_orders()
+            orders_to_remove.extend(redundant_orders)
+            
+            # 4. Low-quality orders cleanup
+            low_quality_orders = self.find_low_quality_orders(current_price)
+            orders_to_remove.extend(low_quality_orders)
+            
+            # Remove duplicates
+            unique_orders_to_remove = list(set(orders_to_remove))
+            
+            # 🧹 Execute Cleanup
+            if unique_orders_to_remove:
+                cleanup_success = self.execute_order_cleanup(unique_orders_to_remove)
+                cleanup_results['cleanup_performed'] = True
+                cleanup_results['orders_removed'] = cleanup_success
+                
+            # 📊 Generate Summary
+            cleanup_results['summary'] = self.generate_cleanup_summary(cleanup_results)
+            
+            return cleanup_results
+            
+        except Exception as e:
+            print(f"❌ AI cleanup analysis error: {e}")
+            return {'cleanup_performed': False, 'summary': f'Error: {e}'}
+
+    def find_stale_orders(self):
+        """🕒 หาไม้ที่ค้างนานเกินไป"""
+        try:
+            stale_orders = []
+            current_time = datetime.now()
+            max_age_minutes = 45  # ค้างเกิน 45 นาที
+            
+            for order_id, order_info in self.pending_orders.items():
+                order_time = order_info.get('time')
+                if not order_time:
+                    continue
+                    
+                # Handle different time formats
+                if isinstance(order_time, str):
+                    try:
+                        order_time = datetime.fromisoformat(order_time.replace('Z', '+00:00'))
+                    except:
+                        continue
+                        
+                age_minutes = (current_time - order_time).total_seconds() / 60
+                
+                if age_minutes > max_age_minutes:
+                    stale_orders.append(order_id)
+                    print(f"   🕒 Stale order found: {order_id} (age: {age_minutes:.1f}min)")
+                    
+            return stale_orders
+            
+        except Exception as e:
+            print(f"❌ Stale order detection error: {e}")
+            return []
+
+    def find_distant_orders(self, current_price):
+        """📏 หาไม้ที่อยู่ไกลจากตลาดเกินไป"""
+        try:
+            distant_orders = []
+            
+            # คำนวณระยะไกลสูงสุดที่ยอมรับได้
+            account_info = self.mt5_connector.get_account_info() if self.mt5_connector else None
+            balance = account_info.get('balance', 10000) if account_info else 10000
+            
+            # ปรับ max distance ตาม account size
+            if balance >= 50000:
+                max_distance = 150.0  # $150 สำหรับ account ใหญ่
+            elif balance >= 25000:
+                max_distance = 100.0  # $100 
+            elif balance >= 10000:
+                max_distance = 75.0   # $75
+            elif balance >= 5000:
+                max_distance = 50.0   # $50
+            else:
+                max_distance = 35.0   # $35 สำหรับ account เล็ก
+                
+            for order_id, order_info in self.pending_orders.items():
+                order_price = order_info.get('price', 0)
+                distance = abs(order_price - current_price)
+                
+                if distance > max_distance:
+                    distant_orders.append(order_id)
+                    direction = order_info.get('direction', 'UNKNOWN')
+                    print(f"   📏 Distant order: {order_id} | {direction} ${order_price:.2f} | Distance: ${distance:.2f}")
+                    
+            return distant_orders
+            
+        except Exception as e:
+            print(f"❌ Distant order detection error: {e}")
+            return []
+
+    def find_redundant_orders(self):
+        """🔄 หาไม้ที่ซ้ำซ้อนกัน"""
+        try:
+            redundant_orders = []
+            
+            # จัดกลุ่มตาม direction
+            buy_orders = [(id, info) for id, info in self.pending_orders.items() if info.get('direction') == 'BUY']
+            sell_orders = [(id, info) for id, info in self.pending_orders.items() if info.get('direction') == 'SELL']
+            
+            # เช็ค BUY orders ที่ใกล้กันเกินไป
+            redundant_orders.extend(self.find_close_orders(buy_orders, 'BUY'))
+            
+            # เช็ค SELL orders ที่ใกล้กันเกินไป
+            redundant_orders.extend(self.find_close_orders(sell_orders, 'SELL'))
+            
+            return redundant_orders
+            
+        except Exception as e:
+            print(f"❌ Redundant order detection error: {e}")
+            return []
+
+    def find_close_orders(self, orders_list, direction):
+        """หาไม้ที่ใกล้กันเกินไป"""
+        try:
+            redundant = []
+            min_distance = 2.0  # ระยะห่างขั้นต่ำ $2
+            
+            # เรียงตามราคา
+            orders_list.sort(key=lambda x: x[1].get('price', 0))
+            
+            for i in range(len(orders_list) - 1):
+                current_order = orders_list[i]
+                next_order = orders_list[i + 1]
+                
+                current_price = current_order[1].get('price', 0)
+                next_price = next_order[1].get('price', 0)
+                
+                distance = abs(next_price - current_price)
+                
+                if distance < min_distance:
+                    # เลือกลบไม้ที่อายุมากกว่า
+                    current_time = current_order[1].get('time', datetime.now())
+                    next_time = next_order[1].get('time', datetime.now())
+                    
+                    if isinstance(current_time, str):
+                        try:
+                            current_time = datetime.fromisoformat(current_time.replace('Z', '+00:00'))
+                        except:
+                            current_time = datetime.now()
+                            
+                    if isinstance(next_time, str):
+                        try:
+                            next_time = datetime.fromisoformat(next_time.replace('Z', '+00:00'))
+                        except:
+                            next_time = datetime.now()
+                    
+                    if current_time < next_time:  # current อายุมากกว่า
+                        redundant.append(current_order[0])
+                    else:
+                        redundant.append(next_order[0])
+                        
+                    print(f"   🔄 Close {direction} orders: ${current_price:.2f} & ${next_price:.2f} (distance: ${distance:.2f})")
+                    
+            return redundant
+            
+        except Exception as e:
+            print(f"❌ Close order detection error: {e}")
+            return []
+
+    def find_low_quality_orders(self, current_price):
+        """📉 หาไม้คุณภาพต่ำ"""
+        try:
+            low_quality_orders = []
+            
+            # Market analysis สำหรับประเมินคุณภาพ
+            market_analysis = self.analyze_market_for_smart_grid()
+            volatility = market_analysis['volatility']
+            
+            # คำนวณ "optimal zone" ที่ไม้ควรอยู่
+            optimal_range_buy = current_price * 0.985  # 1.5% ลงจากตลาด
+            optimal_range_sell = current_price * 1.015  # 1.5% ขึ้นจากตลาด
+            
+            for order_id, order_info in self.pending_orders.items():
+                order_price = order_info.get('price', 0)
+                direction = order_info.get('direction', '')
+                lot_size = order_info.get('lot_size', 0)
+                
+                is_low_quality = False
+                reason = ""
+                
+                # เช็ค 1: ไม้ที่อยู่ใน "dead zone"
+                if direction == 'BUY' and order_price > optimal_range_buy:
+                    is_low_quality = True
+                    reason = "BUY too close to market"
+                elif direction == 'SELL' and order_price < optimal_range_sell:
+                    is_low_quality = True
+                    reason = "SELL too close to market"
+                    
+                # เช็ค 2: ไม้ขนาดเล็กเกินไปในตลาดผันผวน
+                if volatility > 1.5 and lot_size < self.base_lot * 0.8:
+                    is_low_quality = True
+                    reason = "Too small for volatile market"
+                    
+                # เช็ค 3: ไม้ที่อยู่ใน "no man's land" (ไม่ใกล้ไม่ไกล)
+                distance = abs(order_price - current_price)
+                base_spacing = self.grid_spacing * 0.01
+                if base_spacing * 0.3 < distance < base_spacing * 0.7:
+                    is_low_quality = True
+                    reason = "In no-mans-land zone"
+                    
+                if is_low_quality:
+                    low_quality_orders.append(order_id)
+                    print(f"   📉 Low quality: {order_id} | {direction} ${order_price:.2f} | {reason}")
+                    
+            return low_quality_orders
+            
+        except Exception as e:
+            print(f"❌ Low quality detection error: {e}")
+            return []
+
+    def execute_order_cleanup(self, orders_to_remove):
+        """🧹 ดำเนินการลบไม้"""
+        try:
+            success_count = 0
+            
+            for order_id in orders_to_remove:
+                if order_id not in self.pending_orders:
+                    continue
+                    
+                order_info = self.pending_orders[order_id]
+                direction = order_info.get('direction', 'UNKNOWN')
+                price = order_info.get('price', 0)
+                
+                # Cancel order ใน MT5
+                request = {
+                    "action": mt5.TRADE_ACTION_REMOVE,
+                    "order": order_id,
+                    "comment": "AI_CLEANUP"
+                }
+                
+                result = mt5.order_send(request)
+                
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    # Remove from internal tracking
+                    del self.pending_orders[order_id]
+                    success_count += 1
+                    print(f"   🗑️ Removed: {direction} ${price:.2f} (ID: {order_id})")
+                else:
+                    error_msg = f"Code: {result.retcode}" if result else "Unknown error"
+                    print(f"   ❌ Failed to remove {order_id}: {error_msg}")
+                    
+            return success_count
+            
+        except Exception as e:
+            print(f"❌ Order cleanup execution error: {e}")
+            return 0
+
+    def update_order_age_tracking(self):
+        """🕒 อัพเดทการติดตามอายุของไม้"""
+        try:
+            current_time = datetime.now()
+            
+            # เพิ่ม age tracking ให้ orders ที่ยังไม่มี
+            for order_id, order_info in self.pending_orders.items():
+                if 'age_minutes' not in order_info:
+                    order_time = order_info.get('time', current_time)
+                    if isinstance(order_time, str):
+                        try:
+                            order_time = datetime.fromisoformat(order_time.replace('Z', '+00:00'))
+                        except:
+                            order_time = current_time
+                            
+                    age_minutes = (current_time - order_time).total_seconds() / 60
+                    order_info['age_minutes'] = age_minutes
+                    
+            # Log สถิติอายุไม้
+            if len(self.pending_orders) > 0:
+                ages = [info.get('age_minutes', 0) for info in self.pending_orders.values()]
+                avg_age = sum(ages) / len(ages)
+                max_age = max(ages)
+                
+                if hasattr(self, 'last_age_log') and (current_time - self.last_age_log).total_seconds() < 300:
+                    return  # Log ทุก 5 นาทีเท่านั้น
+                    
+                print(f"📊 Order Ages: Avg {avg_age:.1f}min, Max {max_age:.1f}min")
+                self.last_age_log = current_time
+                
+        except Exception as e:
+            print(f"❌ Age tracking error: {e}")
+
+    def generate_cleanup_summary(self, cleanup_results):
+        """📋 สร้างสรุปผลการทำความสะอาด"""
+        try:
+            if not cleanup_results['cleanup_performed']:
+                return "No cleanup needed - all orders are optimal"
+                
+            removed = cleanup_results['orders_removed']
+            analyzed = cleanup_results['orders_analyzed']
+            
+            summary = f"Removed {removed}/{analyzed} orders"
+            
+            if removed > 0:
+                remaining = analyzed - removed
+                improvement_pct = (removed / analyzed) * 100
+                summary += f" ({improvement_pct:.1f}% cleanup, {remaining} remaining)"
+            else:
+                summary += " (cleanup attempted but failed)"
+                
+            return summary
+            
+        except Exception as e:
+            return f"Summary generation error: {e}"
+
+    def get_order_cleanup_status(self):
+        """📊 สถานะระบบทำความสะอาดสำหรับ GUI"""
+        try:
+            if not self.pending_orders:
+                return {
+                    'total_orders': 0,
+                    'cleanup_needed': False,
+                    'status': 'No orders to clean'
+                }
+                
+            current_time = datetime.now()
+            current_price = self.get_current_price()
+            
+            # วิเคราะห์คุณภาพ orders
+            stale_count = len(self.find_stale_orders())
+            distant_count = len(self.find_distant_orders(current_price)) if current_price else 0
+            redundant_count = len(self.find_redundant_orders())
+            
+            total_issues = stale_count + distant_count + redundant_count
+            cleanup_needed = total_issues > 0
+            
+            # คำนวณ health score
+            total_orders = len(self.pending_orders)
+            health_score = max(0, 100 - (total_issues / total_orders * 100)) if total_orders > 0 else 100
+            
+            return {
+                'total_orders': total_orders,
+                'cleanup_needed': cleanup_needed,
+                'issues': {
+                    'stale': stale_count,
+                    'distant': distant_count,
+                    'redundant': redundant_count,
+                    'total': total_issues
+                },
+                'health_score': round(health_score, 1),
+                'status': 'Excellent' if health_score >= 90 else 'Good' if health_score >= 70 else 'Needs Cleanup',
+                'last_cleanup': getattr(self, 'last_cleanup_time', 'Never')
+            }
+            
+        except Exception as e:
+            return {
+                'total_orders': len(self.pending_orders),
+                'cleanup_needed': False,
+                'error': str(e),
+                'status': 'Error'
+            }
+    
     def monitor_active_positions(self):
         """Monitor active positions for changes"""
         try:
@@ -1786,130 +2183,435 @@ class SmartProfitManager:
             return False
                 
     def create_grid_immediately(self):
-        """สร้าง grid ใหม่ทันที - ปรับให้ smart exposure balancing"""
+        """🧠 AI Smart Grid Creation - ระบบวางไม้อัจฉริยะใหม่"""
         try:
-            # ✅ เช็คว่ามี orders เยอะเกินไปหรือไม่
-            if len(self.pending_orders) >= 20:  # เพิ่มจาก 10 เป็น 20
-                print(f"🔄 Sufficient orders exist ({len(self.pending_orders)}) - checking exposure balance")
-                self.ensure_balanced_orders()  # เรียกใช้ method ที่แก้ไขแล้ว
+            # 🧠 Phase 1: Market Intelligence Analysis
+            market_analysis = self.analyze_market_for_smart_grid()
+            
+            # เช็คว่ามี pending orders อยู่แล้วหรือไม่
+            if len(self.pending_orders) >= market_analysis['max_orders']:
+                print(f"🔄 Sufficient orders exist ({len(self.pending_orders)}) - analyzing quality")
+                self.analyze_and_optimize_existing_orders()
                 return
                 
-            print("🧠 AI: Creating smart exposure-balanced grid...")
+            print("🧠 AI SMART GRID: Analyzing market for intelligent placement...")
             
             current_price = self.get_current_price()
             if not current_price:
                 print("❌ Cannot get current price")
                 return
-                
-            # ⭐ NEW: วิเคราะห์ exposure ปัจจุบันก่อนสร้าง grid
-            portfolio = self.analyze_portfolio_positions()
-            positions = portfolio.get('grid_positions', [])
             
-            buy_positions = [p for p in positions if p.direction == "BUY"]
-            sell_positions = [p for p in positions if p.direction == "SELL"]
+            # 🧠 Phase 2: Smart Spacing Calculation
+            smart_spacing = self.calculate_intelligent_spacing(market_analysis, current_price)
             
-            buy_position_exposure = sum(p.lot_size for p in buy_positions)
-            sell_position_exposure = sum(p.lot_size for p in sell_positions)
+            print(f"🧠 AI Market Analysis:")
+            print(f"   📊 Condition: {market_analysis['condition']}")
+            print(f"   📈 Volatility: {market_analysis['volatility']:.2f}x")
+            print(f"   🎯 Strategy: {market_analysis['strategy']}")
+            print(f"   📏 Smart Spacing: ${smart_spacing['base']:.2f}")
             
-            # รวมกับ pending orders
+            orders_created = 0
+            
+            # นับ orders ที่มีอยู่
             buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
             sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
             
-            buy_order_exposure = sum(o['lot_size'] for o in buy_orders)
-            sell_order_exposure = sum(o['lot_size'] for o in sell_orders)
+            print(f"📊 Current orders: {len(buy_orders)} BUY, {len(sell_orders)} SELL")
             
-            total_buy_exposure = buy_position_exposure + buy_order_exposure
-            total_sell_exposure = sell_position_exposure + sell_order_exposure
-            
-            print(f"📊 Current Exposure Analysis:")
-            print(f"   🟢 BUY total: {total_buy_exposure:.3f} lots (pos: {buy_position_exposure:.3f} + orders: {buy_order_exposure:.3f})")
-            print(f"   🔴 SELL total: {total_sell_exposure:.3f} lots (pos: {sell_position_exposure:.3f} + orders: {sell_order_exposure:.3f})")
-            
-            # ⭐ NEW: สร้าง grid แบบ smart balancing
-            base_spacing = self.grid_spacing * 0.01
-            wide_spacing = base_spacing * 1.2
-            
-            orders_created = 0
-            target_orders_per_side = 5
-            
-            # สร้าง BUY orders (ถ้าต้องการ)
-            if len(buy_orders) < target_orders_per_side or total_buy_exposure < total_sell_exposure * 0.8:
-                print(f"🟢 Creating/enhancing BUY ladder:")
+            # 🧠 Phase 3: Intelligent BUY Order Placement
+            if len(buy_orders) < market_analysis['target_buy_orders']:
+                print("🟢 AI Smart BUY Placement:")
+                buy_levels = self.calculate_smart_buy_levels(current_price, smart_spacing, market_analysis)
                 
-                # คำนวณ lot size ที่เหมาะสม
-                if total_buy_exposure < total_sell_exposure:
-                    # ต้องเพิ่ม BUY exposure
-                    base_lot_multiplier = 1.5  # ใช้ lot ใหญ่ขึ้น
-                else:
-                    base_lot_multiplier = 1.0
+                for level_info in buy_levels:
+                    level = level_info['level']
+                    price = level_info['price']
+                    lot_size = level_info['lot_size']
+                    importance = level_info['importance']
                     
-                for i in range(1, 8):
-                    distance_multiplier = 1.0 + (i * 0.15)
-                    buy_price = current_price - (wide_spacing * i * distance_multiplier)
+                    print(f"   🎯 Level {level}: ${price:.2f} | {lot_size:.3f} lots | {importance}")
                     
-                    # ปรับ lot size ตาม level และความต้องการ
-                    level_lot = self.base_lot * base_lot_multiplier * (1 + i * 0.2)
-                    level_lot = max(level_lot, 0.01)
-                    level_lot = min(level_lot, self.base_lot * 3)  # จำกัดไม่เกิน 3 เท่า
-                    
-                    # ปรับให้เป็น lot step
-                    import math
-                    lot_step = 0.01
-                    level_lot = round(level_lot / lot_step) * lot_step
-                    
-                    print(f"   🎯 Level {i}: ${buy_price:.2f} - {level_lot:.3f} lots")
-                    
-                    if buy_price > 100:
-                        if not self.has_order_near_price(buy_price, 'BUY', tolerance=wide_spacing * 0.4):
-                            if self.place_pending_order(buy_price, 'BUY', level_lot):
+                    if price > 100:  # ป้องกันราคาต่ำเกิน
+                        if not self.has_order_near_price(price, 'BUY', tolerance=smart_spacing['tolerance']):
+                            if self.place_pending_order(price, 'BUY', lot_size):
                                 orders_created += 1
-                                print(f"   ✅ BUY placed: ${buy_price:.2f} - {level_lot:.3f} lots")
+                                print(f"   ✅ Smart BUY placed: ${price:.2f}")
                                 
                             # หยุดถ้าได้เป้าหมายแล้ว
                             current_buy_count = len([o for o in self.pending_orders.values() if o['direction'] == 'BUY'])
-                            if current_buy_count >= target_orders_per_side:
+                            if current_buy_count >= market_analysis['target_buy_orders']:
                                 break
                                 
-            # สร้าง SELL orders (ถ้าต้องการ)
-            if len(sell_orders) < target_orders_per_side or total_sell_exposure < total_buy_exposure * 0.8:
-                print(f"🔴 Creating/enhancing SELL ladder:")
+            # 🧠 Phase 4: Intelligent SELL Order Placement
+            if len(sell_orders) < market_analysis['target_sell_orders']:
+                print("🔴 AI Smart SELL Placement:")
+                sell_levels = self.calculate_smart_sell_levels(current_price, smart_spacing, market_analysis)
                 
-                if total_sell_exposure < total_buy_exposure:
-                    base_lot_multiplier = 1.5
-                else:
-                    base_lot_multiplier = 1.0
+                for level_info in sell_levels:
+                    level = level_info['level']
+                    price = level_info['price']
+                    lot_size = level_info['lot_size']
+                    importance = level_info['importance']
                     
-                for i in range(1, 8):
-                    distance_multiplier = 1.0 + (i * 0.15)
-                    sell_price = current_price + (wide_spacing * i * distance_multiplier)
+                    print(f"   🎯 Level {level}: ${price:.2f} | {lot_size:.3f} lots | {importance}")
                     
-                    level_lot = self.base_lot * base_lot_multiplier * (1 + i * 0.2)
-                    level_lot = max(level_lot, 0.01)
-                    level_lot = min(level_lot, self.base_lot * 3)
-                    
-                    import math
-                    lot_step = 0.01
-                    level_lot = round(level_lot / lot_step) * lot_step
-                    
-                    print(f"   🎯 Level {i}: ${sell_price:.2f} - {level_lot:.3f} lots")
-                    
-                    if not self.has_order_near_price(sell_price, 'SELL', tolerance=wide_spacing * 0.4):
-                        if self.place_pending_order(sell_price, 'SELL', level_lot):
+                    if not self.has_order_near_price(price, 'SELL', tolerance=smart_spacing['tolerance']):
+                        if self.place_pending_order(price, 'SELL', lot_size):
                             orders_created += 1
-                            print(f"   ✅ SELL placed: ${sell_price:.2f} - {level_lot:.3f} lots")
+                            print(f"   ✅ Smart SELL placed: ${price:.2f}")
                             
+                        # หยุดถ้าได้เป้าหมายแล้ว
                         current_sell_count = len([o for o in self.pending_orders.values() if o['direction'] == 'SELL'])
-                        if current_sell_count >= target_orders_per_side:
+                        if current_sell_count >= market_analysis['target_sell_orders']:
                             break
                             
+            # 🧠 Phase 5: Results & Coverage Analysis
             if orders_created > 0:
-                print(f"✅ Smart exposure-balanced grid created: {orders_created} orders")
-                self.print_grid_coverage()
+                print(f"✅ AI Smart Grid created: {orders_created} intelligent orders")
+                self.analyze_smart_grid_coverage()
             else:
-                print(f"✅ Grid exposure already adequate")
+                print(f"✅ AI Grid coverage optimal")
                 
         except Exception as e:
             print(f"❌ Smart grid creation error: {e}")
+
+    def analyze_market_for_smart_grid(self):
+        """🧠 วิเคราะห์ตลาดเพื่อการวางไม้อัจฉริยะ"""
+        try:
+            current_price = self.get_current_price()
+            if not current_price:
+                return self.get_default_market_analysis()
+            
+            # 🧠 AI Market Analysis
+            account_info = self.mt5_connector.get_account_info() if self.mt5_connector else None
+            balance = account_info.get('balance', 10000) if account_info else 10000
+            
+            # วิเคราะห์ market condition จาก account size และเวลา
+            import datetime
+            current_hour = datetime.datetime.now().hour
+            
+            # Market volatility estimation
+            if current_hour in [8, 9, 13, 14, 15, 16]:  # Active hours
+                volatility = 1.5
+                condition = "ACTIVE"
+            elif current_hour in [22, 23, 0, 1, 2, 3]:  # Quiet hours
+                volatility = 0.7
+                condition = "QUIET"
+            else:
+                volatility = 1.0
+                condition = "NORMAL"
+            
+            # Account-based strategy
+            if balance >= 25000:
+                strategy = "PREMIUM_DENSE"
+                max_orders = 12
+                target_buy = 6
+                target_sell = 6
+            elif balance >= 10000:
+                strategy = "BALANCED_SMART"
+                max_orders = 10
+                target_buy = 5
+                target_sell = 5
+            elif balance >= 5000:
+                strategy = "CONSERVATIVE_WIDE"
+                max_orders = 8
+                target_buy = 4
+                target_sell = 4
+            else:
+                strategy = "MINIMAL_SAFE"
+                max_orders = 6
+                target_buy = 3
+                target_sell = 3
+            
+            return {
+                'condition': condition,
+                'volatility': volatility,
+                'strategy': strategy,
+                'max_orders': max_orders,
+                'target_buy_orders': target_buy,
+                'target_sell_orders': target_sell,
+                'balance': balance,
+                'analysis_time': datetime.datetime.now()
+            }
+            
+        except Exception as e:
+            print(f"❌ Market analysis error: {e}")
+            return self.get_default_market_analysis()
+    
+    def get_default_market_analysis(self):
+        """Default market analysis fallback"""
+        return {
+            'condition': 'NORMAL',
+            'volatility': 1.0,
+            'strategy': 'BALANCED_SMART',
+            'max_orders': 10,
+            'target_buy_orders': 5,
+            'target_sell_orders': 5,
+            'balance': 10000,
+            'analysis_time': datetime.now()
+        }
+    
+    def calculate_intelligent_spacing(self, market_analysis, current_price):
+        """🧠 คำนวณระยะห่างอัจฉริยะ"""
+        try:
+            # Base spacing จาก grid_spacing เดิม
+            base_spacing = self.grid_spacing * 0.01
+            
+            # ปรับตาม volatility
+            volatility_factor = market_analysis['volatility']
+            if volatility_factor > 1.5:
+                spacing_multiplier = 1.4  # ตลาดผันผวน = ไม้ห่างขึ้น
+            elif volatility_factor < 0.8:
+                spacing_multiplier = 0.8  # ตลาดเงียบ = ไม้ใกล้ขึ้น
+            else:
+                spacing_multiplier = 1.0  # ปกติ
+            
+            # ปรับตาม account strategy
+            strategy = market_analysis['strategy']
+            if 'DENSE' in strategy:
+                strategy_multiplier = 0.7
+            elif 'WIDE' in strategy:
+                strategy_multiplier = 1.5
+            else:
+                strategy_multiplier = 1.0
+            
+            final_spacing = base_spacing * spacing_multiplier * strategy_multiplier
+            
+            return {
+                'base': final_spacing,
+                'volatility_adjusted': base_spacing * spacing_multiplier,
+                'strategy_adjusted': final_spacing,
+                'tolerance': final_spacing * 0.3,
+                'multipliers': {
+                    'volatility': spacing_multiplier,
+                    'strategy': strategy_multiplier
+                }
+            }
+            
+        except Exception as e:
+            print(f"❌ Spacing calculation error: {e}")
+            fallback_spacing = self.grid_spacing * 0.01
+            return {
+                'base': fallback_spacing,
+                'tolerance': fallback_spacing * 0.3,
+                'multipliers': {'volatility': 1.0, 'strategy': 1.0}
+            }
+    
+    def calculate_smart_buy_levels(self, current_price, smart_spacing, market_analysis):
+        """🧠 คำนวณระดับ BUY อัจฉริยะ"""
+        try:
+            buy_levels = []
+            max_levels = market_analysis['target_buy_orders'] + 2  # สำรองเพิ่ม
+            base_spacing = smart_spacing['base']
+            
+            for i in range(1, max_levels + 1):
+                # Progressive spacing - ยิ่งไกลยิ่งห่าง
+                if market_analysis['volatility'] > 1.3:
+                    distance_multiplier = 1.0 + (i * 0.25)  # ผันผวน = เพิ่มระยะเร็ว
+                else:
+                    distance_multiplier = 1.0 + (i * 0.15)  # เงียบ = เพิ่มระยะช้า
+                
+                price = current_price - (base_spacing * i * distance_multiplier)
+                
+                # Smart lot sizing
+                if i <= 2:
+                    lot_size = self.base_lot  # ใกล้ตลาด = ไม้ปกติ
+                    importance = "HIGH"
+                elif i <= 4:
+                    lot_size = self.base_lot * 1.2  # ไกลกลาง = ไม้ใหญ่ขึ้น
+                    importance = "MEDIUM"
+                else:
+                    lot_size = self.base_lot * 1.5  # ไกลมาก = ไม้ใหญ่สุด
+                    importance = "LOW"
+                
+                # Round lot size to broker step
+                min_lot = 0.01
+                lot_step = 0.01
+                import math
+                lot_size = max(min_lot, round(lot_size / lot_step) * lot_step)
+                
+                buy_levels.append({
+                    'level': i,
+                    'price': round(price, 2),
+                    'lot_size': round(lot_size, 3),
+                    'distance': base_spacing * i * distance_multiplier,
+                    'importance': importance,
+                    'distance_multiplier': distance_multiplier
+                })
+            
+            return buy_levels[:market_analysis['target_buy_orders']]
+            
+        except Exception as e:
+            print(f"❌ Smart BUY levels error: {e}")
+            return []
+    
+    def calculate_smart_sell_levels(self, current_price, smart_spacing, market_analysis):
+        """🧠 คำนวณระดับ SELL อัจฉริยะ"""
+        try:
+            sell_levels = []
+            max_levels = market_analysis['target_sell_orders'] + 2
+            base_spacing = smart_spacing['base']
+            
+            for i in range(1, max_levels + 1):
+                # Progressive spacing เหมือน BUY
+                if market_analysis['volatility'] > 1.3:
+                    distance_multiplier = 1.0 + (i * 0.25)
+                else:
+                    distance_multiplier = 1.0 + (i * 0.15)
+                
+                price = current_price + (base_spacing * i * distance_multiplier)
+                
+                # Smart lot sizing เหมือน BUY
+                if i <= 2:
+                    lot_size = self.base_lot
+                    importance = "HIGH"
+                elif i <= 4:
+                    lot_size = self.base_lot * 1.2
+                    importance = "MEDIUM"
+                else:
+                    lot_size = self.base_lot * 1.5
+                    importance = "LOW"
+                
+                # Round lot size
+                min_lot = 0.01
+                lot_step = 0.01
+                import math
+                lot_size = max(min_lot, round(lot_size / lot_step) * lot_step)
+                
+                sell_levels.append({
+                    'level': i,
+                    'price': round(price, 2),
+                    'lot_size': round(lot_size, 3),
+                    'distance': base_spacing * i * distance_multiplier,
+                    'importance': importance,
+                    'distance_multiplier': distance_multiplier
+                })
+            
+            return sell_levels[:market_analysis['target_sell_orders']]
+            
+        except Exception as e:
+            print(f"❌ Smart SELL levels error: {e}")
+            return []
+    
+    def analyze_and_optimize_existing_orders(self):
+        """🧠 วิเคราะห์และปรับปรุง orders ที่มีอยู่"""
+        try:
+            print("🧠 AI: Analyzing existing order quality...")
+            
+            current_price = self.get_current_price()
+            if not current_price:
+                return
+            
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            # วิเคราะห์คุณภาพ
+            quality_analysis = {
+                'total_orders': len(self.pending_orders),
+                'buy_orders': len(buy_orders),
+                'sell_orders': len(sell_orders),
+                'balance_ratio': len(buy_orders) / len(sell_orders) if sell_orders else 0,
+                'coverage_range': 0,
+                'avg_distance': 0
+            }
+            
+            if buy_orders and sell_orders:
+                min_buy = min(o['price'] for o in buy_orders)
+                max_sell = max(o['price'] for o in sell_orders)
+                quality_analysis['coverage_range'] = max_sell - min_buy
+                
+                distances = [abs(o['price'] - current_price) for o in self.pending_orders.values()]
+                quality_analysis['avg_distance'] = sum(distances) / len(distances)
+            
+            print(f"   📊 Quality Analysis:")
+            print(f"      Balance Ratio: {quality_analysis['balance_ratio']:.2f}")
+            print(f"      Coverage Range: ${quality_analysis['coverage_range']:.2f}")
+            print(f"      Avg Distance: ${quality_analysis['avg_distance']:.2f}")
+            
+            # ถ้า imbalance มาก ให้เพิ่ม orders
+            if quality_analysis['balance_ratio'] < 0.5 or quality_analysis['balance_ratio'] > 2.0:
+                print("   ⚖️ Significant imbalance detected - adding balancing orders")
+                self.add_balancing_orders()
+            else:
+                print("   ✅ Order quality acceptable")
+                
+        except Exception as e:
+            print(f"❌ Order analysis error: {e}")
+    
+    def add_balancing_orders(self):
+        """เพิ่ม orders เพื่อ balance"""
+        try:
+            current_price = self.get_current_price()
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            spacing_dollars = self.grid_spacing * 0.01
+            
+            if len(buy_orders) < len(sell_orders) - 1:
+                # เพิ่ม BUY orders
+                buy_price = current_price - (spacing_dollars * 0.8)
+                if not self.has_order_near_price(buy_price, 'BUY', tolerance=1.0):
+                    self.place_pending_order(buy_price, 'BUY', self.base_lot)
+                    print(f"   🟢 Added balancing BUY: ${buy_price:.2f}")
+                    
+            elif len(sell_orders) < len(buy_orders) - 1:
+                # เพิ่ม SELL orders
+                sell_price = current_price + (spacing_dollars * 0.8)
+                if not self.has_order_near_price(sell_price, 'SELL', tolerance=1.0):
+                    self.place_pending_order(sell_price, 'SELL', self.base_lot)
+                    print(f"   🔴 Added balancing SELL: ${sell_price:.2f}")
+                    
+        except Exception as e:
+            print(f"❌ Balancing error: {e}")
+    
+    def analyze_smart_grid_coverage(self):
+        """🧠 วิเคราะห์ coverage ของ Smart Grid"""
+        try:
+            current_price = self.get_current_price()
+            if not current_price:
+                return
+                
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            print(f"🧠 AI SMART GRID COVERAGE ANALYSIS:")
+            print(f"   🎯 Current price: ${current_price:.2f}")
+            
+            if buy_orders:
+                buy_prices = [o['price'] for o in buy_orders]
+                buy_lots = [o['lot_size'] for o in buy_orders]
+                min_buy = min(buy_prices)
+                max_buy = max(buy_prices)
+                total_buy_lots = sum(buy_lots)
+                print(f"   🟢 BUY Coverage: ${min_buy:.2f} to ${max_buy:.2f} ({len(buy_orders)} orders)")
+                print(f"      Total BUY exposure: {total_buy_lots:.3f} lots")
+                print(f"      BUY range: ${current_price - min_buy:.2f}")
+                
+            if sell_orders:
+                sell_prices = [o['price'] for o in sell_orders]
+                sell_lots = [o['lot_size'] for o in sell_orders]
+                min_sell = min(sell_prices)
+                max_sell = max(sell_prices)
+                total_sell_lots = sum(sell_lots)
+                print(f"   🔴 SELL Coverage: ${min_sell:.2f} to ${max_sell:.2f} ({len(sell_orders)} orders)")
+                print(f"      Total SELL exposure: {total_sell_lots:.3f} lots")
+                print(f"      SELL range: ${max_sell - current_price:.2f}")
+                
+            if buy_orders and sell_orders:
+                total_coverage = max(sell_prices) - min(buy_prices)
+                survivability_coverage = (total_coverage / (self.survivability * 0.01)) * 100
+                print(f"   🛡️ TOTAL AI Coverage: ${total_coverage:.2f}")
+                print(f"   📊 Survivability coverage: {survivability_coverage:.1f}%")
+                
+                if survivability_coverage >= 50:
+                    print(f"   ✅ EXCELLENT: AI Grid coverage exceeds 50% of survivability")
+                elif survivability_coverage >= 30:
+                    print(f"   👍 GOOD: AI Grid coverage adequate")
+                else:
+                    print(f"   ⚠️ ATTENTION: Consider expanding grid coverage")
+                
+        except Exception as e:
+            print(f"❌ Coverage analysis error: {e}")
 
     def fill_price_gaps(self):
         """เติมช่องว่างในราคาแทนการสร้างใหม่"""
@@ -2059,16 +2761,50 @@ class SmartProfitManager:
             print(f"❌ Print coverage error: {e}")
 
     def consider_replacement_order(self, filled_position):
-        """วางไม้ใหม่หลังปิด position - แก้ไขให้กระจายไกลขึ้น"""
+        """🧠 AI Smart Replacement Strategy - วางไม้ทดแทนอัจฉริยะ"""
         try:
+            print("🧠 AI SMART REPLACEMENT: Analyzing optimal replacement...")
+            
             current_price = self.get_current_price()
             if not current_price:
                 return
                 
-            # ✅ เพิ่ม spacing สำหรับ replacement
-            base_spacing = self.grid_spacing * 0.01
-            replacement_spacing = base_spacing * 2.0  # เพิ่มเป็น 2 เท่า
+            # 🧠 Phase 1: Analyze Why Position Was Filled
+            fill_analysis = self.analyze_position_fill(filled_position, current_price)
             
+            # 🧠 Phase 2: Market Condition Check
+            market_analysis = self.analyze_market_for_smart_grid()
+            
+            # 🧠 Phase 3: Smart Replacement Decision
+            replacement_strategy = self.calculate_smart_replacement_strategy(
+                filled_position, fill_analysis, market_analysis, current_price
+            )
+            
+            print(f"🧠 Fill Analysis:")
+            print(f"   📊 Fill Reason: {fill_analysis['reason']}")
+            print(f"   📈 Market Move: {fill_analysis['market_move']:.2f}")
+            print(f"   🎯 Replacement Strategy: {replacement_strategy['strategy']}")
+            
+            # 🧠 Phase 4: Execute Smart Replacement
+            if replacement_strategy['should_replace']:
+                success = self.execute_smart_replacement(replacement_strategy)
+                if success:
+                    print(f"   ✅ Smart replacement executed successfully")
+                else:
+                    print(f"   ⚠️ Smart replacement attempted but failed")
+            else:
+                print(f"   🤔 AI Decision: No replacement needed")
+                print(f"   💡 Reason: {replacement_strategy['reason']}")
+                
+            # 🧠 Phase 5: Portfolio Rebalance Check
+            self.intelligent_portfolio_rebalance()
+                    
+        except Exception as e:
+            print(f"❌ Smart replacement error: {e}")
+
+    def analyze_position_fill(self, filled_position, current_price):
+        """🧠 วิเคราะห์สาเหตุที่ position ถูก fill"""
+        try:
             if isinstance(filled_position, SmartPosition):
                 direction = filled_position.direction
                 entry_price = filled_position.entry_price
@@ -2076,24 +2812,285 @@ class SmartProfitManager:
                 direction = filled_position.get('direction')
                 entry_price = filled_position.get('price_open', current_price)
                 
-            # วางไม้ใหม่ไกลออกไป
+            # คำนวณการเคลื่อนไหวของตลาด
             if direction == "BUY":
-                new_price = entry_price - replacement_spacing  # ไกลลงไป
-                if new_price > 100:
-                    success = self.place_pending_order(new_price, 'BUY', self.base_lot)
-                    if success:
-                        print(f"   🔄 Replacement BUY: ${new_price:.2f} (spacing: ${replacement_spacing:.2f})")
+                market_move = current_price - entry_price  # BUY fill = ราคาลง
+                move_direction = "DOWN" if market_move < 0 else "SIDEWAYS"
             else:
-                new_price = entry_price + replacement_spacing  # ไกลขึ้นไป
-                success = self.place_pending_order(new_price, 'SELL', self.base_lot)
-                if success:
-                    print(f"   🔄 Replacement SELL: ${new_price:.2f} (spacing: ${replacement_spacing:.2f})")
-                    
-            # เช็ค balance หลังวางไม้ใหม่
-            self.ensure_balanced_orders()
-                    
+                market_move = entry_price - current_price  # SELL fill = ราคาขึ้น
+                move_direction = "UP" if market_move > 0 else "SIDEWAYS"
+                
+            # วิเคราะห์สาเหตุ
+            abs_move = abs(market_move)
+            if abs_move > 20:  # เคลื่อนไหวมากกว่า $20
+                reason = "STRONG_TREND"
+            elif abs_move > 10:
+                reason = "MODERATE_MOVE"
+            elif abs_move > 5:
+                reason = "NORMAL_FILL"
+            else:
+                reason = "PRICE_TOUCH"
+                
+            return {
+                'direction': direction,
+                'entry_price': entry_price,
+                'current_price': current_price,
+                'market_move': market_move,
+                'move_direction': move_direction,
+                'reason': reason,
+                'move_strength': abs_move
+            }
+            
         except Exception as e:
-            print(f"❌ Replacement order error: {e}")
+            print(f"❌ Fill analysis error: {e}")
+            return {
+                'reason': 'UNKNOWN',
+                'market_move': 0,
+                'move_direction': 'SIDEWAYS',
+                'move_strength': 0
+            }
+
+    def calculate_smart_replacement_strategy(self, filled_position, fill_analysis, market_analysis, current_price):
+        """🧠 คำนวณกลยุทธ์การแทนที่ไม้อัจฉริยะ"""
+        try:
+            direction = fill_analysis['direction']
+            move_strength = fill_analysis['move_strength']
+            market_condition = market_analysis['condition']
+            volatility = market_analysis['volatility']
+            
+            # 🧠 Decision Matrix
+            should_replace = True
+            strategy = "STANDARD"
+            spacing_multiplier = 1.0
+            lot_multiplier = 1.0
+            new_position_distance = 0
+            
+            # 🎯 Strategy based on fill reason
+            if fill_analysis['reason'] == "STRONG_TREND":
+                # แรงลาก แรง = วางไม้ไกลออกไป
+                strategy = "FAR_PLACEMENT"
+                spacing_multiplier = 2.5
+                lot_multiplier = 1.3  # ไม้ใหญ่ขึ้น
+                
+            elif fill_analysis['reason'] == "MODERATE_MOVE":
+                # การเคลื่อนไหวปานกลาง = วางไม้ไกลปานกลาง
+                strategy = "MODERATE_PLACEMENT"
+                spacing_multiplier = 1.8
+                lot_multiplier = 1.1
+                
+            elif fill_analysis['reason'] == "NORMAL_FILL":
+                # Fill ปกติ = วางไม้ตำแหน่งมาตรฐาน
+                strategy = "STANDARD_PLACEMENT"
+                spacing_multiplier = 1.2
+                lot_multiplier = 1.0
+                
+            elif fill_analysis['reason'] == "PRICE_TOUCH":
+                # แค่แตะราคา = วางไม้ใกล้ๆ เดิม
+                strategy = "CLOSE_PLACEMENT"
+                spacing_multiplier = 0.8
+                lot_multiplier = 1.0
+                
+            # 🌡️ Adjust for market volatility
+            if volatility > 1.5:
+                spacing_multiplier *= 1.3  # ตลาดผันผวน = ห่างขึ้น
+            elif volatility < 0.8:
+                spacing_multiplier *= 0.8  # ตลาดเงียบ = ใกล้ขึ้น
+                
+            # 📊 Portfolio balance consideration
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            # ถ้า imbalance มาก ให้ adjust strategy
+            if direction == "BUY" and len(buy_orders) >= len(sell_orders) * 2:
+                # BUY เยอะเกินไป อาจไม่ต้อง replace
+                should_replace = False
+                reason = "Too many BUY orders already"
+            elif direction == "SELL" and len(sell_orders) >= len(buy_orders) * 2:
+                # SELL เยอะเกินไป อาจไม่ต้อง replace
+                should_replace = False
+                reason = "Too many SELL orders already"
+            else:
+                reason = "Balanced portfolio - replacement beneficial"
+                
+            # คำนวณตำแหน่งใหม่
+            base_spacing = self.grid_spacing * 0.01
+            final_spacing = base_spacing * spacing_multiplier
+            
+            if direction == "BUY":
+                new_position_distance = final_spacing
+                new_price = current_price - final_spacing
+            else:
+                new_position_distance = final_spacing  
+                new_price = current_price + final_spacing
+                
+            # คำนวณขนาดไม้ใหม่
+            new_lot_size = self.base_lot * lot_multiplier
+            
+            # ปรับให้เป็น lot step ที่ถูกต้อง
+            min_lot = 0.01
+            lot_step = 0.01
+            import math
+            new_lot_size = max(min_lot, round(new_lot_size / lot_step) * lot_step)
+            
+            return {
+                'should_replace': should_replace,
+                'strategy': strategy,
+                'reason': reason,
+                'direction': direction,
+                'new_price': round(new_price, 2),
+                'new_lot_size': round(new_lot_size, 3),
+                'spacing_multiplier': spacing_multiplier,
+                'lot_multiplier': lot_multiplier,
+                'distance_from_market': new_position_distance,
+                'market_adapted': True
+            }
+            
+        except Exception as e:
+            print(f"❌ Replacement strategy error: {e}")
+            return {
+                'should_replace': False,
+                'strategy': 'ERROR',
+                'reason': f'Calculation error: {e}',
+                'direction': 'UNKNOWN'
+            }
+
+    def execute_smart_replacement(self, replacement_strategy):
+        """🧠 ดำเนินการวางไม้ทดแทนอัจฉริยะ"""
+        try:
+            direction = replacement_strategy['direction']
+            new_price = replacement_strategy['new_price']
+            new_lot_size = replacement_strategy['new_lot_size']
+            strategy = replacement_strategy['strategy']
+            
+            # ตรวจสอบว่าตำแหน่งใหม่เหมาะสมไหม
+            if new_price <= 100:  # ป้องกันราคาต่ำเกินไป
+                print(f"   ⚠️ Price too low: ${new_price:.2f} - skipping replacement")
+                return False
+                
+            # ตรวจสอบว่ามีไม้อยู่ใกล้ๆ หรือไม่
+            tolerance = replacement_strategy['distance_from_market'] * 0.2
+            if self.has_order_near_price(new_price, direction, tolerance=tolerance):
+                print(f"   ⚠️ Similar order exists near ${new_price:.2f} - adjusting position")
+                # ปรับตำแหน่งเล็กน้อย
+                if direction == "BUY":
+                    new_price -= tolerance * 1.5
+                else:
+                    new_price += tolerance * 1.5
+                    
+            # วางไม้ใหม่
+            success = self.place_pending_order(new_price, direction, new_lot_size)
+            
+            if success:
+                print(f"   🎯 Smart {direction} replacement: ${new_price:.2f} | {new_lot_size:.3f} lots")
+                print(f"      Strategy: {strategy}")
+                print(f"      Distance: ${replacement_strategy['distance_from_market']:.2f}")
+                return True
+            else:
+                print(f"   ❌ Failed to place {direction} replacement at ${new_price:.2f}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Replacement execution error: {e}")
+            return False
+
+    def intelligent_portfolio_rebalance(self):
+        """🧠 ปรับสมดุล portfolio อัจฉริยะหลัง replacement"""
+        try:
+            print("🧠 AI: Checking portfolio balance after replacement...")
+            
+            buy_orders = [o for o in self.pending_orders.values() if o['direction'] == 'BUY']
+            sell_orders = [o for o in self.pending_orders.values() if o['direction'] == 'SELL']
+            
+            buy_count = len(buy_orders)
+            sell_count = len(sell_orders)
+            
+            # คำนวณ exposure (ไม่ใช่แค่ count)
+            buy_exposure = sum(o['lot_size'] for o in buy_orders)
+            sell_exposure = sum(o['lot_size'] for o in sell_orders)
+            
+            total_orders = buy_count + sell_count
+            balance_ratio = buy_count / sell_count if sell_count > 0 else 999
+            exposure_ratio = buy_exposure / sell_exposure if sell_exposure > 0 else 999
+            
+            print(f"   📊 Portfolio Analysis:")
+            print(f"      Orders: {buy_count} BUY, {sell_count} SELL")
+            print(f"      Exposure: {buy_exposure:.3f} BUY, {sell_exposure:.3f} SELL")
+            print(f"      Balance Ratio: {balance_ratio:.2f}")
+            print(f"      Exposure Ratio: {exposure_ratio:.2f}")
+            
+            # เงื่อนไขการ rebalance
+            rebalance_needed = False
+            rebalance_action = ""
+            
+            if balance_ratio > 2.0:  # BUY มากเกินไป
+                rebalance_needed = True
+                rebalance_action = "ADD_SELL"
+            elif balance_ratio < 0.5:  # SELL มากเกินไป
+                rebalance_needed = True
+                rebalance_action = "ADD_BUY"
+            elif exposure_ratio > 1.5:  # BUY exposure สูงเกินไป
+                rebalance_needed = True
+                rebalance_action = "ADD_SELL_EXPOSURE"
+            elif exposure_ratio < 0.67:  # SELL exposure สูงเกินไป
+                rebalance_needed = True
+                rebalance_action = "ADD_BUY_EXPOSURE"
+                
+            if rebalance_needed:
+                print(f"   ⚖️ Rebalance needed: {rebalance_action}")
+                self.execute_intelligent_rebalance(rebalance_action)
+            else:
+                print(f"   ✅ Portfolio well balanced")
+                
+        except Exception as e:
+            print(f"❌ Portfolio rebalance error: {e}")
+
+    def execute_intelligent_rebalance(self, action):
+        """🧠 ดำเนินการ rebalance อัจฉริยะ"""
+        try:
+            current_price = self.get_current_price()
+            if not current_price:
+                return
+                
+            market_analysis = self.analyze_market_for_smart_grid()
+            base_spacing = self.grid_spacing * 0.01
+            
+            # ปรับ spacing ตาม volatility
+            smart_spacing = base_spacing * market_analysis['volatility']
+            
+            if action == "ADD_SELL":
+                # เพิ่ม SELL order
+                sell_price = current_price + (smart_spacing * 0.7)  # ใกล้ตลาดกว่าปกติ
+                success = self.place_pending_order(sell_price, 'SELL', self.base_lot)
+                if success:
+                    print(f"      ✅ Rebalance SELL added: ${sell_price:.2f}")
+                    
+            elif action == "ADD_BUY":
+                # เพิ่ม BUY order
+                buy_price = current_price - (smart_spacing * 0.7)  # ใกล้ตลาดกว่าปกติ
+                if buy_price > 100:
+                    success = self.place_pending_order(buy_price, 'BUY', self.base_lot)
+                    if success:
+                        print(f"      ✅ Rebalance BUY added: ${buy_price:.2f}")
+                        
+            elif action == "ADD_SELL_EXPOSURE":
+                # เพิ่ม SELL ขนาดใหญ่
+                sell_price = current_price + (smart_spacing * 1.2)
+                larger_lot = self.base_lot * 1.3
+                success = self.place_pending_order(sell_price, 'SELL', larger_lot)
+                if success:
+                    print(f"      ✅ Rebalance large SELL added: ${sell_price:.2f} | {larger_lot:.3f} lots")
+                    
+            elif action == "ADD_BUY_EXPOSURE":
+                # เพิ่ม BUY ขนาดใหญ่
+                buy_price = current_price - (smart_spacing * 1.2)
+                larger_lot = self.base_lot * 1.3
+                if buy_price > 100:
+                    success = self.place_pending_order(buy_price, 'BUY', larger_lot)
+                    if success:
+                        print(f"      ✅ Rebalance large BUY added: ${buy_price:.2f} | {larger_lot:.3f} lots")
+                        
+        except Exception as e:
+            print(f"❌ Intelligent rebalance execution error: {e}")
 
     def ensure_balanced_orders(self):
         """แก้ไข method นี้ - เพิ่ม LOT EXPOSURE check และ smart BUY creation"""
