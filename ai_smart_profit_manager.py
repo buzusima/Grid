@@ -100,6 +100,10 @@ class AISmartProfitManager:
         self.survivability = survivability_config.get('realistic_survivability', 15000)
         self.magic_number = 77703292
         
+        # 🛡️ NEW: Portfolio Support System
+        self.portfolio_support_positions = {}  # เก็บไม้ที่อยู่ใน support mode
+        self.support_trailing_data = {}        # เก็บข้อมูล trailing ของแต่ละไม้
+        
         # AI State
         self.ai_active = False
         self.ai_health_score = 50.0
@@ -608,7 +612,7 @@ class AISmartProfitManager:
             print("👁️ Enhanced AI Monitoring Loop: STARTED")
 
     def ai_enhanced_main_loop(self):
-        """Enhanced main AI decision loop with better error handling"""
+        """Enhanced main AI decision loop with Trailing Support Detection"""
         print("🧠 AI ENHANCED MAIN LOOP: Starting intelligent grid management...")
         
         while self.ai_active:
@@ -628,23 +632,39 @@ class AISmartProfitManager:
                 health_score = self.ai_calculate_portfolio_health()
                 self.ai_health_score = health_score
                 
-                # Enhanced Grid Management (if enabled)
+                # 🛡️ NEW: Detect and Manage Support Positions
+                try:
+                    self._detect_and_manage_support_positions()
+                except Exception as e:
+                    print(f"⚠️ Support detection error: {e}")
+                
+                # 🔄 NEW: Update Trailing Stops
+                try:
+                    self._update_all_trailing_stops()
+                except Exception as e:
+                    print(f"⚠️ Trailing update error: {e}")
+                
+                # 🚨 NEW: Check Trailing Hits
+                try:
+                    self._check_trailing_stop_hits()
+                except Exception as e:
+                    print(f"⚠️ Trailing check error: {e}")
+                
+                # Enhanced Grid Management
                 if hasattr(self, 'smart_enhancer') and self.smart_enhancer.enabled:
                     try:
                         self.manage_enhanced_grid()
                     except Exception as e:
                         print(f"⚠️ Enhanced grid management error: {e}")
-                        # Fallback to original method
                         self.manage_original_grid()
                 else:
                     self.manage_original_grid()
                 
-                # Enhanced Profit Taking (with error handling)
+                # Enhanced Profit Taking
                 try:
                     self.execute_enhanced_profit_taking()
                 except Exception as e:
                     print(f"⚠️ Enhanced profit taking error: {e}")
-                    # Fallback to original method
                     self.execute_original_profit_taking()
                 
                 # Gap Detection and Filling
@@ -659,7 +679,6 @@ class AISmartProfitManager:
                 except Exception as e:
                     print(f"⚠️ Portfolio rebalancing error: {e}")
                 
-                # Sleep between cycles
                 time.sleep(3)
                 
             except Exception as e:
@@ -668,7 +687,6 @@ class AISmartProfitManager:
         
         print("🛑 Enhanced AI Main Loop: Stopped")
 
-    # 🔧 เพิ่ม fallback methods
     def manage_original_grid(self):
         """Original grid management (fallback)"""
         try:
@@ -1075,54 +1093,216 @@ class AISmartProfitManager:
 
     def find_enhanced_profit_opportunities(self) -> List[Dict]:
         """
-        Ultra Flexible Profit Taking - ปิดได้หลากหลาย ยืดหยุ่น และชาญฉลาด
+        RESCUE ONLY SYSTEM - หักลบกัน ไม่คัทไม้ทิ้ง
         """
         try:
-            print("🧠 ULTRA FLEXIBLE INTELLIGENT PROFIT SYSTEM")
+            print("🛡️ RESCUE ONLY PROFIT SYSTEM - NO CUTTING LOSSES")
             print("=" * 60)
             
             positions = list(self.active_positions.values())
             if len(positions) < 1:
                 return []
             
-            # 📊 Step 1: Comprehensive Portfolio Analysis
+            # 📊 Step 1: Portfolio Analysis
             portfolio_analysis = self._analyze_portfolio_comprehensive(positions)
             
-            # 🧠 Step 2: Multi-Strategy Opportunity Detection
+            # 🧠 Step 2: RESCUE STRATEGIES ONLY
             all_strategies = [
-                self._strategy_instant_profit(positions, portfolio_analysis),      # เก็บกำไรด่วน
-                self._strategy_rescue_operations(positions, portfolio_analysis),   # ช่วยเหลือไม้ขาดทุน
-                self._strategy_margin_optimization(positions, portfolio_analysis), # เพิ่มประสิทธิภาพ margin
-                self._strategy_portfolio_rebalancing(positions, portfolio_analysis), # ปรับสมดุล portfolio
-                self._strategy_risk_reduction(positions, portfolio_analysis),      # ลดความเสี่ยง
-                self._strategy_opportunity_harvesting(positions, portfolio_analysis), # เก็บเกี่ยวโอกาส
-                self._strategy_emergency_protocols(positions, portfolio_analysis), # โปรโตคอลฉุกเฉิน
-                self._strategy_smart_combinations(positions, portfolio_analysis)   # การรวมอัจฉริยะ
+                self._strategy_high_profit_only(positions, portfolio_analysis),    # เก็บกำไรสูงเท่านั้น
+                self._strategy_rescue_operations(positions, portfolio_analysis),   # หักลบช่วยเหลือ
+                self._strategy_smart_rescue_combinations(positions, portfolio_analysis)  # รวมหักลบ
             ]
             
-            # 🔄 Step 3: Merge and Optimize All Strategies
+            # 🔄 Step 3: Merge Results
             merged_opportunities = []
             for strategy_results in all_strategies:
                 merged_opportunities.extend(strategy_results)
             
-            # 🎯 Step 4: Intelligence Scoring & Ranking
-            intelligent_opportunities = self._apply_intelligence_scoring(merged_opportunities, portfolio_analysis)
+            # 🎯 Step 4: Score & Sort
+            final_opportunities = self._apply_rescue_scoring(merged_opportunities, portfolio_analysis)
+            final_opportunities = self._final_rescue_optimization(final_opportunities, portfolio_analysis)
             
-            # 🚀 Step 5: Final Optimization & Selection
-            final_opportunities = self._final_optimization(intelligent_opportunities, portfolio_analysis)
-            
-            print(f"\n🏆 ULTRA FLEXIBLE RESULTS:")
-            print(f"   Total Strategies: {len(all_strategies)}")
-            print(f"   Raw Opportunities: {len(merged_opportunities)}")
-            print(f"   Intelligent Filtered: {len(intelligent_opportunities)}")
-            print(f"   Final Optimized: {len(final_opportunities)}")
+            print(f"\n🏆 RESCUE RESULTS:")
+            print(f"   High Profit: {len([o for o in final_opportunities if o['strategy'] == 'HIGH_PROFIT'])}")
+            print(f"   Rescue Pairs: {len([o for o in final_opportunities if o['strategy'] == 'RESCUE_OPERATIONS'])}")
+            print(f"   Smart Combos: {len([o for o in final_opportunities if o['strategy'] == 'SMART_RESCUE'])}")
             
             return final_opportunities
             
         except Exception as e:
-            print(f"❌ Ultra flexible system error: {e}")
-            return self.find_original_profit_opportunities()
-
+            print(f"❌ Rescue system error: {e}")
+            return []
+    
+    def _final_rescue_optimization(self, opportunities, analysis) -> List[Dict]:
+        """🚀 FINAL RESCUE OPTIMIZATION - ป้องกันซ้ำ"""
+        try:
+            if not opportunities:
+                return []
+            
+            final_opportunities = []
+            used_positions = set()
+            
+            for opp in opportunities:
+                position_tickets = set(opp['positions'])
+                
+                # ป้องกันใช้ position ซ้ำ
+                if not position_tickets.intersection(used_positions):
+                    final_opportunities.append(opp)
+                    used_positions.update(position_tickets)
+                    
+                    # จำกัดจำนวน
+                    if len(final_opportunities) >= 10:
+                        break
+            
+            return final_opportunities
+            
+        except Exception as e:
+            return opportunities[:5]
+    
+    def _apply_rescue_scoring(self, opportunities, analysis) -> List[Dict]:
+        """🎯 RESCUE SCORING - ให้คะแนนเฉพาะ rescue ที่ดี"""
+        try:
+            for opp in opportunities:
+                # Base scores
+                profit_score = opp['expected_profit'] * 20  # เน้นกำไรสุทธิ
+                confidence_score = opp['confidence']
+                
+                # Strategy bonuses
+                strategy_bonus = {
+                    'HIGH_PROFIT': 30,      # เก็บกำไรสูง
+                    'RESCUE_OPERATIONS': 50, # ช่วยเหลือหักลบ
+                    'SMART_RESCUE': 40      # รวมอัจฉริยะ
+                }.get(opp['strategy'], 0)
+                
+                # Rescue efficiency bonus
+                rescue_bonus = 0
+                if 'rescue_efficiency' in opp:
+                    efficiency = opp['rescue_efficiency']
+                    if efficiency <= 0.5:  # ช่วยได้ดี
+                        rescue_bonus = 20
+                    elif efficiency <= 0.8:
+                        rescue_bonus = 10
+                
+                # Final score
+                rescue_score = profit_score + confidence_score + strategy_bonus + rescue_bonus
+                opp['rescue_score'] = round(rescue_score, 2)
+            
+            # Filter เฉพาะที่ได้คะแนนดี
+            good_opportunities = [opp for opp in opportunities if opp['rescue_score'] >= 80]
+            good_opportunities.sort(key=lambda x: x['rescue_score'], reverse=True)
+            
+            return good_opportunities
+            
+        except Exception as e:
+            return opportunities
+    
+    def _strategy_smart_rescue_combinations(self, positions, analysis) -> List[Dict]:
+        """🧠 SMART RESCUE COMBOS - หักลบอัจฉริยะ เฉพาะที่ได้กำไรสุทธิ"""
+        opportunities = []
+        
+        try:
+            if len(positions) < 3:
+                return []
+            
+            profitable = analysis['profitable_positions']
+            losing = analysis['losing_positions']
+            
+            if not profitable or not losing:
+                return []
+            
+            # 🎯 3-5 Position Smart Rescue Combinations
+            from itertools import combinations
+            
+            # ลองรวม profitable + losing positions
+            for num_profitable in range(1, min(4, len(profitable) + 1)):
+                for num_losing in range(1, min(4, len(losing) + 1)):
+                    
+                    if num_profitable + num_losing > 5:  # ไม่เกิน 5 positions
+                        continue
+                    
+                    # ลองทุก combination
+                    for profit_combo in combinations(profitable, num_profitable):
+                        for loss_combo in combinations(losing, num_losing):
+                            
+                            total_profit = sum(pos.get('profit', 0) for pos in profit_combo)
+                            total_loss = sum(pos.get('profit', 0) for pos in loss_combo)
+                            net_profit = total_profit + total_loss
+                            
+                            # เฉพาะที่หักลบแล้วได้กำไรสุทธิ
+                            if net_profit >= 2.0:  # ต้องได้กำไรสุทธิ
+                                all_positions = list(profit_combo) + list(loss_combo)
+                                tickets = [pos['ticket'] for pos in all_positions]
+                                total_margin = sum(pos.get('lot_size', 0) for pos in all_positions) * 2000
+                                
+                                # คำนวณ rescue efficiency
+                                rescue_efficiency = abs(total_loss) / total_profit if total_profit > 0 else 0
+                                
+                                opportunities.append({
+                                    'strategy': 'SMART_RESCUE',
+                                    'type': f'COMBO_{num_profitable}P_{num_losing}L',
+                                    'positions': tickets,
+                                    'expected_profit': net_profit,
+                                    'confidence': 75,
+                                    'reasoning': f"Smart combo: ${total_profit:.2f} rescues ${total_loss:.2f} = +${net_profit:.2f}",
+                                    'rescue_efficiency': rescue_efficiency,
+                                    'combo_size': len(all_positions),
+                                    'urgency': 2,
+                                    'impact_score': net_profit * 8,
+                                    'margin_relief': total_margin
+                                })
+            
+            # เรียงตาม net profit
+            opportunities.sort(key=lambda x: x['expected_profit'], reverse=True)
+            
+            return opportunities[:15]  # เอาแค่ 15 อันดับแรก
+            
+        except Exception as e:
+            print(f"❌ Smart rescue combinations error: {e}")
+            return []
+    
+    def _strategy_high_profit_only(self, positions, analysis) -> List[Dict]:
+        """🚀 เก็บแต่กำไรสูงๆ เท่านั้น - ไม่เก็บกำไรเล็กๆ"""
+        opportunities = []
+        
+        try:
+            profitable = analysis['profitable_positions']
+            
+            for pos in profitable:
+                profit = pos.get('profit', 0)
+                age_minutes = self._calculate_position_age(pos)
+                
+                # เก็บแต่กำไรสูงหรืออายุเยอะ
+                should_take = False
+                reasoning = []
+                
+                if profit >= 8.0:  # กำไรสูง
+                    should_take = True
+                    reasoning.append(f"High profit ${profit:.2f}")
+                elif profit >= 5.0 and age_minutes > 60:  # กำไรปานกลางแต่อายุเยอะ
+                    should_take = True
+                    reasoning.append(f"Aged profit ${profit:.2f} ({age_minutes}min)")
+                elif profit >= 3.0 and age_minutes > 120:  # กำไรน้อยแต่อายุมาก
+                    should_take = True
+                    reasoning.append(f"Very aged profit ${profit:.2f} ({age_minutes}min)")
+                
+                if should_take:
+                    opportunities.append({
+                        'strategy': 'HIGH_PROFIT',
+                        'type': 'SAFE_PROFIT_TAKING',
+                        'positions': [pos['ticket']],
+                        'expected_profit': profit,
+                        'confidence': 90,
+                        'reasoning': " | ".join(reasoning),
+                        'urgency': 1,
+                        'impact_score': profit * 10,
+                        'margin_relief': pos.get('lot_size', 0) * 2000
+                    })
+            
+            return opportunities
+            
+        except Exception as e:
+            return []
+    
     def _analyze_portfolio_comprehensive(self, positions) -> Dict:
         """
         🔍 Comprehensive Portfolio Analysis - วิเคราะห์ portfolio รอบด้าน
@@ -1184,6 +1364,96 @@ class AISmartProfitManager:
             print(f"❌ Portfolio analysis error: {e}")
             return {'total_positions': len(positions), 'emergency_level': 5}
 
+    def _calculate_portfolio_health(self, analysis) -> Dict:
+        """คำนวณสุขภาพของ portfolio"""
+        try:
+            net_pnl = analysis['net_pnl']
+            total_positions = analysis['total_positions']
+            
+            # Base health from P&L
+            if net_pnl > 50:
+                health = 90
+            elif net_pnl > 20:
+                health = 80
+            elif net_pnl > 0:
+                health = 70
+            elif net_pnl > -20:
+                health = 60
+            elif net_pnl > -50:
+                health = 40
+            else:
+                health = 20
+            
+            # Position count penalty
+            if total_positions > 20:
+                health -= 20
+            elif total_positions > 15:
+                health -= 10
+            elif total_positions > 10:
+                health -= 5
+            
+            return {
+                'portfolio_health': max(0, min(100, health))
+            }
+        except Exception as e:
+            return {'portfolio_health': 50}
+
+    def _determine_risk_level(self, analysis) -> Dict:
+        """กำหนดระดับความเสี่ยง - ไม่รุนแรง"""
+        try:
+            net_pnl = analysis['net_pnl']
+            total_margin = analysis['total_margin_used']
+            
+            # ปรับให้ไม่รุนแรง
+            if net_pnl < -200 or total_margin > 100000:  # เพิ่มเกณฑ์
+                risk_level = 'HIGH'
+                emergency_level = 3  # ลดจาก 5 เป็น 3
+            elif net_pnl < -100 or total_margin > 50000:
+                risk_level = 'MEDIUM'
+                emergency_level = 2  # ลดจาก 4 เป็น 2
+            elif net_pnl < -50 or total_margin > 30000:
+                risk_level = 'LOW'
+                emergency_level = 1  # ลดจาก 3 เป็น 1
+            else:
+                risk_level = 'VERY_LOW'
+                emergency_level = 0  # ลดจาก 2 เป็น 0
+            
+            return {
+                'risk_level': risk_level,
+                'emergency_level': emergency_level
+            }
+        except Exception as e:
+            return {'risk_level': 'LOW', 'emergency_level': 1}
+    
+    def _assess_margin_situation(self, analysis) -> Dict:
+        """ประเมินสถานการณ์ margin"""
+        try:
+            total_margin = analysis['total_margin_used']
+            
+            # Get account info for free margin
+            account_info = self.mt5_connector.get_account_info()
+            free_margin = account_info.get('free_margin', 10000) if account_info else 10000
+            
+            margin_pressure = total_margin > (free_margin * 0.8)
+            
+            # Determine dominant direction
+            buy_count = len(analysis['buy_positions'])
+            sell_count = len(analysis['sell_positions'])
+            
+            if buy_count > sell_count * 1.5:
+                dominant_direction = 'BUY'
+            elif sell_count > buy_count * 1.5:
+                dominant_direction = 'SELL'
+            else:
+                dominant_direction = 'NEUTRAL'
+            
+            return {
+                'margin_pressure': margin_pressure,
+                'dominant_direction': dominant_direction
+            }
+        except Exception as e:
+            return {'margin_pressure': False, 'dominant_direction': 'NEUTRAL'}
+    
     def _strategy_instant_profit(self, positions, analysis) -> List[Dict]:
         """
         🚀 Strategy 1: Instant Profit - เก็บกำไรด่วนอัจฉริยะ
@@ -1259,9 +1529,7 @@ class AISmartProfitManager:
             return []
 
     def _strategy_rescue_operations(self, positions, analysis) -> List[Dict]:
-        """
-        🛡️ Strategy 2: Advanced Rescue Operations - การช่วยเหลือขั้นสูง
-        """
+        """🛡️ PURE RESCUE - หักลบช่วยเหลือเท่านั้น ไม่คัทไม้"""
         opportunities = []
         
         try:
@@ -1271,122 +1539,101 @@ class AISmartProfitManager:
             if not profitable or not losing:
                 return []
             
-            # 🎯 Dynamic rescue parameters
-            if analysis['emergency_level'] >= 4:
-                rescue_mode = "EMERGENCY"
-                max_rescue_loss = -25.0
-                min_net_profit = -2.0  # ยอมขาดทุนเพื่อลด positions
-            elif analysis['emergency_level'] >= 3:
-                rescue_mode = "AGGRESSIVE"
-                max_rescue_loss = -15.0
-                min_net_profit = 0.0
-            elif analysis['portfolio_health'] < 50:
-                rescue_mode = "MODERATE"
-                max_rescue_loss = -10.0
-                min_net_profit = 0.5
-            else:
-                rescue_mode = "CONSERVATIVE"
-                max_rescue_loss = -6.0
-                min_net_profit = 1.5
+            print(f"🔍 Rescue Analysis: {len(profitable)} profitable vs {len(losing)} losing")
             
-            # 🔄 1:1 Rescue pairs
+            # 🔄 1:1 Perfect Rescue (กำไร + ขาดทุน = บวก)
             for profit_pos in profitable:
                 profit_amt = profit_pos.get('profit', 0)
                 
                 for loss_pos in losing:
                     loss_amt = loss_pos.get('profit', 0)
-                    
-                    if loss_amt < max_rescue_loss:
-                        continue
-                    
                     net_profit = profit_amt + loss_amt
                     
-                    if net_profit >= min_net_profit:
-                        rescue_efficiency = abs(loss_amt) / profit_amt if profit_amt > 0 else 0
+                    # เฉพาะที่หักลบแล้วได้กำไร
+                    if net_profit >= 1.0:  # ต้องได้กำไรสุทธิ
+                        rescue_ratio = abs(loss_amt) / profit_amt if profit_amt > 0 else 0
                         
                         opportunities.append({
                             'strategy': 'RESCUE_OPERATIONS',
-                            'type': 'RESCUE_PAIR_1_1',
+                            'type': 'PERFECT_RESCUE_1_1',
                             'positions': [profit_pos['ticket'], loss_pos['ticket']],
                             'expected_profit': net_profit,
-                            'confidence': 80 if net_profit > 0 else 60,
-                            'reasoning': f"{rescue_mode} rescue: ${profit_amt:.2f} saves ${loss_amt:.2f} = ${net_profit:.2f}",
-                            'rescue_efficiency': rescue_efficiency,
-                            'urgency': self._calculate_rescue_urgency(loss_pos, analysis),
-                            'impact_score': (profit_amt * 5) + (abs(loss_amt) * 3),
+                            'confidence': 85,
+                            'reasoning': f"Rescue: ${profit_amt:.2f} saves ${loss_amt:.2f} = +${net_profit:.2f}",
+                            'rescue_ratio': rescue_ratio,
+                            'urgency': 3,
+                            'impact_score': net_profit * 15,
                             'margin_relief': (profit_pos.get('lot_size', 0) + loss_pos.get('lot_size', 0)) * 2000
                         })
             
-            # 🔄 1:2 Multi-rescue (emergency/aggressive only)
-            if rescue_mode in ["EMERGENCY", "AGGRESSIVE"]:
-                for profit_pos in profitable:
-                    profit_amt = profit_pos.get('profit', 0)
+            # 🔄 1:2 Super Rescue (1 กำไรช่วย 2 ขาดทุน)
+            for profit_pos in profitable:
+                profit_amt = profit_pos.get('profit', 0)
+                
+                if profit_amt < 3.0:  # ต้องมีกำไรพอ
+                    continue
                     
-                    if profit_amt < abs(min_net_profit) + 2.0:
-                        continue
-                    
-                    for i, loss_pos1 in enumerate(losing):
-                        for loss_pos2 in losing[i+1:]:
-                            loss_amt1 = loss_pos1.get('profit', 0)
-                            loss_amt2 = loss_pos2.get('profit', 0)
-                            total_loss = loss_amt1 + loss_amt2
-                            
-                            if total_loss < max_rescue_loss:
-                                continue
-                            
-                            net_profit = profit_amt + total_loss
-                            
-                            if net_profit >= min_net_profit:
-                                opportunities.append({
-                                    'strategy': 'RESCUE_OPERATIONS',
-                                    'type': 'RESCUE_PAIR_1_2',
-                                    'positions': [profit_pos['ticket'], loss_pos1['ticket'], loss_pos2['ticket']],
-                                    'expected_profit': net_profit,
-                                    'confidence': 70 if net_profit > 0 else 50,
-                                    'reasoning': f"{rescue_mode} multi-rescue: ${profit_amt:.2f} saves ${total_loss:.2f} = ${net_profit:.2f}",
-                                    'rescue_efficiency': abs(total_loss) / profit_amt if profit_amt > 0 else 0,
-                                    'urgency': max(self._calculate_rescue_urgency(loss_pos1, analysis), 
-                                                self._calculate_rescue_urgency(loss_pos2, analysis)),
-                                    'impact_score': (profit_amt * 3) + (abs(total_loss) * 2),
-                                    'margin_relief': (profit_pos.get('lot_size', 0) + loss_pos1.get('lot_size', 0) + loss_pos2.get('lot_size', 0)) * 2000
-                                })
+                for i, loss_pos1 in enumerate(losing):
+                    for loss_pos2 in losing[i+1:]:
+                        loss_amt1 = loss_pos1.get('profit', 0)
+                        loss_amt2 = loss_pos2.get('profit', 0)
+                        total_loss = loss_amt1 + loss_amt2
+                        net_profit = profit_amt + total_loss
+                        
+                        # เฉพาะที่หักลบแล้วได้กำไร
+                        if net_profit >= 2.0:  # ต้องได้กำไรสุทธิ
+                            opportunities.append({
+                                'strategy': 'RESCUE_OPERATIONS',
+                                'type': 'SUPER_RESCUE_1_2',
+                                'positions': [profit_pos['ticket'], loss_pos1['ticket'], loss_pos2['ticket']],
+                                'expected_profit': net_profit,
+                                'confidence': 80,
+                                'reasoning': f"Super rescue: ${profit_amt:.2f} saves ${total_loss:.2f} = +${net_profit:.2f}",
+                                'rescue_ratio': abs(total_loss) / profit_amt if profit_amt > 0 else 0,
+                                'urgency': 4,
+                                'impact_score': net_profit * 12,
+                                'margin_relief': (profit_pos.get('lot_size', 0) + loss_pos1.get('lot_size', 0) + loss_pos2.get('lot_size', 0)) * 2000
+                            })
             
-            # 🔄 2:1 Power rescue (emergency only)
-            if rescue_mode == "EMERGENCY" and len(profitable) >= 2:
-                for loss_pos in losing:
-                    loss_amt = loss_pos.get('profit', 0)
+            # 🔄 2:1 Power Rescue (2 กำไรช่วย 1 ขาดทุนใหญ่)
+            for i, profit_pos1 in enumerate(profitable):
+                for profit_pos2 in profitable[i+1:]:
+                    profit_amt1 = profit_pos1.get('profit', 0)
+                    profit_amt2 = profit_pos2.get('profit', 0)
+                    total_profit = profit_amt1 + profit_amt2
                     
-                    if loss_amt > -8.0:  # เฉพาะขาดทุนใหญ่
+                    if total_profit < 4.0:  # ต้องมีกำไรรวมพอ
                         continue
                     
-                    for i, profit_pos1 in enumerate(profitable):
-                        for profit_pos2 in profitable[i+1:]:
-                            profit_amt1 = profit_pos1.get('profit', 0)
-                            profit_amt2 = profit_pos2.get('profit', 0)
-                            total_profit = profit_amt1 + profit_amt2
+                    for loss_pos in losing:
+                        loss_amt = loss_pos.get('profit', 0)
+                        
+                        if loss_amt > -15.0:  # เฉพาะขาดทุนใหญ่
+                            continue
                             
-                            net_profit = total_profit + loss_amt
-                            
-                            if net_profit >= min_net_profit and total_profit >= abs(loss_amt) * 0.7:
-                                opportunities.append({
-                                    'strategy': 'RESCUE_OPERATIONS',
-                                    'type': 'POWER_RESCUE_2_1',
-                                    'positions': [profit_pos1['ticket'], profit_pos2['ticket'], loss_pos['ticket']],
-                                    'expected_profit': net_profit,
-                                    'confidence': 85,
-                                    'reasoning': f"EMERGENCY power rescue: ${total_profit:.2f} rescues ${loss_amt:.2f} = ${net_profit:.2f}",
-                                    'rescue_efficiency': abs(loss_amt) / total_profit if total_profit > 0 else 0,
-                                    'urgency': self._calculate_rescue_urgency(loss_pos, analysis) + 2,
-                                    'impact_score': (total_profit * 4) + (abs(loss_amt) * 5),
-                                    'margin_relief': (profit_pos1.get('lot_size', 0) + profit_pos2.get('lot_size', 0) + loss_pos.get('lot_size', 0)) * 2000
-                                })
+                        net_profit = total_profit + loss_amt
+                        
+                        # เฉพาะที่หักลบแล้วได้กำไร
+                        if net_profit >= 3.0:  # ต้องได้กำไรสุทธิ
+                            opportunities.append({
+                                'strategy': 'RESCUE_OPERATIONS',
+                                'type': 'POWER_RESCUE_2_1',
+                                'positions': [profit_pos1['ticket'], profit_pos2['ticket'], loss_pos['ticket']],
+                                'expected_profit': net_profit,
+                                'confidence': 85,
+                                'reasoning': f"Power rescue: ${total_profit:.2f} saves ${loss_amt:.2f} = +${net_profit:.2f}",
+                                'rescue_ratio': abs(loss_amt) / total_profit if total_profit > 0 else 0,
+                                'urgency': 5,
+                                'impact_score': net_profit * 20,
+                                'margin_relief': (profit_pos1.get('lot_size', 0) + profit_pos2.get('lot_size', 0) + loss_pos.get('lot_size', 0)) * 2000
+                            })
             
             return opportunities
             
         except Exception as e:
             print(f"❌ Rescue operations error: {e}")
             return []
-
+    
     def _strategy_smart_combinations(self, positions, analysis) -> List[Dict]:
         """
         🧠 Strategy 8: Smart Combinations - การรวมอัจฉริยะ
@@ -1492,7 +1739,6 @@ class AISmartProfitManager:
                     'PORTFOLIO_REBALANCING': 15,
                     'RISK_REDUCTION': 35,
                     'OPPORTUNITY_HARVESTING': 10,
-                    'EMERGENCY_PROTOCOLS': 50,
                     'SMART_COMBINATIONS': 5
                 }.get(opp['strategy'], 0)
                 
@@ -2134,7 +2380,7 @@ class AISmartProfitManager:
         print("🛑 Enhanced AI Monitoring: Stopped")
 
     def log_enhanced_status(self):
-        """Log enhanced system status"""
+        """Log enhanced system status with Support info"""
         try:
             current_price = self.get_current_price()
             health_score = self.ai_health_score
@@ -2146,7 +2392,13 @@ class AISmartProfitManager:
             
             total_profit = sum(p.get('profit', 0) for p in self.active_positions.values())
             
-            print("=" * 60)
+            # 🛡️ NEW: Support System Info
+            support_count = len(self.portfolio_support_positions)
+            trailing_count = len(self.support_trailing_data)
+            support_value = sum(self.active_positions.get(ticket, {}).get('profit', 0) 
+                            for ticket in self.portfolio_support_positions.keys())
+            
+            print("=" * 80)
             print("📊 ENHANCED AI GRID STATUS")
             print(f"💰 Current Price: ${current_price:.2f}")
             print(f"🧠 AI Health: {health_score:.1f}/100")
@@ -2154,7 +2406,9 @@ class AISmartProfitManager:
             print(f"📋 Orders: BUY:{buy_orders} | SELL:{sell_orders}")
             print(f"💵 Total P&L: ${total_profit:.2f}")
             print(f"🎯 Dynamic Spacing: {self.calculate_dynamic_spacing()} points")
-            print("=" * 60)
+            print(f"🛡️ Support System: {support_count} positions (${support_value:.2f})")
+            print(f"🔄 Trailing Active: {trailing_count} positions")
+            print("=" * 80)
             
         except Exception as e:
             print(f"❌ Status logging error: {e}")
@@ -2456,10 +2710,19 @@ class AISmartProfitManager:
             return False
     
     def stop_ai_trading(self):
-        """Stop AI trading system"""
+        """Stop AI trading system with Support System cleanup"""
         try:
             print("🛑 Stopping Enhanced AI Grid System...")
             self.ai_active = False
+            
+            # 🛡️ NEW: Cleanup Support System
+            try:
+                print("🧹 Cleaning up Support System...")
+                self.portfolio_support_positions.clear()
+                self.support_trailing_data.clear()
+                print("✅ Support System cleaned")
+            except Exception as e:
+                print(f"⚠️ Support cleanup error: {e}")
             
             # Wait for threads to finish
             if hasattr(self, 'ai_main_thread'):
@@ -2473,11 +2736,22 @@ class AISmartProfitManager:
             print(f"❌ Stop AI trading error: {e}")
 
     def get_ai_status(self) -> Dict:
-        """Get comprehensive AI status"""
+        """Get comprehensive AI status with Support System"""
         try:
             current_price = self.get_current_price()
             
-            return {
+            # 🛡️ NEW: Support System Status
+            support_positions_count = len(self.portfolio_support_positions)
+            trailing_positions_count = len(self.support_trailing_data)
+            
+            # คำนวณ total support value
+            total_support_value = 0
+            for ticket, support_data in self.portfolio_support_positions.items():
+                if ticket in self.active_positions:
+                    current_profit = self.active_positions[ticket].get('profit', 0)
+                    total_support_value += current_profit
+            
+            base_status = {
                 'ai_active': self.ai_active,
                 'ai_health_score': self.ai_health_score,
                 'current_price': current_price,
@@ -2487,9 +2761,567 @@ class AISmartProfitManager:
                 'dynamic_spacing': self.calculate_dynamic_spacing(),
                 'market_condition': self.market_analysis.condition.value if self.market_analysis else 'UNKNOWN',
                 'survivability_usage': self.get_current_drawdown_points() / self.survivability if self.survivability > 0 else 0,
+                
+                # 🛡️ NEW: Support System Status
+                'support_positions': support_positions_count,
+                'trailing_positions': trailing_positions_count,
+                'total_support_value': round(total_support_value, 2),
+                'support_system_active': support_positions_count > 0,
+                
                 'last_update': datetime.now().isoformat()
             }
+            
+            return base_status
             
         except Exception as e:
             print(f"❌ Status retrieval error: {e}")
             return {'error': str(e)}
+            
+    def _strategy_margin_optimization(self, positions, analysis) -> List[Dict]:
+        """Strategy 3: Margin Optimization - เพิ่มประสิทธิภาพ margin"""
+        opportunities = []
+        
+        try:
+            if not analysis['margin_pressure']:
+                return []
+            
+            # หาไม้ที่ใช้ margin เยอะที่สุด
+            high_margin_positions = [pos for pos in positions if pos.get('lot_size', 0) >= 0.02]
+            
+            for pos in high_margin_positions:
+                profit = pos.get('profit', 0)
+                margin_used = pos.get('lot_size', 0) * 2000
+                
+                if profit >= -5.0:  # ยอมขาดทุนเล็กน้อยเพื่อลด margin
+                    opportunities.append({
+                        'strategy': 'MARGIN_OPTIMIZATION',
+                        'type': 'MARGIN_RELIEF',
+                        'positions': [pos['ticket']],
+                        'expected_profit': profit,
+                        'confidence': 75,
+                        'reasoning': f"Margin relief: free ${margin_used:.0f} margin",
+                        'urgency': 5,
+                        'impact_score': margin_used / 100,
+                        'margin_relief': margin_used
+                    })
+            
+            return opportunities
+            
+        except Exception as e:
+            print(f"❌ Margin optimization error: {e}")
+            return []
+
+    def _strategy_portfolio_rebalancing(self, positions, analysis) -> List[Dict]:
+        """Strategy 4: Portfolio Rebalancing - ปรับสมดุล portfolio"""
+        opportunities = []
+        
+        try:
+            buy_count = len(analysis['buy_positions'])
+            sell_count = len(analysis['sell_positions'])
+            
+            if abs(buy_count - sell_count) < 3:
+                return []  # สมดุลอยู่แล้ว
+            
+            # หาไม้ที่ควรปิดเพื่อปรับสมดุล
+            if buy_count > sell_count:
+                target_positions = analysis['buy_positions']
+                direction_label = "BUY"
+            else:
+                target_positions = analysis['sell_positions']
+                direction_label = "SELL"
+            
+            for pos in target_positions[:3]:  # เอาแค่ 3 ตัวแรก
+                profit = pos.get('profit', 0)
+                
+                if profit >= -2.0:  # ยอมขาดทุนเล็กน้อยเพื่อสมดุล
+                    opportunities.append({
+                        'strategy': 'PORTFOLIO_REBALANCING',
+                        'type': 'BALANCE_ADJUSTMENT',
+                        'positions': [pos['ticket']],
+                        'expected_profit': profit,
+                        'confidence': 65,
+                        'reasoning': f"Rebalance {direction_label} excess",
+                        'urgency': 3,
+                        'impact_score': abs(buy_count - sell_count),
+                        'margin_relief': pos.get('lot_size', 0) * 2000
+                    })
+            
+            return opportunities
+            
+        except Exception as e:
+            print(f"❌ Portfolio rebalancing error: {e}")
+            return []
+
+    def _strategy_risk_reduction(self, positions, analysis) -> List[Dict]:
+        """Strategy 5: Risk Reduction - ลดความเสี่ยง"""
+        opportunities = []
+        
+        try:
+            if analysis['emergency_level'] < 3:
+                return []
+            
+            # หาไม้ที่มีความเสี่ยงสูง
+            risky_positions = [pos for pos in positions if pos.get('profit', 0) < -10.0]
+            
+            for pos in risky_positions:
+                loss = pos.get('profit', 0)
+                
+                opportunities.append({
+                    'strategy': 'RISK_REDUCTION',
+                    'type': 'CUT_LOSS',
+                    'positions': [pos['ticket']],
+                    'expected_profit': loss,
+                    'confidence': 70,
+                    'reasoning': f"Cut loss ${loss:.2f} to reduce risk",
+                    'urgency': 7,
+                    'impact_score': abs(loss) * 2,
+                    'margin_relief': pos.get('lot_size', 0) * 2000
+                })
+            
+            return opportunities
+            
+        except Exception as e:
+            print(f"❌ Risk reduction error: {e}")
+            return []
+
+    def _strategy_opportunity_harvesting(self, positions, analysis) -> List[Dict]:
+        """Strategy 6: Opportunity Harvesting - เก็บเกี่ยวโอกาส"""
+        opportunities = []
+        
+        try:
+            # หาไม้ที่มีกำไรปานกลาง (1-3 ดอลลาร์)
+            medium_profit_positions = [pos for pos in positions 
+                                    if 1.0 <= pos.get('profit', 0) <= 3.0]
+            
+            for pos in medium_profit_positions:
+                profit = pos.get('profit', 0)
+                age = self._calculate_position_age(pos)
+                
+                if age > 20:  # อายุเกิน 20 นาที
+                    opportunities.append({
+                        'strategy': 'OPPORTUNITY_HARVESTING',
+                        'type': 'MEDIUM_HARVEST',
+                        'positions': [pos['ticket']],
+                        'expected_profit': profit,
+                        'confidence': 60,
+                        'reasoning': f"Harvest ${profit:.2f} ({age}min old)",
+                        'urgency': 2,
+                        'impact_score': profit * 5,
+                        'margin_relief': pos.get('lot_size', 0) * 2000
+                    })
+            
+            return opportunities
+            
+        except Exception as e:
+            print(f"❌ Opportunity harvesting error: {e}")
+            return []
+
+    def _detect_and_manage_support_positions(self):
+        """🔍 ตรวจจับและจัดการไม้ Support"""
+        
+        try:
+            current_positions = list(self.active_positions.values())
+            if not current_positions:
+                return
+            
+            # วิเคราะห์ portfolio
+            portfolio_analysis = self._analyze_portfolio_comprehensive(current_positions)
+            
+            # หาไม้ที่ควร Support
+            support_opportunities = self._strategy_portfolio_support(current_positions, portfolio_analysis)
+            
+            for support_opp in support_opportunities:
+                position_ticket = support_opp['positions'][0]
+                
+                # เพิ่มเข้าระบบ Support
+                if position_ticket not in self.portfolio_support_positions:
+                    self._add_to_support_system(position_ticket, support_opp)
+                    print(f"🛡️ Added Position {position_ticket} to Support System")
+            
+            # ลบไม้ที่ไม่อยู่แล้ว
+            self._cleanup_closed_support_positions()
+            
+        except Exception as e:
+            print(f"❌ Support detection error: {e}")
+
+    def _strategy_portfolio_support(self, positions, analysis) -> List[Dict]:
+        """🛡️ Portfolio Support - ถือไม้กำไรค้ำพอร์ต"""
+        support_decisions = []
+        
+        try:
+            profitable = analysis['profitable_positions']
+            losing = analysis['losing_positions']
+            
+            if not profitable or not losing:
+                return []
+            
+            # 📊 Portfolio Health Assessment
+            portfolio_health = self._assess_portfolio_support_health(analysis)
+            
+            for pos in profitable:
+                profit = pos.get('profit', 0)
+                
+                # 🛡️ Support Decision Logic
+                support_decision = self._calculate_support_decision(pos, portfolio_health, analysis)
+                
+                if support_decision['should_hold']:
+                    support_decisions.append({
+                        'strategy': 'PORTFOLIO_SUPPORT',
+                        'type': 'HOLD_FOR_SUPPORT',
+                        'positions': [pos['ticket']],
+                        'expected_profit': profit,
+                        'confidence': support_decision['confidence'],
+                        'reasoning': support_decision['reasoning'],
+                        'support_value': support_decision['support_value'],
+                        'hold_duration': support_decision['recommended_hold_minutes'],
+                        'urgency': -1,  # Negative urgency = HOLD
+                        'impact_score': support_decision['support_value'] * 5,
+                        'margin_relief': 0
+                    })
+            
+            return support_decisions
+            
+        except Exception as e:
+            print(f"❌ Portfolio support error: {e}")
+            return []
+
+    def _assess_portfolio_support_health(self, analysis) -> Dict:
+        """📊 ประเมินความต้องการ support ของ portfolio"""
+        try:
+            net_pnl = analysis['net_pnl']
+            profitable_count = len(analysis['profitable_positions'])
+            losing_count = len(analysis['losing_positions'])
+            total_positions = analysis['total_positions']
+            
+            # คำนวณ support need level
+            support_need = 0
+            
+            if net_pnl < -20: support_need += 4
+            elif net_pnl < -10: support_need += 3
+            elif net_pnl < -5: support_need += 2
+            elif net_pnl < 0: support_need += 1
+            
+            if losing_count > profitable_count * 2: support_need += 3
+            elif losing_count > profitable_count: support_need += 2
+            
+            if total_positions > 15: support_need += 2
+            elif total_positions > 10: support_need += 1
+            
+            balance_ratio = profitable_count / max(total_positions, 1)
+            
+            return {
+                'support_need_level': min(support_need, 10),
+                'balance_ratio': balance_ratio,
+                'net_pnl': net_pnl,
+                'should_support': support_need >= 3,
+                'support_strength': 'HIGH' if support_need >= 7 else 'MEDIUM' if support_need >= 4 else 'LOW'
+            }
+            
+        except Exception as e:
+            return {'support_need_level': 0, 'should_support': False}
+
+    def _calculate_support_decision(self, position, portfolio_health, analysis) -> Dict:
+        """🎯 คำนวณการตัดสินใจ support สำหรับแต่ละไม้"""
+        try:
+            profit = position.get('profit', 0)
+            age_minutes = self._calculate_position_age(position)
+            lot_size = position.get('lot_size', 0)
+            
+            support_need = portfolio_health['support_need_level']
+            
+            should_hold = False
+            reasoning = []
+            confidence = 50
+            support_value = 0
+            recommended_hold = 30
+            
+            # Support Decision Logic
+            if 2.0 <= profit <= 8.0 and support_need >= 4:
+                should_hold = True
+                reasoning.append(f"Strong support: ${profit:.2f} profit stabilizes portfolio")
+                confidence = 85
+                support_value = profit * 2
+                recommended_hold = 60
+            
+            elif 1.0 <= profit <= 3.0 and support_need >= 6:
+                should_hold = True
+                reasoning.append(f"Strategic support: Hold ${profit:.2f} for portfolio stability")
+                confidence = 75
+                support_value = profit * 3
+                recommended_hold = 45
+            
+            elif profit >= 1.5 and lot_size >= 0.02 and support_need >= 3:
+                should_hold = True
+                reasoning.append(f"Large position support: {lot_size} lots with ${profit:.2f}")
+                confidence = 80
+                support_value = profit * lot_size * 50
+                recommended_hold = 90
+            
+            return {
+                'should_hold': should_hold,
+                'reasoning': " | ".join(reasoning) if reasoning else "No support needed",
+                'confidence': confidence,
+                'support_value': support_value,
+                'recommended_hold_minutes': recommended_hold
+            }
+            
+        except Exception as e:
+            return {'should_hold': False, 'reasoning': 'Error in calculation', 'confidence': 0, 'support_value': 0, 'recommended_hold_minutes': 30}
+
+    def _add_to_support_system(self, position_ticket, support_opportunity):
+        """🛡️ เพิ่มไม้เข้าระบบ Support แบบ Hybrid (Pure + Trailing)"""
+        
+        try:
+            position = self.active_positions.get(position_ticket)
+            if not position:
+                return
+            
+            current_profit = position.get('profit', 0)
+            support_value = support_opportunity['support_value']
+            lot_size = position.get('lot_size', 0)
+            
+            # 🎯 ตัดสินใจประเภท Support
+            support_mode = self._determine_support_mode(current_profit, support_value, lot_size)
+            
+            # สร้าง Support Data
+            support_data = {
+                'added_time': datetime.now(),
+                'original_profit': current_profit,
+                'support_reasoning': support_opportunity['reasoning'],
+                'support_value': support_value,
+                'support_mode': support_mode,  # 🆕 เพิ่ม mode
+                'status': 'ACTIVE'
+            }
+            
+            # 🔀 สร้าง Trailing Data ตาม Mode
+            if support_mode == "PURE_SUPPORT":
+                # ไม้สำคัญ = ไม่ trailing เลย
+                support_data['trailing_enabled'] = False
+                print(f"🛡️ PURE SUPPORT: Position {position_ticket} - NO trailing")
+                print(f"   💰 Critical Profit: ${current_profit:.2f}")
+                print(f"   🔒 Protected permanently for portfolio support")
+                
+            elif support_mode == "SUPPORT_WITH_TRAILING":
+                # ไม้ปกติ = Support + Trailing
+                support_data['trailing_enabled'] = True
+                
+                # Dynamic trail distance
+                trail_distance = self._calculate_dynamic_trail_distance(current_profit)
+                
+                trailing_data = {
+                    'initial_profit': current_profit,
+                    'current_trailing_stop': max(0, current_profit - trail_distance),
+                    'highest_profit_seen': current_profit,
+                    'trail_distance': trail_distance,
+                    'trail_step': 1.0,
+                    'last_update': datetime.now()
+                }
+                
+                self.support_trailing_data[position_ticket] = trailing_data
+                print(f"🔄 SUPPORT + TRAILING: Position {position_ticket}")
+                print(f"   💰 Current Profit: ${current_profit:.2f}")
+                print(f"   🎯 Trailing Stop: ${trailing_data['current_trailing_stop']:.2f}")
+                print(f"   📏 Trail Distance: ${trail_distance}")
+            
+            # เก็บข้อมูล
+            self.portfolio_support_positions[position_ticket] = support_data
+            
+        except Exception as e:
+            print(f"❌ Add to support error: {e}")
+
+    def _determine_support_mode(self, profit, support_value, lot_size) -> str:
+        """🎯 ตัดสินใจว่าไม้นี้ควรเป็น Pure Support หรือ Support+Trailing"""
+        
+        try:
+            # 🔥 เกณฑ์ไม้สำคัญ (PURE_SUPPORT)
+            is_critical = False
+            reasons = []
+            
+            # 1. กำไรสูงมาก
+            if profit >= 8.0:
+                is_critical = True
+                reasons.append(f"High profit ${profit:.2f}")
+            
+            # 2. Support value สูง
+            if support_value >= 15:
+                is_critical = True
+                reasons.append(f"High support value {support_value}")
+            
+            # 3. ไม้ใหญ่ + กำไรดี
+            if lot_size >= 0.03 and profit >= 3.0:
+                is_critical = True
+                reasons.append(f"Large position {lot_size} lots")
+            
+            # 4. Portfolio แย่มาก + มีกำไร
+            portfolio_analysis = self._get_current_portfolio_analysis()
+            if portfolio_analysis and portfolio_analysis.get('net_pnl', 0) < -30 and profit >= 2.0:
+                is_critical = True
+                reasons.append("Critical portfolio support needed")
+            
+            if is_critical:
+                print(f"   🔒 PURE SUPPORT criteria: {' | '.join(reasons)}")
+                return "PURE_SUPPORT"
+            else:
+                print(f"   🔄 SUPPORT+TRAILING: Normal support position")
+                return "SUPPORT_WITH_TRAILING"
+                
+        except Exception as e:
+            print(f"❌ Support mode determination error: {e}")
+            return "SUPPORT_WITH_TRAILING"  # Default
+
+    def _calculate_dynamic_trail_distance(self, profit):
+        """🎯 คำนวณ trail distance แบบ dynamic"""
+        
+        if profit >= 10.0:
+            return 3.0      # กำไรสูง = trail ห่าง $3
+        elif profit >= 5.0:
+            return 2.5      # กำไรปานกลาง = trail ห่าง $2.5
+        elif profit >= 3.0:
+            return 2.0      # กำไรปกติ = trail ห่าง $2
+        elif profit >= 1.0:
+            return 1.5      # กำไรน้อย = trail ห่าง $1.5
+        else:
+            return 1.0      # กำไรเล็ก = trail ห่าง $1
+
+    def _get_current_portfolio_analysis(self) -> Dict:
+        """📊 ได้ portfolio analysis ปัจจุบัน"""
+        try:
+            positions = list(self.active_positions.values())
+            if positions:
+                return self._analyze_portfolio_comprehensive(positions)
+            return {}
+        except:
+            return {}
+    
+    def _cleanup_closed_support_positions(self):
+        """🧹 ลบไม้ที่ปิดแล้วออกจากระบบ Support"""
+        try:
+            closed_tickets = []
+            
+            for ticket in self.portfolio_support_positions.keys():
+                if ticket not in self.active_positions:
+                    closed_tickets.append(ticket)
+            
+            for ticket in closed_tickets:
+                self._remove_from_support_system(ticket)
+                print(f"🧹 Removed closed position {ticket} from Support System")
+                
+        except Exception as e:
+            print(f"❌ Support cleanup error: {e}")
+
+    def _remove_from_support_system(self, position_ticket):
+        """🗑️ ลบไม้ออกจากระบบ Support"""
+        try:
+            if position_ticket in self.portfolio_support_positions:
+                del self.portfolio_support_positions[position_ticket]
+            if position_ticket in self.support_trailing_data:
+                del self.support_trailing_data[position_ticket]
+        except Exception as e:
+            print(f"❌ Remove from support error: {e}")
+
+    def _update_all_trailing_stops(self):
+        """🔄 อัพเดต Trailing Stop เฉพาะไม้ที่ enable trailing"""
+        
+        try:
+            if not self.support_trailing_data:
+                return
+            
+            for position_ticket in list(self.support_trailing_data.keys()):
+                # เช็คว่าไม้นี้ enable trailing หรือไม่
+                support_data = self.portfolio_support_positions.get(position_ticket)
+                if support_data and support_data.get('trailing_enabled', True):
+                    self._update_single_trailing_stop(position_ticket)
+                else:
+                    print(f"🔒 PURE SUPPORT: Skipping trailing for {position_ticket}")
+                
+        except Exception as e:
+            print(f"❌ Trailing update error: {e}")
+            
+    def _update_single_trailing_stop(self, position_ticket):
+        """🔄 อัพเดต Trailing Stop ไม้เดียว"""
+        
+        try:
+            # Get current position
+            position = self.active_positions.get(position_ticket)
+            if not position:
+                self._remove_from_support_system(position_ticket)
+                return
+            
+            trailing_data = self.support_trailing_data.get(position_ticket)
+            if not trailing_data:
+                return
+            
+            current_profit = position.get('profit', 0)
+            current_trailing = trailing_data['current_trailing_stop']
+            trail_distance = trailing_data['trail_distance']
+            highest_seen = trailing_data['highest_profit_seen']
+            
+            # 📈 อัพเดต highest profit
+            if current_profit > highest_seen:
+                trailing_data['highest_profit_seen'] = current_profit
+                
+                # คำนวณ trailing stop ใหม่
+                new_trailing = current_profit - trail_distance
+                new_trailing = max(0, new_trailing)
+                
+                # ขยับขึ้นเท่านั้น
+                if new_trailing > current_trailing:
+                    trailing_data['current_trailing_stop'] = new_trailing
+                    trailing_data['last_update'] = datetime.now()
+                    
+                    print(f"🔄 Trailing Updated: Position {position_ticket}")
+                    print(f"   📈 Current Profit: ${current_profit:.2f}")
+                    print(f"   🎯 New Trailing: ${new_trailing:.2f}")
+            
+        except Exception as e:
+            print(f"❌ Single trailing update error: {e}")
+
+    def _check_trailing_stop_hits(self):
+        """🚨 เช็คว่าไม้ไหนโดน Trailing Stop"""
+        
+        try:
+            if not self.support_trailing_data:
+                return
+                
+            trailing_hits = []
+            
+            for position_ticket, trailing_data in self.support_trailing_data.items():
+                position = self.active_positions.get(position_ticket)
+                if not position:
+                    continue
+                    
+                current_profit = position.get('profit', 0)
+                trailing_stop = trailing_data['current_trailing_stop']
+                
+                # เช็คว่าโดน trailing stop หรือไม่
+                if current_profit <= trailing_stop and trailing_stop > 0:
+                    print(f"🚨 TRAILING HIT: Position {position_ticket}")
+                    print(f"   💰 Current Profit: ${current_profit:.2f}")
+                    print(f"   🎯 Trailing Stop: ${trailing_stop:.2f}")
+                    
+                    # เพิ่มเข้า list ปิด
+                    trailing_hits.append({
+                        'strategy': 'TRAILING_SUPPORT_CLOSE',
+                        'type': 'TRAILING_STOP_HIT',
+                        'positions': [position_ticket],
+                        'expected_profit': current_profit,
+                        'confidence': 95,
+                        'reasoning': f"Trailing stop hit: ${current_profit:.2f} <= ${trailing_stop:.2f}",
+                        'urgency': 10,
+                        'impact_score': current_profit * 20,
+                        'margin_relief': position.get('lot_size', 0) * 2000
+                    })
+            
+            # ปิดไม้ที่โดน trailing
+            for hit in trailing_hits:
+                try:
+                    success = self.execute_profit_opportunity(hit)
+                    if success:
+                        position_ticket = hit['positions'][0]
+                        self._remove_from_support_system(position_ticket)
+                        print(f"✅ Trailing stop executed for position {position_ticket}")
+                except Exception as e:
+                    print(f"❌ Trailing execution error: {e}")
+                    
+        except Exception as e:
+            print(f"❌ Trailing check error: {e}")
