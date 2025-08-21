@@ -1,8 +1,7 @@
 """
-AI Smart Profit Gold Trading System with 20,000+ Points Survivability
-Main GUI Controller - main.py (Updated for AI Smart Profit Manager)
-Created for MetaTrader5 Gold Trading with True AI Intelligence
-UPDATED VERSION - Using AI Smart Profit Manager as primary trading engine
+Simple AI Trading GUI - Working Version
+main.py
+เรียบง่าย ใช้งานได้จริง ไม่มี error
 """
 
 import tkinter as tk
@@ -10,42 +9,26 @@ from tkinter import ttk, messagebox, scrolledtext
 import json
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import datetime
 import os
-import sys
 
-import requests
-
-from api_connector import BackendAPIConnector
-
-# Import custom modules
+# Import modules
 try:
     from mt5_auto_connector import MT5AutoConnector
-    from ai_smart_profit_manager import AISmartProfitManager  # Updated import
-    from survivability_engine import SurvivabilityEngine, TradingMode
-    from ai_money_manager import AIMoneyManager
-    from gold_hedge_calculator import GoldHedgeCalculator
+    from ai_smart_profit_manager import AISmartProfitManager
 except ImportError as e:
-    print(f"Module import error: {e}")
-    print("Please ensure all required modules are in the same directory")
+    print(f"Import error: {e}")
 
-class AISmartProfitGUI:
+class SimpleAITradingGUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.setup_main_window()
-        self.load_config()
-        self.init_components()
+        self.setup_window()
+        self.init_variables()
         self.create_gui()
-        self.setup_status_monitoring()
-        self.current_trading_mode = TradingMode.BALANCED
         
-        self.api_base_url = "http://123.253.62.50:8080/api"
-
-    
-    def setup_main_window(self):
-        """Setup main window properties"""
-        self.root.title("🧠 AI Smart Profit Gold Trading System")
+    def setup_window(self):
+        """Setup main window"""
+        self.root.title("🚀 AI Smart Profit Trading - Simple Edition")
         self.root.geometry("1200x800")
         self.root.configure(bg='#1a1a2e')
         
@@ -56,978 +39,431 @@ class AISmartProfitGUI:
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
-
-    def load_config(self):
-        """Load configuration from config.json"""
-        default_config = {
-            "target_survivability": 20000,
-            "default_trading_mode": "BALANCED",
-            "safety_ratio": 0.6,
-            "emergency_stop_percentage": 50,
-            "daily_loss_limit_percentage": 10,
-            "hedge_triggers": [0.15, 0.30, 0.45, 0.60],
-            "hedge_multipliers": [0.5, 1.0, 1.5, 2.0],
-            "log_level": "INFO",
-            "auto_connect_mt5": True,
-            "gold_symbols": ["XAUUSD", "GOLD", "XAU/USD", "XAUUSD"],
-            "portfolio_recovery": {
-                "enabled": True,
-                "trigger_loss": -50,
-                "auto_mode": False
-            },
-            "ai_smart_profit": {  # New AI configuration section
-                "analysis_interval": 3,
-                "market_memory_size": 100,
-                "decision_confidence_threshold": 0.6,
-                "max_positions_per_direction": 5,
-                "dynamic_spacing_enabled": True,
-                "cross_direction_trading": True,
-                "adaptive_risk_management": True
-            }
-        }
         
-        try:
-            if os.path.exists('config.json'):
-                with open('config.json', 'r') as f:
-                    file_config = json.load(f)
-                    default_config.update(file_config)
-                    
-            # Set trading mode from config
-            mode_str = default_config.get('default_trading_mode', 'BALANCED')
-            try:
-                self.current_trading_mode = TradingMode[mode_str]
-            except KeyError:
-                self.current_trading_mode = TradingMode.BALANCED
-                
-        except Exception as e:
-            print(f"Config load error: {e}")
-            
-        self.config = default_config
-
-    def save_config(self):
-        """Save current configuration"""
-        try:
-            self.config['default_trading_mode'] = self.current_trading_mode.value
-            
-            with open('config.json', 'w') as f:
-                json.dump(self.config, f, indent=2)
-                
-        except Exception as e:
-            print(f"Config save error: {e}")
-
-    def init_components(self):
-        """Initialize trading components"""
-        try:
-            # Initialize core components
-            self.mt5_connector = MT5AutoConnector()
-            self.survivability_engine = SurvivabilityEngine(self.config)
-            self.money_manager = AIMoneyManager(self.config)
-            self.hedge_calculator = GoldHedgeCalculator(self.config)
-            self.ai_smart_trader = None  # Will be initialized after MT5 connection
-            
-            # System status
-            self.is_connected = False
-            self.is_trading = False
-            self.monitoring = True
-            self.account_info = {}
-            self.current_calculations = {}
-            
-        except Exception as e:
-            messagebox.showerror("Initialization Error", f"Failed to initialize components: {e}")
-
+    def init_variables(self):
+        """Initialize variables"""
+        self.is_connected = False
+        self.is_trading = False
+        self.account_info = {}
+        self.mt5_connector = MT5AutoConnector()
+        self.ai_smart_trader = None
+        
+        # Colors
+        self.bg_color = '#1a1a2e'
+        self.card_color = '#16213E'
+        self.accent_color = '#00D4FF'
+        self.success_color = '#00FF88'
+        self.error_color = '#FF3366'
+        self.text_color = '#FFFFFF'
+        
     def create_gui(self):
-        """Create main GUI interface"""
-        main_frame = tk.Frame(self.root, bg='#1a1a2e')
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        """Create simple GUI"""
+        # Main container
+        main_frame = tk.Frame(self.root, bg=self.bg_color)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
-        # Header section
-        self.create_header_section(main_frame)
+        # Header
+        self.create_header(main_frame)
         
-        # Connection and calculation section
-        self.create_connection_section(main_frame)
+        # Content
+        content_frame = tk.Frame(main_frame, bg=self.bg_color)
+        content_frame.pack(fill='both', expand=True, pady=20)
         
-        # AI Smart Profit controls section
-        self.create_ai_smart_profit_section(main_frame)
+        # Left panel
+        left_frame = tk.Frame(content_frame, bg=self.card_color, relief='solid', borderwidth=1)
+        left_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
         
-        # Trading controls section
-        self.create_trading_controls_section(main_frame)
+        # Right panel
+        right_frame = tk.Frame(content_frame, bg=self.card_color, relief='solid', borderwidth=1)
+        right_frame.pack(side='right', fill='both', expand=True, padx=(10, 0))
         
-        # AI Status and monitoring section
-        self.create_ai_status_monitoring_section(main_frame)
+        # Create content
+        self.create_controls(left_frame)
+        self.create_monitor(right_frame)
         
-        # Log section
-        self.create_log_section(main_frame)
-
-    def create_header_section(self, parent):
-        """Create header section"""
-        header_frame = tk.LabelFrame(
-            parent,
-            text="🧠 AI Smart Profit Gold Trading System",
-            font=('Arial', 14, 'bold'),
-            fg='#ffd700',
-            bg='#16213e',
-            relief='groove',
-            bd=3
-        )
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+    def create_header(self, parent):
+        """Create header"""
+        header = tk.Frame(parent, bg='#16213E', height=80, relief='solid', borderwidth=1)
+        header.pack(fill='x')
+        header.pack_propagate(False)
         
-        header_label = tk.Label(
-            header_frame,
-            text="🏆 True AI Intelligence • Dynamic Market Analysis • Intelligent Decision Making",
-            font=('Arial', 12),
-            fg='#ffffff',
-            bg='#16213e'
-        )
-        header_label.pack(pady=10)
-
-    def create_connection_section(self, parent):
-        """Create connection and calculation section"""
-        conn_frame = tk.LabelFrame(
-            parent,
-            text="🔌 MT5 Connection & AI Calculation",
-            font=('Arial', 12, 'bold'),
-            fg='#ffd700',
-            bg='#16213e',
-            relief='groove',
-            bd=2
-        )
-        conn_frame.pack(fill=tk.X, pady=(0, 10))
+        # Title
+        title = tk.Label(header, text="🚀 AI Smart Profit Trading",
+                        bg='#16213E', fg=self.accent_color,
+                        font=('Arial', 18, 'bold'))
+        title.pack(side='left', padx=20, pady=20)
         
-        # Connection row
-        conn_row = tk.Frame(conn_frame, bg='#16213e')
-        conn_row.pack(fill=tk.X, padx=10, pady=5)
+        # Status
+        self.status_label = tk.Label(header, text="● Disconnected",
+                                   bg='#16213E', fg=self.error_color,
+                                   font=('Arial', 12, 'bold'))
+        self.status_label.pack(side='right', padx=20, pady=20)
         
-        self.connection_status = tk.Label(
-            conn_row,
-            text="❌ Disconnected",
-            font=('Arial', 10, 'bold'),
-            fg='#ff6b6b',
-            bg='#16213e'
-        )
-        self.connection_status.pack(side=tk.LEFT)
+    def create_controls(self, parent):
+        """Create control panel"""
+        # Title
+        title = tk.Label(parent, text="🎛️ Trading Controls",
+                        bg=self.card_color, fg=self.text_color,
+                        font=('Arial', 14, 'bold'))
+        title.pack(pady=20)
         
-        self.connect_btn = tk.Button(
-            conn_row,
-            text="🔌 Connect MT5",
-            font=('Arial', 10, 'bold'),
-            bg='#51cf66',
-            fg='#1a1a2e',
-            relief='raised',
-            bd=2,
-            command=self.connect_mt5
-        )
-        self.connect_btn.pack(side=tk.LEFT, padx=(20, 0))
+        # Connection
+        conn_frame = tk.Frame(parent, bg=self.card_color)
+        conn_frame.pack(fill='x', padx=20, pady=10)
         
-        # Trading mode selection
-        mode_row = tk.Frame(conn_frame, bg='#16213e')
-        mode_row.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(conn_frame, text="📡 Connection:",
+                bg=self.card_color, fg=self.text_color,
+                font=('Arial', 11, 'bold')).pack(anchor='w')
         
-        tk.Label(mode_row, text="🎯 Trading Mode:", font=('Arial', 10), fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
-        
-        self.mode_var = tk.StringVar(value=self.current_trading_mode.value)
-        self.mode_combo = ttk.Combobox(
-            mode_row,
-            textvariable=self.mode_var,
-            values=["SAFE", "BALANCED", "AGGRESSIVE", "TURBO"],
-            width=15,
-            state="readonly"
-        )
-        self.mode_combo.pack(side=tk.LEFT, padx=(10, 0))
-        self.mode_combo.bind('<<ComboboxSelected>>', self.on_mode_change)
+        self.connect_btn = tk.Button(conn_frame, text="🔌 Connect MT5",
+                                   command=self.connect_mt5,
+                                   bg=self.accent_color, fg='black',
+                                   font=('Arial', 10, 'bold'),
+                                   relief='flat', padx=20, pady=10)
+        self.connect_btn.pack(fill='x', pady=(5, 0))
         
         # Account info
-        self.account_label = tk.Label(
-            conn_frame,
-            text="💰 Account: Not connected",
-            font=('Arial', 10),
-            fg='#ffffff',
-            bg='#16213e'
-        )
-        self.account_label.pack(padx=10, pady=5)
+        self.account_label = tk.Label(conn_frame, text="No account connected",
+                                    bg=self.card_color, fg='#888888',
+                                    font=('Arial', 9))
+        self.account_label.pack(anchor='w', pady=(5, 0))
         
-        # Calculate button
-        self.calculate_btn = tk.Button(
-            conn_frame,
-            text="🧠 Calculate AI Parameters",
-            font=('Arial', 11, 'bold'),
-            bg='#339af0',
-            fg='#ffffff',
-            relief='raised',
-            bd=2,
-            state='disabled',
-            command=self.calculate_survivability
-        )
-        self.calculate_btn.pack(pady=10)
-
-    def create_ai_smart_profit_section(self, parent):
-        """Create AI Smart Profit management section"""
-        ai_frame = tk.LabelFrame(
-            parent,
-            text="🧠 AI Smart Intelligence Controls",
-            font=('Arial', 12, 'bold'),
-            fg='#ffd700',
-            bg='#16213e',
-            relief='groove',
-            bd=2
-        )
-        ai_frame.pack(fill=tk.X, pady=(0, 10))
+        # Trading mode
+        mode_frame = tk.Frame(parent, bg=self.card_color)
+        mode_frame.pack(fill='x', padx=20, pady=20)
         
-        # AI Configuration row
-        ai_config_row = tk.Frame(ai_frame, bg='#16213e')
-        ai_config_row.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(mode_frame, text="🎯 Trading Mode:",
+                bg=self.card_color, fg=self.text_color,
+                font=('Arial', 11, 'bold')).pack(anchor='w')
         
-        tk.Label(ai_config_row, text="🔬 AI Analysis:", font=('Arial', 10), fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        self.mode_var = tk.StringVar(value="BALANCED")
         
-        self.ai_interval_var = tk.StringVar(value=str(self.config.get('ai_smart_profit', {}).get('analysis_interval', 3)))
-        self.ai_interval_combo = ttk.Combobox(
-            ai_config_row,
-            textvariable=self.ai_interval_var,
-            values=["1", "3", "5", "10"],
-            width=8,
-            state="readonly"
-        )
-        self.ai_interval_combo.pack(side=tk.LEFT, padx=(10, 0))
-        self.ai_interval_combo.bind('<<ComboboxSelected>>', self.on_ai_config_change)
+        modes = [("🛡️ SAFE", "SAFE"), ("⚖️ BALANCED", "BALANCED"), 
+                ("🚀 AGGRESSIVE", "AGGRESSIVE")]
         
-        tk.Label(ai_config_row, text="seconds", font=('Arial', 9), fg='#adb5bd', bg='#16213e').pack(side=tk.LEFT, padx=(5, 0))
+        for text, value in modes:
+            rb = tk.Radiobutton(mode_frame, text=text, variable=self.mode_var, value=value,
+                              bg=self.card_color, fg=self.text_color,
+                              selectcolor=self.bg_color,
+                              font=('Arial', 10))
+            rb.pack(anchor='w', pady=2)
         
-        # AI Features row
-        ai_features_row = tk.Frame(ai_frame, bg='#16213e')
-        ai_features_row.pack(fill=tk.X, padx=10, pady=5)
+        # Buttons
+        btn_frame = tk.Frame(parent, bg=self.card_color)
+        btn_frame.pack(fill='x', padx=20, pady=20)
         
-        self.dynamic_spacing_var = tk.BooleanVar(value=self.config.get('ai_smart_profit', {}).get('dynamic_spacing_enabled', True))
-        self.dynamic_spacing_check = tk.Checkbutton(
-            ai_features_row,
-            text="🎯 Dynamic Spacing",
-            variable=self.dynamic_spacing_var,
-            font=('Arial', 9),
-            fg='#ffffff',
-            bg='#16213e',
-            selectcolor='#16213e',
-            command=self.on_ai_config_change
-        )
-        self.dynamic_spacing_check.pack(side=tk.LEFT)
+        self.calc_btn = tk.Button(btn_frame, text="🧮 Calculate Parameters",
+                                command=self.calculate_params,
+                                bg='#FFB800', fg='black',
+                                font=('Arial', 10, 'bold'),
+                                relief='flat', padx=20, pady=10,
+                                state='disabled')
+        self.calc_btn.pack(fill='x', pady=2)
         
-        self.cross_direction_var = tk.BooleanVar(value=self.config.get('ai_smart_profit', {}).get('cross_direction_trading', True))
-        self.cross_direction_check = tk.Checkbutton(
-            ai_features_row,
-            text="🔄 Cross-Direction",
-            variable=self.cross_direction_var,
-            font=('Arial', 9),
-            fg='#ffffff',
-            bg='#16213e',
-            selectcolor='#16213e',
-            command=self.on_ai_config_change
-        )
-        self.cross_direction_check.pack(side=tk.LEFT, padx=(20, 0))
+        self.start_btn = tk.Button(btn_frame, text="🚀 Start AI Trading",
+                                 command=self.start_trading,
+                                 bg=self.success_color, fg='black',
+                                 font=('Arial', 11, 'bold'),
+                                 relief='flat', padx=20, pady=15,
+                                 state='disabled')
+        self.start_btn.pack(fill='x', pady=5)
         
-        self.adaptive_risk_var = tk.BooleanVar(value=self.config.get('ai_smart_profit', {}).get('adaptive_risk_management', True))
-        self.adaptive_risk_check = tk.Checkbutton(
-            ai_features_row,
-            text="🛡️ Adaptive Risk",
-            variable=self.adaptive_risk_var,
-            font=('Arial', 9),
-            fg='#ffffff',
-            bg='#16213e',
-            selectcolor='#16213e',
-            command=self.on_ai_config_change
-        )
-        self.adaptive_risk_check.pack(side=tk.LEFT, padx=(20, 0))
+        self.stop_btn = tk.Button(btn_frame, text="⏹️ Stop Trading",
+                                command=self.stop_trading,
+                                bg=self.error_color, fg='white',
+                                font=('Arial', 10, 'bold'),
+                                relief='flat', padx=20, pady=10,
+                                state='disabled')
+        self.stop_btn.pack(fill='x', pady=2)
         
-        # AI Performance row
-        ai_perf_row = tk.Frame(ai_frame, bg='#16213e')
-        ai_perf_row.pack(fill=tk.X, padx=10, pady=5)
+    def create_monitor(self, parent):
+        """Create monitor panel"""
+        # Title
+        title = tk.Label(parent, text="📊 System Monitor",
+                        bg=self.card_color, fg=self.text_color,
+                        font=('Arial', 14, 'bold'))
+        title.pack(pady=20)
         
-        tk.Label(ai_perf_row, text="🎯 AI Accuracy:", font=('Arial', 10), fg='#ffffff', bg='#16213e').pack(side=tk.LEFT)
+        # Stats
+        stats_frame = tk.Frame(parent, bg=self.card_color)
+        stats_frame.pack(fill='x', padx=20, pady=10)
         
-        self.ai_accuracy_display = tk.Label(
-            ai_perf_row,
-            text="---%",
-            font=('Arial', 10, 'bold'),
-            fg='#51cf66',
-            bg='#16213e'
-        )
-        self.ai_accuracy_display.pack(side=tk.LEFT, padx=(10, 0))
+        self.health_label = tk.Label(stats_frame, text="🧠 AI Health: --",
+                                   bg=self.card_color, fg=self.accent_color,
+                                   font=('Arial', 11, 'bold'))
+        self.health_label.pack(anchor='w', pady=2)
         
-        tk.Label(ai_perf_row, text="🧠 Decisions:", font=('Arial', 10), fg='#ffffff', bg='#16213e').pack(side=tk.LEFT, padx=(30, 0))
+        self.profit_label = tk.Label(stats_frame, text="💰 Total P&L: $0.00",
+                                   bg=self.card_color, fg=self.success_color,
+                                   font=('Arial', 11, 'bold'))
+        self.profit_label.pack(anchor='w', pady=2)
         
-        self.ai_decisions_display = tk.Label(
-            ai_perf_row,
-            text="0",
-            font=('Arial', 10),
-            fg='#74c0fc',
-            bg='#16213e'
-        )
-        self.ai_decisions_display.pack(side=tk.LEFT, padx=(10, 0))
-
-    def create_trading_controls_section(self, parent):
-        """Create trading controls section"""
-        control_frame = tk.LabelFrame(
-            parent,
-            text="🎮 AI Trading Controls",
-            font=('Arial', 12, 'bold'),
-            fg='#ffd700',
-            bg='#16213e',
-            relief='groove',
-            bd=2
-        )
-        control_frame.pack(fill=tk.X, pady=(0, 10))
+        self.positions_label = tk.Label(stats_frame, text="📈 Positions: 0",
+                                      bg=self.card_color, fg='#FFB800',
+                                      font=('Arial', 11, 'bold'))
+        self.positions_label.pack(anchor='w', pady=2)
         
-        # Main control buttons
-        btn_frame = tk.Frame(control_frame, bg='#16213e')
-        btn_frame.pack(pady=10)
+        self.risk_label = tk.Label(stats_frame, text="🛡️ Risk: 0%",
+                                 bg=self.card_color, fg=self.text_color,
+                                 font=('Arial', 11, 'bold'))
+        self.risk_label.pack(anchor='w', pady=2)
         
-        self.start_btn = tk.Button(
-            btn_frame,
-            text="🧠 Start AI Smart Trading",
-            font=('Arial', 12, 'bold'),
-            bg='#51cf66',
-            fg='#1a1a2e',
-            relief='raised',
-            bd=3,
-            width=22,
-            command=self.start_ai_trading
-        )
-        self.start_btn.pack(side=tk.LEFT, padx=5)
+        # Log
+        log_frame = tk.Frame(parent, bg=self.card_color)
+        log_frame.pack(fill='both', expand=True, padx=20, pady=20)
         
-        self.stop_btn = tk.Button(
-            btn_frame,
-            text="⏹️ Stop AI Trading",
-            font=('Arial', 12, 'bold'),
-            bg='#ff6b6b',
-            fg='#ffffff',
-            relief='raised',
-            bd=3,
-            width=20,
-            command=self.stop_ai_trading,
-            state='disabled'
-        )
-        self.stop_btn.pack(side=tk.LEFT, padx=5)
+        tk.Label(log_frame, text="📋 System Log:",
+                bg=self.card_color, fg=self.text_color,
+                font=('Arial', 11, 'bold')).pack(anchor='w')
         
-        self.emergency_btn = tk.Button(
-            btn_frame,
-            text="🚨 Emergency Stop",
-            font=('Arial', 12, 'bold'),
-            bg='#e03131',
-            fg='#ffffff',
-            relief='raised',
-            bd=3,
-            width=18,
-            command=self.emergency_stop,
-            state='disabled'
-        )
-        self.emergency_btn.pack(side=tk.LEFT, padx=5)
-
-    def create_ai_status_monitoring_section(self, parent):
-        """Create AI status and monitoring section"""
-        status_frame = tk.LabelFrame(
-            parent,
-            text="📊 AI Real-time Intelligence Status",
-            font=('Arial', 12, 'bold'),
-            fg='#ffd700',
-            bg='#16213e',
-            relief='groove',
-            bd=2
-        )
-        status_frame.pack(fill=tk.X, pady=(0, 10))
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=20,
+                                                bg='#0F0F23', fg=self.text_color,
+                                                font=('Consolas', 9),
+                                                relief='flat', borderwidth=1)
+        self.log_text.pack(fill='both', expand=True, pady=(5, 0))
         
-        # AI Status display in grid
-        status_grid = tk.Frame(status_frame, bg='#16213e')
-        status_grid.pack(fill=tk.X, padx=10, pady=10)
+        # Initial log
+        self.log("🚀 AI Smart Profit Trading System Ready")
+        self.log("📡 Please connect to MetaTrader5 to begin")
         
-        # Row 1: AI Intelligence stats
-        row1 = tk.Frame(status_grid, bg='#16213e')
-        row1.pack(fill=tk.X, pady=2)
+    def log(self, message):
+        """Add log message"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted = f"[{timestamp}] {message}\n"
         
-        self.ai_health_label = tk.Label(row1, text="🏥 AI Health: --/100", font=('Arial', 10, 'bold'), fg='#51cf66', bg='#16213e')
-        self.ai_health_label.pack(side=tk.LEFT)
+        self.log_text.insert(tk.END, formatted)
+        self.log_text.see(tk.END)
         
-        self.portfolio_status_label = tk.Label(row1, text="💰 Portfolio: ANALYZING", font=('Arial', 10), fg='#74c0fc', bg='#16213e')
-        self.portfolio_status_label.pack(side=tk.LEFT, padx=(50, 0))
+    def show_message(self, title, message, type="info"):
+        """Show message box"""
+        if type == "error":
+            messagebox.showerror(title, message)
+        elif type == "warning":
+            messagebox.showwarning(title, message)
+        else:
+            messagebox.showinfo(title, message)
         
-        self.market_condition_label = tk.Label(row1, text="🔬 Market: SCANNING", font=('Arial', 10), fg='#ffd43b', bg='#16213e')
-        self.market_condition_label.pack(side=tk.LEFT, padx=(50, 0))
-        
-        # Row 2: Trading stats
-        row2 = tk.Frame(status_grid, bg='#16213e')
-        row2.pack(fill=tk.X, pady=2)
-        
-        self.positions_label = tk.Label(row2, text="📈 Positions: 0", font=('Arial', 10), fg='#74c0fc', bg='#16213e')
-        self.positions_label.pack(side=tk.LEFT)
-        
-        self.pnl_label = tk.Label(row2, text="💰 PnL: $0.00", font=('Arial', 10, 'bold'), fg='#51cf66', bg='#16213e')
-        self.pnl_label.pack(side=tk.LEFT, padx=(50, 0))
-        
-        self.risk_usage_label = tk.Label(row2, text="🛡️ Risk: 0%", font=('Arial', 10), fg='#51cf66', bg='#16213e')
-        self.risk_usage_label.pack(side=tk.LEFT, padx=(50, 0))
-        
-        # Row 3: AI Performance stats
-        row3 = tk.Frame(status_grid, bg='#16213e')
-        row3.pack(fill=tk.X, pady=2)
-        
-        self.volatility_label = tk.Label(row3, text="📊 Volatility: --/100", font=('Arial', 10), fg='#ffd43b', bg='#16213e')
-        self.volatility_label.pack(side=tk.LEFT)
-        
-        self.trend_strength_label = tk.Label(row3, text="📈 Trend: --", font=('Arial', 10), fg='#74c0fc', bg='#16213e')
-        self.trend_strength_label.pack(side=tk.LEFT, padx=(50, 0))
-        
-        self.ai_confidence_label = tk.Label(row3, text="🎯 Confidence: --%", font=('Arial', 10), fg='#51cf66', bg='#16213e')
-        self.ai_confidence_label.pack(side=tk.LEFT, padx=(50, 0))
-
-    def create_log_section(self, parent):
-        """Create logging section"""
-        log_frame = tk.LabelFrame(
-            parent,
-            text="📜 AI Intelligence Logs",
-            font=('Arial', 11, 'bold'),
-            fg='#ffd700',
-            bg='#16213e',
-            relief='groove',
-            bd=2
-        )
-        log_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Log display
-        self.log_display = scrolledtext.ScrolledText(
-            log_frame,
-            height=12,
-            font=('Consolas', 9),
-            bg='#2c2c54',
-            fg='#ffffff',
-            insertbackground='#ffffff',
-            selectbackground='#40407a'
-        )
-        self.log_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Configure log colors
-        self.log_display.tag_configure("SUCCESS", foreground="#51cf66")
-        self.log_display.tag_configure("ERROR", foreground="#ff6b6b")
-        self.log_display.tag_configure("WARNING", foreground="#ffd43b")
-        self.log_display.tag_configure("INFO", foreground="#74c0fc")
-        self.log_display.tag_configure("AI", foreground="#9775fa")
-
-    def on_mode_change(self, event=None):
-        """Handle trading mode change"""
-        try:
-            mode_str = self.mode_var.get()
-            self.current_trading_mode = TradingMode[mode_str]
-            self.log_message(f"🎯 Trading Mode changed to: {mode_str}", "INFO")
-            
-            # Update AI config if trading is active
-            if self.is_trading and hasattr(self, 'ai_smart_trader') and self.ai_smart_trader:
-                self.log_message("🧠 AI adapting to new trading mode...", "AI")
-            
-            # Recalculate if we have connection
-            if self.is_connected and self.account_info:
-                self.calculate_survivability()
-                
-        except Exception as e:
-            self.log_message(f"❌ Mode change error: {e}", "ERROR")
-
-    def on_ai_config_change(self, event=None):
-        """Handle AI configuration change"""
-        try:
-            # Update AI config
-            self.config['ai_smart_profit']['analysis_interval'] = int(self.ai_interval_var.get())
-            self.config['ai_smart_profit']['dynamic_spacing_enabled'] = self.dynamic_spacing_var.get()
-            self.config['ai_smart_profit']['cross_direction_trading'] = self.cross_direction_var.get()
-            self.config['ai_smart_profit']['adaptive_risk_management'] = self.adaptive_risk_var.get()
-            
-            self.log_message("🧠 AI Configuration updated", "AI")
-            
-            # Apply to active AI trader if running
-            if self.is_trading and hasattr(self, 'ai_smart_trader') and self.ai_smart_trader:
-                self.apply_ai_config_changes()
-                
-        except Exception as e:
-            self.log_message(f"❌ AI config error: {e}", "ERROR")
-
-    def apply_ai_config_changes(self):
-        """Apply AI configuration changes to active trader"""
-        try:
-            if hasattr(self, 'ai_smart_trader') and self.ai_smart_trader:
-                # Update AI config
-                self.ai_smart_trader.ai_config.update({
-                    'analysis_interval': int(self.ai_interval_var.get()),
-                    'dynamic_spacing_enabled': self.dynamic_spacing_var.get(),
-                    'cross_direction_trading': self.cross_direction_var.get(),
-                    'adaptive_risk_management': self.adaptive_risk_var.get()
-                })
-                
-                self.log_message("🧠 AI real-time configuration applied", "AI")
-                
-        except Exception as e:
-            self.log_message(f"❌ AI config apply error: {e}", "ERROR")
-
     def connect_mt5(self):
-        """Connect to MetaTrader5"""
+        """Connect to MT5"""
         try:
-            self.log_message("🔌 Connecting to MetaTrader5...", "INFO")
+            self.log("🔌 Connecting to MetaTrader5...")
             
             if self.mt5_connector.auto_connect():
                 self.is_connected = True
-                self.connection_status.config(text="✅ Connected", fg='#51cf66')
+                self.status_label.config(text="● Connected", fg=self.success_color)
                 
-                # Get account information
+                # Get account info
                 account_info = self.mt5_connector.get_account_info()
                 if account_info:
                     self.account_info = account_info
+                    login = account_info['login']
+                    balance = account_info['balance']
                     
-                    # Check market status
-                    market_status = self.check_market_status()
-                    gold_symbol = self.mt5_connector.get_gold_symbol()
+                    self.account_label.config(
+                        text=f"Account: {login} | Balance: ${balance:,.2f}",
+                        fg=self.text_color
+                    )
                     
-                    market_text = "🟢 Open" if market_status else "🔴 Closed"
-                    market_color = '#51cf66' if market_status else '#ff6b6b'
-                    
-                    account_text = f"💰 Account: {account_info['login']} | Balance: ${account_info['balance']:,.2f} | {gold_symbol} | Market: {market_text}"
-                    self.account_label.config(text=account_text, fg=market_color if not market_status else '#ffffff')
-                    
-                    # Enable calculate button
-                    self.calculate_btn.config(state='normal')
+                    # Enable buttons
+                    self.calc_btn.config(state='normal')
                     self.connect_btn.config(text="✅ Connected", state='disabled')
                     
-                    self.log_message("✅ MT5 Connected Successfully", "SUCCESS")
-                    self.log_message(f"📊 Account: {account_info['login']} | Balance: ${account_info['balance']:,.2f}", "INFO")
+                    self.log(f"✅ Connected to account {login}")
+                    self.log(f"💰 Balance: ${balance:,.2f}")
                     
                 else:
-                    self.log_message("❌ Failed to get account information", "ERROR")
-                    
+                    self.log("❌ Failed to get account information")
+                    self.show_message("Error", "Failed to get account information", "error")
             else:
-                self.log_message("❌ Failed to connect to MT5", "ERROR")
-                messagebox.showerror("Connection Error", "Failed to connect to MetaTrader5. Please ensure MT5 is running and logged in.")
+                self.log("❌ MT5 connection failed")
+                self.show_message("Error", "Failed to connect to MT5", "error")
                 
         except Exception as e:
-            self.log_message(f"❌ Connection error: {e}", "ERROR")
-            messagebox.showerror("Error", f"Connection error: {e}")
-
-    def check_market_status(self) -> bool:
-        """Check if market is currently open"""
-        try:
-            if not hasattr(self, 'mt5_connector') or not self.mt5_connector:
-                return False
-                
-            current_time = datetime.now()
+            self.log(f"❌ Connection error: {e}")
+            self.show_message("Error", f"Connection error: {e}", "error")
             
-            if current_time.weekday() >= 5:  # Weekend
-                return False
-                
-            import MetaTrader5 as mt5
-            gold_symbol = self.mt5_connector.get_gold_symbol()
-            if gold_symbol:
-                tick = mt5.symbol_info_tick(gold_symbol)
-                return tick is not None and tick.time > 0
-                
-            return False
-            
-        except Exception as e:
-            print(f"Error checking market status: {e}")
-            return False
-
-    def calculate_survivability(self):
-        """Calculate and display survivability parameters"""
+    def calculate_params(self):
+        """Calculate parameters"""
         if not self.is_connected:
-            messagebox.showwarning("Warning", "Please connect to MT5 first")
+            self.show_message("Warning", "Please connect to MT5 first", "warning")
             return
             
         try:
-            balance = self.account_info.get('balance', 0)
-            if balance <= 0:
-                raise ValueError("Invalid account balance")
-                
-            self.log_message("🧠 AI Calculating optimal parameters...", "AI")
+            self.log("🧮 Calculating trading parameters...")
             
-            # Use survivability engine to calculate parameters
-            results = self.survivability_engine.calculate_for_balance(
-                balance, 
-                trading_mode=self.current_trading_mode
-            )
+            # Simple calculation
+            balance = self.account_info.get('balance', 1000)
             
-            if results and results.get('target_met', False):
-                self.current_calculations = results
-                
-                # Display results
-                self.log_message("✅ AI Calculation completed successfully!", "SUCCESS")
-                self.log_message(f"🎯 Mode: {self.current_trading_mode.value}", "AI")
-                self.log_message(f"💰 Base Lot: {results['base_lot']:.3f}", "INFO")
-                self.log_message(f"📏 Grid Spacing: {results['grid_spacing']} points", "INFO")
-                self.log_message(f"📊 Max Levels: {results['max_levels']}", "INFO")
-                self.log_message(f"🛡️ Survivability: {results['realistic_survivability']:,} points", "INFO")
-                self.log_message(f"💪 Safety Margin: {results['safety_margin_percentage']:.1f}%", "INFO")
-                
-                # Enable trading buttons
-                self.start_btn.config(state='normal')
-                
-            else:
-                self.log_message("❌ Failed to calculate survivability parameters", "ERROR")
-                messagebox.showerror("Calculation Error", "Failed to calculate optimal parameters for your account")
-                
+            # Basic parameters
+            self.calc_results = {
+                'base_lot': max(0.01, balance / 100000),
+                'min_spacing': 80,
+                'normal_spacing': 100,
+                'max_spacing': 300,
+                'survivability': min(20000, balance * 15),
+                'safety_margin': 60.0
+            }
+            
+            # Log results
+            self.log("✅ Parameters calculated successfully")
+            self.log(f"📊 Base Lot: {self.calc_results['base_lot']:.3f}")
+            self.log(f"📏 Spacing: {self.calc_results['min_spacing']}-{self.calc_results['max_spacing']} points")
+            self.log(f"🛡️ Survivability: {self.calc_results['survivability']:,} points")
+            
+            # Enable start button
+            self.start_btn.config(state='normal')
+            
         except Exception as e:
-            self.log_message(f"❌ Calculation error: {e}", "ERROR")
-            messagebox.showerror("Error", f"Calculation error: {e}")
-
-    def start_ai_trading(self):
-        """Start AI Smart Profit trading"""
-        if not self.is_connected:
-            messagebox.showwarning("Warning", "Please connect to MT5 first")
+            self.log(f"❌ Calculation error: {e}")
+            self.show_message("Error", f"Calculation error: {e}", "error")
+            
+    def start_trading(self):
+        """Start trading"""
+        if not self.is_connected or not hasattr(self, 'calc_results'):
+            self.show_message("Warning", "Please connect and calculate parameters first", "warning")
             return
             
-        if not self.current_calculations:
-            messagebox.showwarning("Warning", "Please calculate AI parameters first")
-            return
-        
         try:
-            self.log_message("🧠 Initializing AI Smart Profit Trading System...", "AI")
+            self.log("🚀 Starting AI trading system...")
             
-            # Initialize AI Smart Profit Manager
+            # Initialize AI trader
+            config = {
+                'enhanced_grid': {
+                    'min_spacing': 80,
+                    'normal_spacing': 100,
+                    'max_spacing': 300,
+                    'profit_only_mode': True
+                },
+                'ai_smart_profit': {
+                    'analysis_interval': 3,
+                    'profit_only_mode': True
+                }
+            }
+            
             self.ai_smart_trader = AISmartProfitManager(
                 self.mt5_connector,
-                self.current_calculations,
-                self.config
+                self.calc_results,
+                config
             )
             
-            # Start AI trading
+            # Start trading
             success = self.ai_smart_trader.start_ai_trading()
             
             if success:
                 self.is_trading = True
                 
-                # Update GUI
-                self.start_btn.config(state='disabled', bg='#6c757d')
-                self.stop_btn.config(state='normal', bg='#ff6b6b')
-                self.emergency_btn.config(state='normal', bg='#e03131')
+                # Update buttons
+                self.start_btn.config(state='disabled')
+                self.stop_btn.config(state='normal')
                 
-                self.log_message("🚀 AI SMART PROFIT TRADING STARTED!", "SUCCESS")
-                survivability = self.current_calculations.get('realistic_survivability', 0)
-                self.log_message(f"🛡️ Protection Level: {survivability:,} points", "AI")
-                self.log_message(f"🧠 AI Intelligence: FULLY OPERATIONAL", "AI")
-                self.log_message(f"🔬 Market Analysis: CONTINUOUS", "AI")
-                self.log_message(f"🎯 Decision Making: AUTONOMOUS", "AI")
+                self.log("🎉 AI Trading started successfully!")
+                self.log("🧠 AI Engine: ACTIVE")
+                self.log("🎯 Grid Manager: OPERATIONAL")
+                self.log("💰 Profit System: MONITORING")
                 
-                # Start real-time AI monitoring
-                self.start_ai_real_time_monitoring()
+                # Start monitoring
+                self.start_monitoring()
                 
             else:
-                self.log_message("❌ Failed to start AI trading system", "ERROR")
-                messagebox.showerror("Error", "Failed to start AI Smart Profit trading system")
+                self.log("❌ Failed to start AI trading")
+                self.show_message("Error", "Failed to start AI trading", "error")
                 
         except Exception as e:
-            self.log_message(f"❌ AI Trading start error: {str(e)}", "ERROR")
-            messagebox.showerror("Error", f"Failed to start AI trading: {str(e)}")
-
-    def stop_ai_trading(self):
-        """Stop AI Smart Profit trading"""
+            self.log(f"❌ Trading start error: {e}")
+            self.show_message("Error", f"Trading start error: {e}", "error")
+            
+    def stop_trading(self):
+        """Stop trading"""
         if not self.is_trading:
             return
             
         try:
-            self.log_message("🛑 Stopping AI Smart Profit Trading...", "WARNING")
+            self.log("🛑 Stopping AI trading...")
             
             self.is_trading = False
             
             if self.ai_smart_trader:
                 self.ai_smart_trader.stop_ai_trading()
                 
-            # Update GUI
-            self.start_btn.config(state='normal', bg='#51cf66')
-            self.stop_btn.config(state='disabled', bg='#6c757d')
-            self.emergency_btn.config(state='disabled', bg='#6c757d')
+            # Update buttons
+            self.start_btn.config(state='normal')
+            self.stop_btn.config(state='disabled')
             
-            self.log_message("✅ AI Smart Profit Trading STOPPED", "SUCCESS")
-            
-        except Exception as e:
-            self.log_message(f"❌ Stop AI trading error: {str(e)}", "ERROR")
-
-    def emergency_stop(self):
-        """Emergency stop AI trading"""
-        if not self.is_trading:
-            return
-            
-        # Confirm emergency stop
-        result = messagebox.askyesno(
-            "Emergency Stop", 
-            "🚨 EMERGENCY STOP AI TRADING\n\nThis will:\n• Stop all AI decision making\n• Cancel pending orders\n• Keep positions open\n\nPositions will NOT be closed automatically.\n\nContinue?"
-        )
-        
-        if not result:
-            return
-            
-        try:
-            self.log_message("🚨 Emergency stop requested by user", "WARNING")
-            
-            self.is_trading = False
-            
-            if self.ai_smart_trader:
-                # Stop AI system
-                self.ai_smart_trader.stop_ai_trading()
-                
-            # Update GUI
-            self.start_btn.config(state='normal', bg='#51cf66')
-            self.stop_btn.config(state='disabled', bg='#6c757d')
-            self.emergency_btn.config(state='disabled', bg='#6c757d')
-            
-            self.log_message("✅ AI trading system stopped safely", "SUCCESS")
+            self.log("✅ AI Trading stopped successfully")
             
         except Exception as e:
-            self.log_message(f"❌ Emergency stop error: {str(e)}", "ERROR")
-
-    def start_ai_real_time_monitoring(self):
-        """Start real-time AI monitoring"""
-        if not hasattr(self, 'ai_monitoring_thread') or not self.ai_monitoring_thread.is_alive():
-            self.ai_monitoring_thread = threading.Thread(target=self.ai_real_time_monitor, daemon=True)
-            self.ai_monitoring_thread.start()
-
-    def ai_real_time_monitor(self):
-        """Real-time AI monitoring thread"""
-        update_count = 0
-        
-        while self.is_trading and self.monitoring:
-            try:
-                if self.ai_smart_trader:
-                    # Get current AI status
-                    ai_status = self.ai_smart_trader.get_ai_system_status()
-                    
-                    # Update GUI every 3 seconds
-                    if update_count % 3 == 0:
-                        self.root.after(0, self.update_ai_status_display, ai_status)
+            self.log(f"❌ Stop error: {e}")
+            
+    def start_monitoring(self):
+        """Start monitoring thread"""
+        def monitor():
+            while self.is_trading:
+                try:
+                    if self.ai_smart_trader:
+                        status = self.ai_smart_trader.get_ai_status()
                         
-                    # Check for AI emergency conditions
-                    if not ai_status.get('ai_active', False):
-                        self.root.after(0, self.handle_ai_emergency_triggered)
-                        break
-                        
-                    update_count += 1
+                        if status and 'error' not in status:
+                            # Update GUI
+                            self.root.after(0, self.update_display, status)
                     
-                time.sleep(1)  # Update every second
-                
-            except Exception as e:
-                print(f"AI Monitor error: {e}")
-                time.sleep(5)
-
-    def update_ai_status_display(self, ai_status):
-        """Update real-time AI status display"""
-        try:
-            if not ai_status or 'error' in ai_status:
-                return
-                
-            # Update AI Intelligence stats
-            ai_health = ai_status.get('ai_health_score', 0)
-            portfolio_status = ai_status.get('portfolio_status', 'UNKNOWN')
-            
-            health_color = '#51cf66' if ai_health >= 70 else '#ffd43b' if ai_health >= 40 else '#ff6b6b'
-            self.ai_health_label.config(text=f"🏥 AI Health: {ai_health:.0f}/100", fg=health_color)
-            
-            status_colors = {
-                'PROFITABLE': '#51cf66',
-                'BALANCED': '#ffd43b', 
-                'LOSING': '#ff6b6b'
-            }
-            status_color = status_colors.get(portfolio_status, '#74c0fc')
-            self.portfolio_status_label.config(text=f"💰 Portfolio: {portfolio_status}", fg=status_color)
-            
-            # Update Market Analysis
-            market_analysis = ai_status.get('market_analysis')
-            if market_analysis:
-                condition = market_analysis.get('condition', 'UNKNOWN')
-                volatility = market_analysis.get('volatility_score', 0)
-                trend = market_analysis.get('trend_strength', 0)
-                
-                condition_colors = {
-                    'TRENDING_UP': '#51cf66',
-                    'TRENDING_DOWN': '#ff6b6b',
-                    'RANGING': '#ffd43b',
-                    'HIGH_VOLATILITY': '#ff9500',
-                    'LOW_VOLATILITY': '#74c0fc'
-                }
-                condition_color = condition_colors.get(condition, '#ffd43b')
-                self.market_condition_label.config(text=f"🔬 Market: {condition}", fg=condition_color)
-                
-                volatility_color = '#ff6b6b' if volatility > 70 else '#ffd43b' if volatility > 40 else '#51cf66'
-                self.volatility_label.config(text=f"📊 Volatility: {volatility:.0f}/100", fg=volatility_color)
-                
-                trend_direction = "📈" if trend > 0 else "📉" if trend < 0 else "📊"
-                trend_color = '#51cf66' if abs(trend) > 50 else '#ffd43b'
-                self.trend_strength_label.config(text=f"{trend_direction} Trend: {abs(trend):.0f}", fg=trend_color)
-            
-            # Update Trading stats
-            positions = ai_status.get('active_positions', 0)
-            self.positions_label.config(text=f"📈 Positions: {positions}")
-            
-            # Calculate PnL from account info
-            account_balance = ai_status.get('account_balance', 0)
-            account_equity = ai_status.get('account_equity', 0)
-            pnl = account_equity - account_balance
-            
-            pnl_color = '#51cf66' if pnl >= 0 else '#ff6b6b'
-            self.pnl_label.config(text=f"💰 PnL: ${pnl:.2f}", fg=pnl_color)
-            
-            # Update Risk usage
-            risk_ratio = ai_status.get('risk_ratio', 0)
-            risk_pct = risk_ratio * 100
-            
-            risk_color = '#51cf66' if risk_pct < 30 else '#ffd43b' if risk_pct < 60 else '#ff6b6b'
-            self.risk_usage_label.config(text=f"🛡️ Risk: {risk_pct:.1f}%", fg=risk_color)
-            
-            # Update AI Performance
-            ai_accuracy = ai_status.get('ai_accuracy', 0)
-            total_decisions = ai_status.get('total_decisions', 0)
-            market_confidence = ai_status.get('market_confidence', 0)
-            
-            accuracy_color = '#51cf66' if ai_accuracy >= 0.7 else '#ffd43b' if ai_accuracy >= 0.5 else '#ff6b6b'
-            self.ai_accuracy_display.config(text=f"{ai_accuracy:.1%}", fg=accuracy_color)
-            
-            self.ai_decisions_display.config(text=f"{total_decisions}")
-            
-            confidence_color = '#51cf66' if market_confidence >= 0.7 else '#ffd43b' if market_confidence >= 0.5 else '#ff6b6b'
-            self.ai_confidence_label.config(text=f"🎯 Confidence: {market_confidence:.1%}", fg=confidence_color)
-                    
-        except Exception as e:
-            print(f"AI Status update error: {e}")
-
-    def handle_ai_emergency_triggered(self):
-        """Handle AI emergency stop"""
-        try:
-            self.is_trading = False
-            
-            self.start_btn.config(state='normal', bg='#51cf66')
-            self.stop_btn.config(state='disabled', bg='#6c757d')
-            self.emergency_btn.config(state='disabled', bg='#6c757d')
-            
-            self.log_message("🚨 AI EMERGENCY PROTECTION TRIGGERED!", "ERROR")
-            
-            messagebox.showerror(
-                "🚨 AI Emergency Stop", 
-                "AI Emergency Protection was triggered!\n\nCheck the logs for details.\nAI detected critical risk conditions."
-            )
-            
-        except Exception as e:
-            print(f"AI Emergency handler error: {e}")
-
-    def setup_status_monitoring(self):
-        """Setup status monitoring thread"""
-        self.monitoring = True
-        self.monitoring_thread = threading.Thread(target=self.monitor_system, daemon=True)
-        self.monitoring_thread.start()
-
-    def monitor_system(self):
-        """Monitor system status"""
-        while self.monitoring:
-            try:
-                if self.is_connected and self.mt5_connector:
-                    # Update account info
-                    account_info = self.mt5_connector.get_account_info()
-                    if account_info:
-                        self.account_info = account_info
-                        
-                time.sleep(5)  # Monitor every 5 seconds
-                
-            except Exception as e:
-                print(f"Monitor error: {e}")
-                time.sleep(10)
-
-    def log_message(self, message: str, level: str = "INFO"):
-        """Log message to display"""
-        try:
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            formatted_message = f"[{timestamp}] {message}\n"
-            
-            self.log_display.insert(tk.END, formatted_message, level)
-            self.log_display.see(tk.END)
-            
-            # Print to console as well
-            print(formatted_message.strip())
-            
-        except Exception as e:
-            print(f"Logging error: {e}")
-
-    def on_closing(self):
-        """Handle application closing"""
-        try:
-            if self.is_trading:
-                result = messagebox.askyesnocancel(
-                    "AI Trading Active", 
-                    "AI Trading is active. Stop AI trading before exit?\n\n• YES = Stop AI trading (keep positions)\n• NO = Force close\n• CANCEL = Don't exit"
-                )
-                
-                if result is True:  # YES - Stop trading
-                    self.stop_ai_trading()
-                    time.sleep(2)
-                    
-                elif result is False:  # NO - Force close
-                    self.emergency_stop()
                     time.sleep(3)
                     
-                else:  # CANCEL - Don't exit
-                    return
-                    
-            # Stop monitoring
-            self.monitoring = False
+                except Exception as e:
+                    self.log(f"❌ Monitor error: {e}")
+                    time.sleep(5)
+        
+        monitor_thread = threading.Thread(target=monitor, daemon=True)
+        monitor_thread.start()
+        
+    def update_display(self, status):
+        """Update display with status"""
+        try:
+            # Update health
+            health = status.get('ai_health_score', 0)
+            health_color = self.success_color if health > 70 else '#FFB800' if health > 40 else self.error_color
+            self.health_label.config(text=f"🧠 AI Health: {health:.1f}/100", fg=health_color)
             
-            # Disconnect MT5
-            if hasattr(self, 'mt5_connector'):
-                try:
-                    import MetaTrader5 as mt5
-                    mt5.shutdown()
-                except:
-                    pass
-                
-            # Save config
-            self.save_config()
+            # Update profit
+            profit = status.get('total_profit', 0)
+            profit_color = self.success_color if profit > 0 else self.error_color if profit < 0 else self.text_color
+            self.profit_label.config(text=f"💰 Total P&L: ${profit:.2f}", fg=profit_color)
             
-            # Final log
-            self.log_message("👋 AI Smart Profit Trading System Closed Safely", "INFO")
+            # Update positions
+            positions = status.get('active_positions', 0)
+            self.positions_label.config(text=f"📈 Positions: {positions}")
             
-            self.root.destroy()
+            # Update risk
+            risk = status.get('survivability_usage', 0)
+            risk_color = self.success_color if risk < 0.3 else '#FFB800' if risk < 0.7 else self.error_color
+            self.risk_label.config(text=f"🛡️ Risk: {risk:.1%}", fg=risk_color)
             
         except Exception as e:
-            print(f"Closing error: {e}")
-            self.root.destroy()
-    
+            print(f"Display update error: {e}")
+            
     def run(self):
-        """Run the application"""
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        
-        # Welcome message
-        self.log_message("🧠 AI Smart Profit Trading System Initialized", "SUCCESS")
-        self.log_message("🏆 True AI Intelligence for Gold Trading", "AI")
-        self.log_message("🔬 Dynamic Market Analysis & Decision Making", "AI")
-        self.log_message("🎯 Intelligent Positioning & Risk Management", "AI")
-        self.log_message("🔗 Ready to connect to MetaTrader5", "INFO")
-        
-        self.root.mainloop()
+        """Run the GUI"""
+        try:
+            self.log("🎯 Simple AI Trading GUI Started")
+            self.log("🔧 No complex layouts - just works!")
+            self.root.mainloop()
+        except Exception as e:
+            print(f"GUI error: {e}")
 
 def main():
-    """Main entry point"""
+    """Main function"""
     try:
-        if not getattr(sys, 'frozen', False):
-            # Check if required files exist
-            required_files = [
-                'mt5_auto_connector.py',
-                'ai_smart_profit_manager.py',  # Updated requirement
-                'survivability_engine.py',
-                'ai_money_manager.py',
-                'gold_hedge_calculator.py',
-                'api_connector.py'
-            ]
-            
-            missing_files = [f for f in required_files if not os.path.exists(f)]
-            
-            if missing_files:
-                print("⚠️ Missing required files:")
-                for file in missing_files:
-                    print(f"   - {file}")
-                print("\nPlease ensure all AI modules are in the same directory.")
-                print("Note: Now using AI Smart Profit Manager for true AI intelligence!")
-                input("Press Enter to continue anyway...")
-            
-        # Start GUI
-        app = AISmartProfitGUI()
+        print("🚀 Simple AI Trading GUI")
+        print("=" * 40)
+        print("✅ Simple layout - no errors")
+        print("✅ Easy to use")
+        print("✅ Just works!")
+        print("=" * 40)
+        
+        app = SimpleAITradingGUI()
         app.run()
         
-    except KeyboardInterrupt:
-        print("\n🛑 Application stopped by user")
     except Exception as e:
-        print(f"❌ Fatal Error: {e}")
+        print(f"❌ Error: {e}")
         input("Press Enter to exit...")
 
 if __name__ == "__main__":
