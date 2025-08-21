@@ -1072,76 +1072,544 @@ class AISmartProfitManager:
         except Exception as e:
             print(f"❌ Enhanced profit taking error: {e}")
 
+
     def find_enhanced_profit_opportunities(self) -> List[Dict]:
-        """Enhanced profit opportunities with Technical Analysis + Rebate Optimization"""
+        """
+        Ultra Flexible Profit Taking - ปิดได้หลากหลาย ยืดหยุ่น และชาญฉลาด
+        """
         try:
-            print("💰 SMART PROFIT ANALYSIS - Enhanced with Technical + Rebate")
-            print("=" * 65)
+            print("🧠 ULTRA FLEXIBLE INTELLIGENT PROFIT SYSTEM")
+            print("=" * 60)
             
-            # 📊 Get original opportunities
-            print("📈 Step 1: Analyzing Original Profit Opportunities...")
-            original_opportunities = self.find_original_profit_opportunities()
+            positions = list(self.active_positions.values())
+            if len(positions) < 1:
+                return []
             
-            if not original_opportunities:
-                print("   ℹ️ No original opportunities found")
-            else:
-                print(f"   📋 Found {len(original_opportunities)} original opportunities")
-                for i, opp in enumerate(original_opportunities):
-                    print(f"      {i+1}. Expected: ${opp.get('expected_profit', 0):.2f}")
+            # 📊 Step 1: Comprehensive Portfolio Analysis
+            portfolio_analysis = self._analyze_portfolio_comprehensive(positions)
             
-            # 🧠 Smart Enhancement Analysis
-            print("\n🧠 Step 2: Applying Smart Enhancement Analysis...")
-            enhanced_opportunities = self.smart_enhancer.enhance_profit_taking(original_opportunities)
+            # 🧠 Step 2: Multi-Strategy Opportunity Detection
+            all_strategies = [
+                self._strategy_instant_profit(positions, portfolio_analysis),      # เก็บกำไรด่วน
+                self._strategy_rescue_operations(positions, portfolio_analysis),   # ช่วยเหลือไม้ขาดทุน
+                self._strategy_margin_optimization(positions, portfolio_analysis), # เพิ่มประสิทธิภาพ margin
+                self._strategy_portfolio_rebalancing(positions, portfolio_analysis), # ปรับสมดุล portfolio
+                self._strategy_risk_reduction(positions, portfolio_analysis),      # ลดความเสี่ยง
+                self._strategy_opportunity_harvesting(positions, portfolio_analysis), # เก็บเกี่ยวโอกาส
+                self._strategy_emergency_protocols(positions, portfolio_analysis), # โปรโตคอลฉุกเฉิน
+                self._strategy_smart_combinations(positions, portfolio_analysis)   # การรวมอัจฉริยะ
+            ]
             
-            if enhanced_opportunities:
-                print(f"   ✅ Enhanced {len(enhanced_opportunities)} opportunities:")
-                for i, enh_opp in enumerate(enhanced_opportunities):
-                    print(f"      {i+1}. Tier: {enh_opp.tier}")
-                    print(f"         Profit: ${enh_opp.expected_profit:.2f}")
-                    print(f"         Confidence: {enh_opp.confidence:.0f}%")
-                    print(f"         Rebate Bonus: ${enh_opp.rebate_bonus:.2f}")
-                    print(f"         Reasoning: {enh_opp.reasoning}")
+            # 🔄 Step 3: Merge and Optimize All Strategies
+            merged_opportunities = []
+            for strategy_results in all_strategies:
+                merged_opportunities.extend(strategy_results)
             
-            # 💎 Volume Boost for Rebate
-            print("\n🚀 Step 3: Analyzing Volume Boost Opportunities...")
-            current_status = self.get_current_trading_status()
-            volume_boosts = self.smart_enhancer.boost_rebate_volume(current_status)
+            # 🎯 Step 4: Intelligence Scoring & Ranking
+            intelligent_opportunities = self._apply_intelligence_scoring(merged_opportunities, portfolio_analysis)
             
-            if volume_boosts:
-                print(f"   📊 Generated {len(volume_boosts)} volume boost opportunities:")
-                for boost in volume_boosts:
-                    print(f"      • {boost['type']}: {boost['direction']} @${boost['price']:.2f}")
-                    print(f"        Lot: {boost['lot_size']}, Rebate: ${boost['rebate_value']:.2f}")
-            else:
-                print("   ℹ️ No volume boost needed (rebate target met)")
+            # 🚀 Step 5: Final Optimization & Selection
+            final_opportunities = self._final_optimization(intelligent_opportunities, portfolio_analysis)
             
-            # 🎯 Combine and Prioritize
-            print("\n🎯 Step 4: Combining and Prioritizing All Opportunities...")
-            combined_opportunities = self.combine_all_opportunities(
-                enhanced_opportunities, volume_boosts
-            )
+            print(f"\n🏆 ULTRA FLEXIBLE RESULTS:")
+            print(f"   Total Strategies: {len(all_strategies)}")
+            print(f"   Raw Opportunities: {len(merged_opportunities)}")
+            print(f"   Intelligent Filtered: {len(intelligent_opportunities)}")
+            print(f"   Final Optimized: {len(final_opportunities)}")
             
-            print(f"📊 FINAL ANALYSIS RESULTS:")
-            print(f"   Original Opportunities: {len(original_opportunities)}")
-            print(f"   Enhanced Opportunities: {len(enhanced_opportunities)}")
-            print(f"   Volume Boost Opportunities: {len(volume_boosts)}")
-            print(f"   Total Combined: {len(combined_opportunities)}")
-            
-            # Display top opportunities
-            if combined_opportunities:
-                print(f"\n🏆 TOP OPPORTUNITIES (showing first 5):")
-                for i, opp in enumerate(combined_opportunities[:5]):
-                    print(f"   {i+1}. Type: {opp.get('type', 'PROFIT_TAKING')}")
-                    print(f"      Expected Value: ${opp.get('total_value', 0):.2f}")
-                    print(f"      Confidence: {opp.get('confidence', 0):.0f}%")
-                    print(f"      Priority: {opp.get('priority', 'MEDIUM')}")
-            
-            return combined_opportunities
+            return final_opportunities
             
         except Exception as e:
-            print(f"❌ Enhanced profit analysis error: {e}")
-            # Fallback to original method
+            print(f"❌ Ultra flexible system error: {e}")
             return self.find_original_profit_opportunities()
+
+    def _analyze_portfolio_comprehensive(self, positions) -> Dict:
+        """
+        🔍 Comprehensive Portfolio Analysis - วิเคราะห์ portfolio รอบด้าน
+        """
+        try:
+            analysis = {
+                'total_positions': len(positions),
+                'profitable_positions': [],
+                'losing_positions': [],
+                'neutral_positions': [],
+                'buy_positions': [],
+                'sell_positions': [],
+                'total_profit': 0,
+                'total_loss': 0,
+                'net_pnl': 0,
+                'total_margin_used': 0,
+                'portfolio_health': 0,
+                'risk_level': 'UNKNOWN',
+                'dominant_direction': 'NEUTRAL',
+                'margin_pressure': False,
+                'emergency_level': 0
+            }
+            
+            # Basic categorization
+            for pos in positions:
+                profit = pos.get('profit', 0)
+                direction = pos.get('direction', 'UNKNOWN')
+                lot_size = pos.get('lot_size', 0)
+                
+                # Profit categorization
+                if profit > 0.5:
+                    analysis['profitable_positions'].append(pos)
+                    analysis['total_profit'] += profit
+                elif profit < -0.5:
+                    analysis['losing_positions'].append(pos)
+                    analysis['total_loss'] += profit
+                else:
+                    analysis['neutral_positions'].append(pos)
+                
+                # Direction categorization
+                if direction == 'BUY':
+                    analysis['buy_positions'].append(pos)
+                elif direction == 'SELL':
+                    analysis['sell_positions'].append(pos)
+                
+                # Margin calculation
+                analysis['total_margin_used'] += lot_size * 2000
+            
+            analysis['net_pnl'] = analysis['total_profit'] + analysis['total_loss']
+            
+            # Advanced analysis
+            analysis.update(self._calculate_portfolio_health(analysis))
+            analysis.update(self._determine_risk_level(analysis))
+            analysis.update(self._assess_margin_situation(analysis))
+            
+            return analysis
+            
+        except Exception as e:
+            print(f"❌ Portfolio analysis error: {e}")
+            return {'total_positions': len(positions), 'emergency_level': 5}
+
+    def _strategy_instant_profit(self, positions, analysis) -> List[Dict]:
+        """
+        🚀 Strategy 1: Instant Profit - เก็บกำไรด่วนอัจฉริยะ
+        """
+        opportunities = []
+        
+        try:
+            profitable = analysis['profitable_positions']
+            
+            for pos in profitable:
+                profit = pos.get('profit', 0)
+                age_minutes = self._calculate_position_age(pos)
+                
+                # 🎯 Dynamic profit thresholds based on situation
+                if analysis['emergency_level'] >= 4:
+                    min_profit = 0.5  # ฉุกเฉิน - เก็บกำไรเล็กๆ
+                elif analysis['portfolio_health'] > 80:
+                    min_profit = 3.0  # สุขภาพดี - เก็บกำไรใหญ่
+                elif analysis['margin_pressure']:
+                    min_profit = 1.0  # มี margin pressure - เก็บกำไรปานกลาง
+                else:
+                    min_profit = 2.0  # ปกติ
+                
+                # 💡 Intelligent profit taking conditions
+                should_take = False
+                reasoning = []
+                confidence = 50
+                
+                # High profit - always take
+                if profit >= 5.0:
+                    should_take = True
+                    reasoning.append(f"High profit ${profit:.2f}")
+                    confidence = 95
+                    
+                # Medium profit with conditions
+                elif profit >= min_profit:
+                    if age_minutes > 30:
+                        should_take = True
+                        reasoning.append(f"Aged profit ${profit:.2f} ({age_minutes}min)")
+                        confidence = 80
+                    elif analysis['emergency_level'] >= 3:
+                        should_take = True
+                        reasoning.append(f"Emergency profit taking ${profit:.2f}")
+                        confidence = 85
+                    elif analysis['margin_pressure'] and profit >= 1.5:
+                        should_take = True
+                        reasoning.append(f"Margin relief profit ${profit:.2f}")
+                        confidence = 75
+                
+                # Small profit in emergency
+                elif profit >= 0.5 and analysis['emergency_level'] >= 4:
+                    should_take = True
+                    reasoning.append(f"Emergency small profit ${profit:.2f}")
+                    confidence = 60
+                
+                if should_take:
+                    opportunities.append({
+                        'strategy': 'INSTANT_PROFIT',
+                        'type': 'SINGLE_PROFIT',
+                        'positions': [pos['ticket']],
+                        'expected_profit': profit,
+                        'confidence': confidence,
+                        'reasoning': " | ".join(reasoning),
+                        'urgency': self._calculate_urgency(pos, analysis),
+                        'impact_score': profit * 10,
+                        'margin_relief': pos.get('lot_size', 0) * 2000
+                    })
+            
+            return opportunities
+            
+        except Exception as e:
+            print(f"❌ Instant profit strategy error: {e}")
+            return []
+
+    def _strategy_rescue_operations(self, positions, analysis) -> List[Dict]:
+        """
+        🛡️ Strategy 2: Advanced Rescue Operations - การช่วยเหลือขั้นสูง
+        """
+        opportunities = []
+        
+        try:
+            profitable = analysis['profitable_positions']
+            losing = analysis['losing_positions']
+            
+            if not profitable or not losing:
+                return []
+            
+            # 🎯 Dynamic rescue parameters
+            if analysis['emergency_level'] >= 4:
+                rescue_mode = "EMERGENCY"
+                max_rescue_loss = -25.0
+                min_net_profit = -2.0  # ยอมขาดทุนเพื่อลด positions
+            elif analysis['emergency_level'] >= 3:
+                rescue_mode = "AGGRESSIVE"
+                max_rescue_loss = -15.0
+                min_net_profit = 0.0
+            elif analysis['portfolio_health'] < 50:
+                rescue_mode = "MODERATE"
+                max_rescue_loss = -10.0
+                min_net_profit = 0.5
+            else:
+                rescue_mode = "CONSERVATIVE"
+                max_rescue_loss = -6.0
+                min_net_profit = 1.5
+            
+            # 🔄 1:1 Rescue pairs
+            for profit_pos in profitable:
+                profit_amt = profit_pos.get('profit', 0)
+                
+                for loss_pos in losing:
+                    loss_amt = loss_pos.get('profit', 0)
+                    
+                    if loss_amt < max_rescue_loss:
+                        continue
+                    
+                    net_profit = profit_amt + loss_amt
+                    
+                    if net_profit >= min_net_profit:
+                        rescue_efficiency = abs(loss_amt) / profit_amt if profit_amt > 0 else 0
+                        
+                        opportunities.append({
+                            'strategy': 'RESCUE_OPERATIONS',
+                            'type': 'RESCUE_PAIR_1_1',
+                            'positions': [profit_pos['ticket'], loss_pos['ticket']],
+                            'expected_profit': net_profit,
+                            'confidence': 80 if net_profit > 0 else 60,
+                            'reasoning': f"{rescue_mode} rescue: ${profit_amt:.2f} saves ${loss_amt:.2f} = ${net_profit:.2f}",
+                            'rescue_efficiency': rescue_efficiency,
+                            'urgency': self._calculate_rescue_urgency(loss_pos, analysis),
+                            'impact_score': (profit_amt * 5) + (abs(loss_amt) * 3),
+                            'margin_relief': (profit_pos.get('lot_size', 0) + loss_pos.get('lot_size', 0)) * 2000
+                        })
+            
+            # 🔄 1:2 Multi-rescue (emergency/aggressive only)
+            if rescue_mode in ["EMERGENCY", "AGGRESSIVE"]:
+                for profit_pos in profitable:
+                    profit_amt = profit_pos.get('profit', 0)
+                    
+                    if profit_amt < abs(min_net_profit) + 2.0:
+                        continue
+                    
+                    for i, loss_pos1 in enumerate(losing):
+                        for loss_pos2 in losing[i+1:]:
+                            loss_amt1 = loss_pos1.get('profit', 0)
+                            loss_amt2 = loss_pos2.get('profit', 0)
+                            total_loss = loss_amt1 + loss_amt2
+                            
+                            if total_loss < max_rescue_loss:
+                                continue
+                            
+                            net_profit = profit_amt + total_loss
+                            
+                            if net_profit >= min_net_profit:
+                                opportunities.append({
+                                    'strategy': 'RESCUE_OPERATIONS',
+                                    'type': 'RESCUE_PAIR_1_2',
+                                    'positions': [profit_pos['ticket'], loss_pos1['ticket'], loss_pos2['ticket']],
+                                    'expected_profit': net_profit,
+                                    'confidence': 70 if net_profit > 0 else 50,
+                                    'reasoning': f"{rescue_mode} multi-rescue: ${profit_amt:.2f} saves ${total_loss:.2f} = ${net_profit:.2f}",
+                                    'rescue_efficiency': abs(total_loss) / profit_amt if profit_amt > 0 else 0,
+                                    'urgency': max(self._calculate_rescue_urgency(loss_pos1, analysis), 
+                                                self._calculate_rescue_urgency(loss_pos2, analysis)),
+                                    'impact_score': (profit_amt * 3) + (abs(total_loss) * 2),
+                                    'margin_relief': (profit_pos.get('lot_size', 0) + loss_pos1.get('lot_size', 0) + loss_pos2.get('lot_size', 0)) * 2000
+                                })
+            
+            # 🔄 2:1 Power rescue (emergency only)
+            if rescue_mode == "EMERGENCY" and len(profitable) >= 2:
+                for loss_pos in losing:
+                    loss_amt = loss_pos.get('profit', 0)
+                    
+                    if loss_amt > -8.0:  # เฉพาะขาดทุนใหญ่
+                        continue
+                    
+                    for i, profit_pos1 in enumerate(profitable):
+                        for profit_pos2 in profitable[i+1:]:
+                            profit_amt1 = profit_pos1.get('profit', 0)
+                            profit_amt2 = profit_pos2.get('profit', 0)
+                            total_profit = profit_amt1 + profit_amt2
+                            
+                            net_profit = total_profit + loss_amt
+                            
+                            if net_profit >= min_net_profit and total_profit >= abs(loss_amt) * 0.7:
+                                opportunities.append({
+                                    'strategy': 'RESCUE_OPERATIONS',
+                                    'type': 'POWER_RESCUE_2_1',
+                                    'positions': [profit_pos1['ticket'], profit_pos2['ticket'], loss_pos['ticket']],
+                                    'expected_profit': net_profit,
+                                    'confidence': 85,
+                                    'reasoning': f"EMERGENCY power rescue: ${total_profit:.2f} rescues ${loss_amt:.2f} = ${net_profit:.2f}",
+                                    'rescue_efficiency': abs(loss_amt) / total_profit if total_profit > 0 else 0,
+                                    'urgency': self._calculate_rescue_urgency(loss_pos, analysis) + 2,
+                                    'impact_score': (total_profit * 4) + (abs(loss_amt) * 5),
+                                    'margin_relief': (profit_pos1.get('lot_size', 0) + profit_pos2.get('lot_size', 0) + loss_pos.get('lot_size', 0)) * 2000
+                                })
+            
+            return opportunities
+            
+        except Exception as e:
+            print(f"❌ Rescue operations error: {e}")
+            return []
+
+    def _strategy_smart_combinations(self, positions, analysis) -> List[Dict]:
+        """
+        🧠 Strategy 8: Smart Combinations - การรวมอัจฉริยะ
+        """
+        opportunities = []
+        
+        try:
+            if len(positions) < 3:
+                return []
+            
+            profitable = analysis['profitable_positions']
+            losing = analysis['losing_positions']
+            neutral = analysis['neutral_positions']
+            
+            # 🎯 Multi-position intelligent combinations
+            all_pos = profitable + losing + neutral
+            
+            # ลองรวม 3-5 positions แบบต่างๆ
+            for combo_size in [3, 4, 5]:
+                if len(all_pos) < combo_size:
+                    continue
+                
+                # Generate smart combinations
+                from itertools import combinations
+                for combo in list(combinations(all_pos, combo_size))[:20]:  # จำกัดไม่ให้เยอะเกิน
+                    total_profit = sum(pos.get('profit', 0) for pos in combo)
+                    total_margin = sum(pos.get('lot_size', 0) for pos in combo) * 2000
+                    
+                    # ประเมินความคุ้มค่า
+                    is_valuable = False
+                    reasoning = []
+                    confidence = 40
+                    
+                    # High profit combination
+                    if total_profit >= 5.0:
+                        is_valuable = True
+                        reasoning.append(f"High combo profit ${total_profit:.2f}")
+                        confidence = 85
+                    
+                    # Emergency margin relief
+                    elif analysis['margin_pressure'] and total_margin >= 2000:
+                        if total_profit >= -3.0:  # ยอมขาดทุนเล็กน้อยเพื่อลด margin
+                            is_valuable = True
+                            reasoning.append(f"Emergency margin relief ${total_margin:.0f}")
+                            confidence = 70
+                    
+                    # Portfolio rebalancing
+                    elif self._improves_portfolio_balance(combo, analysis):
+                        if total_profit >= 0.0:
+                            is_valuable = True
+                            reasoning.append(f"Portfolio rebalancing benefit")
+                            confidence = 65
+                    
+                    # Emergency cleanup
+                    elif analysis['emergency_level'] >= 4:
+                        if total_profit >= -5.0:  # ยอมขาดทุนเพื่อลด positions
+                            is_valuable = True
+                            reasoning.append(f"Emergency position cleanup")
+                            confidence = 55
+                    
+                    if is_valuable:
+                        tickets = [pos['ticket'] for pos in combo]
+                        
+                        opportunities.append({
+                            'strategy': 'SMART_COMBINATIONS',
+                            'type': f'COMBO_{combo_size}_POSITIONS',
+                            'positions': tickets,
+                            'expected_profit': total_profit,
+                            'confidence': confidence,
+                            'reasoning': " | ".join(reasoning) + f" ({combo_size} positions)",
+                            'combo_size': combo_size,
+                            'complexity': combo_size * 10,
+                            'urgency': analysis['emergency_level'],
+                            'impact_score': total_profit * 5 + (total_margin / 100),
+                            'margin_relief': total_margin
+                        })
+            
+            # เรียงตาม impact score
+            opportunities.sort(key=lambda x: x['impact_score'], reverse=True)
+            
+            return opportunities[:10]  # เอาแค่ 10 อันดับแรก
+            
+        except Exception as e:
+            print(f"❌ Smart combinations error: {e}")
+            return []
+
+    def _apply_intelligence_scoring(self, opportunities, analysis) -> List[Dict]:
+        """
+        🧠 Apply Advanced Intelligence Scoring
+        """
+        try:
+            for opp in opportunities:
+                # Base scores
+                profit_score = max(0, opp['expected_profit'] * 10)
+                confidence_score = opp['confidence']
+                urgency_score = opp.get('urgency', 0) * 10
+                
+                # Strategy bonuses
+                strategy_bonus = {
+                    'INSTANT_PROFIT': 20,
+                    'RESCUE_OPERATIONS': 30,
+                    'MARGIN_OPTIMIZATION': 25,
+                    'PORTFOLIO_REBALANCING': 15,
+                    'RISK_REDUCTION': 35,
+                    'OPPORTUNITY_HARVESTING': 10,
+                    'EMERGENCY_PROTOCOLS': 50,
+                    'SMART_COMBINATIONS': 5
+                }.get(opp['strategy'], 0)
+                
+                # Emergency multiplier
+                emergency_multiplier = 1.0 + (analysis['emergency_level'] * 0.2)
+                
+                # Final intelligence score
+                intelligence_score = (
+                    profit_score * 0.3 +
+                    confidence_score * 0.25 +
+                    urgency_score * 0.2 +
+                    strategy_bonus * 0.15 +
+                    opp.get('impact_score', 0) * 0.1
+                ) * emergency_multiplier
+                
+                opp['intelligence_score'] = round(intelligence_score, 2)
+            
+            # Filter and sort by intelligence score
+            intelligent_opportunities = [opp for opp in opportunities if opp['intelligence_score'] >= 30]
+            intelligent_opportunities.sort(key=lambda x: x['intelligence_score'], reverse=True)
+            
+            return intelligent_opportunities
+            
+        except Exception as e:
+            print(f"❌ Intelligence scoring error: {e}")
+            return opportunities
+
+    def _final_optimization(self, opportunities, analysis) -> List[Dict]:
+        """
+        🚀 Final Optimization & Selection
+        """
+        try:
+            if not opportunities:
+                return []
+            
+            # ป้องกันการปิดไม้ซ้ำ
+            final_opportunities = []
+            used_positions = set()
+            
+            for opp in opportunities:
+                position_tickets = set(opp['positions'])
+                
+                # เช็คว่าไม้ซ้ำกันหรือไม่
+                if not position_tickets.intersection(used_positions):
+                    final_opportunities.append(opp)
+                    used_positions.update(position_tickets)
+                    
+                    # จำกัดจำนวนโอกาสตาม emergency level
+                    max_opportunities = min(15, 5 + analysis['emergency_level'] * 2)
+                    if len(final_opportunities) >= max_opportunities:
+                        break
+            
+            return final_opportunities
+            
+        except Exception as e:
+            print(f"❌ Final optimization error: {e}")
+            return opportunities[:10]
+
+    # Helper methods (เพิ่มตามต้องการ)
+    def _calculate_position_age(self, position) -> int:
+        """คำนวณอายุของ position ในหน่วยนาที"""
+        try:
+            from datetime import datetime
+            created_time = position.get('timestamp', datetime.now())
+            if isinstance(created_time, str):
+                # Parse string timestamp if needed
+                created_time = datetime.fromisoformat(created_time.replace('Z', '+00:00'))
+            age = (datetime.now() - created_time).total_seconds() / 60
+            return int(age)
+        except:
+            return 0
+
+    def _calculate_urgency(self, position, analysis) -> int:
+        """คำนวณความเร่งด่วน 0-10"""
+        urgency = 0
+        
+        # Emergency level
+        urgency += analysis['emergency_level']
+        
+        # Position age
+        age = self._calculate_position_age(position)
+        if age > 60: urgency += 2
+        elif age > 30: urgency += 1
+        
+        # Profit/loss magnitude
+        profit = position.get('profit', 0)
+        if profit > 5.0: urgency += 3
+        elif profit < -10.0: urgency += 4
+        
+        return min(10, urgency)
+
+    def _calculate_rescue_urgency(self, losing_position, analysis) -> int:
+        """คำนวณความเร่งด่วนในการช่วย"""
+        loss = abs(losing_position.get('profit', 0))
+        urgency = analysis['emergency_level']
+        
+        if loss > 15.0: urgency += 4
+        elif loss > 10.0: urgency += 3
+        elif loss > 5.0: urgency += 2
+        else: urgency += 1
+        
+        return min(10, urgency)
+
+    def _improves_portfolio_balance(self, combo, analysis) -> bool:
+        """เช็คว่า combo นี้ช่วยปรับปรุง portfolio balance หรือไม่"""
+        buy_count = len([p for p in combo if p.get('direction') == 'BUY'])
+        sell_count = len([p for p in combo if p.get('direction') == 'SELL'])
+        
+        current_buy = len(analysis['buy_positions'])
+        current_sell = len(analysis['sell_positions'])
+        current_imbalance = abs(current_buy - current_sell)
+        
+        new_buy = current_buy - buy_count
+        new_sell = current_sell - sell_count
+        new_imbalance = abs(new_buy - new_sell)
+        
+        return new_imbalance < current_imbalance
 
     def get_current_trading_status(self) -> Dict:
         """Get current trading status for volume boost analysis"""
