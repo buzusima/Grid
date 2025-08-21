@@ -628,6 +628,10 @@ class AISmartProfitManager:
                 # Update positions from MT5
                 self.ai_update_positions_from_mt5()
                 
+                self.update_position_trailing()
+                self.detect_existing_positions()
+                time.sleep(3)
+                
                 # Calculate portfolio health
                 health_score = self.ai_calculate_portfolio_health()
                 self.ai_health_score = health_score
@@ -1103,14 +1107,25 @@ class AISmartProfitManager:
             if len(positions) < 1:
                 return []
             
+            # 🔒 Filter out trailing-protected positions
+            filtered_positions = []
+            for pos in positions:
+                ticket = pos.get('ticket')
+                if self.is_position_trailing_protected(ticket):
+                    print(f"🔒 SKIP #{ticket} - has trailing protection")
+                    continue
+                filtered_positions.append(pos)
+            
+            print(f"📊 Analyzing {len(filtered_positions)}/{len(positions)} positions (excluding trailing-protected)")
+            
             # 📊 Step 1: Portfolio Analysis
-            portfolio_analysis = self._analyze_portfolio_comprehensive(positions)
+            portfolio_analysis = self._analyze_portfolio_comprehensive(filtered_positions)
             
             # 🧠 Step 2: RESCUE STRATEGIES ONLY
             all_strategies = [
-                self._strategy_high_profit_only(positions, portfolio_analysis),    # เก็บกำไรสูงเท่านั้น
-                self._strategy_rescue_operations(positions, portfolio_analysis),   # หักลบช่วยเหลือ
-                self._strategy_smart_rescue_combinations(positions, portfolio_analysis)  # รวมหักลบ
+                self._strategy_high_profit_only(filtered_positions, portfolio_analysis),    # เก็บกำไรสูงเท่านั้น
+                self._strategy_rescue_operations(filtered_positions, portfolio_analysis),   # หักลบช่วยเหลือ
+                self._strategy_smart_rescue_combinations(filtered_positions, portfolio_analysis)  # รวมหักลบ
             ]
             
             # 🔄 Step 3: Merge Results
@@ -1132,7 +1147,7 @@ class AISmartProfitManager:
         except Exception as e:
             print(f"❌ Rescue system error: {e}")
             return []
-    
+       
     def _final_rescue_optimization(self, opportunities, analysis) -> List[Dict]:
         """🚀 FINAL RESCUE OPTIMIZATION - ป้องกันซ้ำ"""
         try:
@@ -1267,7 +1282,16 @@ class AISmartProfitManager:
         try:
             profitable = analysis['profitable_positions']
             
+            # 🔒 Filter out trailing-protected positions
+            filtered_profitable = []
             for pos in profitable:
+                ticket = pos.get('ticket')
+                if self.is_position_trailing_protected(ticket):
+                    print(f"🔒 SKIP #{ticket} - has trailing protection")
+                    continue
+                filtered_profitable.append(pos)
+            
+            for pos in filtered_profitable:
                 profit = pos.get('profit', 0)
                 age_minutes = self._calculate_position_age(pos)
                 
@@ -2087,7 +2111,16 @@ class AISmartProfitManager:
             if len(positions) < 2:
                 return opportunities
             
-            profitable_positions = [p for p in positions if p.get('profit', 0) > 0]
+            # 🔒 Filter out trailing-protected positions
+            filtered_positions = []
+            for p in positions:
+                ticket = p.get('ticket')
+                if self.is_position_trailing_protected(ticket):
+                    print(f"🔒 SKIP #{ticket} - has trailing protection")
+                    continue
+                filtered_positions.append(p)
+            
+            profitable_positions = [p for p in filtered_positions if p.get('profit', 0) > 0]
             
             # Strategy 1: Single profitable positions (>$3)
             for pos in profitable_positions:
@@ -2115,7 +2148,7 @@ class AISmartProfitManager:
                         })
             
             # Strategy 3: Rescue pairs
-            losing_positions = [p for p in positions if p.get('profit', 0) < 0]
+            losing_positions = [p for p in filtered_positions if p.get('profit', 0) < 0]
             
             for profit_pos in profitable_positions:
                 for loss_pos in losing_positions:
@@ -3236,7 +3269,7 @@ class AISmartProfitManager:
                 
         except Exception as e:
             print(f"❌ Trailing update error: {e}")
-            
+
     def _update_single_trailing_stop(self, position_ticket):
         """🔄 อัพเดต Trailing Stop ไม้เดียว"""
         
@@ -3325,3 +3358,228 @@ class AISmartProfitManager:
                     
         except Exception as e:
             print(f"❌ Trailing check error: {e}")
+
+    def get_current_spread_points(self):
+        """ดึง spread ปัจจุบันเป็น points"""
+        try:
+            tick = mt5.symbol_info_tick(self.gold_symbol)
+            if tick and tick.ask and tick.bid:
+                symbol_info = mt5.symbol_info(self.gold_symbol)
+                if symbol_info:
+                    spread_points = int((tick.ask - tick.bid) / symbol_info.point)
+                    return max(10, spread_points)  # อย่างน้อย 1 pip
+            return 25  # fallback 2.5 pips
+        except:
+            return 25
+
+    def calculate_safe_distance(self, base_distance, action_type="general"):
+        """คำนวณระยะปลอดภัยรวม spread"""
+        current_spread = self.get_current_spread_points()
+        
+        if action_type == "trailing":
+            spread_buffer = current_spread + 20  # เผื่อ 2 pips
+        elif action_type == "profit_target":
+            spread_buffer = current_spread + 30  # เผื่อ 3 pips
+        else:
+            spread_buffer = current_spread + 10  # default
+        
+        return base_distance + spread_buffer
+
+    def setup_position_trailing(self, ticket, entry_price, order_type, lot_size):
+        """ตั้งค่า trailing สำหรับ position - รวมกับระบบเก่า"""
+        
+        # คำนวณ trail distance ตามขนาดไม้
+        if lot_size >= 0.1:
+            trail_distance = 3.0   # $3 trail
+        elif lot_size >= 0.05:
+            trail_distance = 2.5   # $2.5 trail
+        else:
+            trail_distance = 2.0   # $2 trail
+        
+        # เผื่อ spread
+        spread_buffer = self.get_current_spread_points() * 0.01  # convert to dollars
+        safe_trail_distance = trail_distance + spread_buffer
+        
+        # ใช้โครงสร้างเดิม + เพิ่มข้อมูลใหม่
+        self.support_trailing_data[ticket] = {
+            # ระบบเก่า (ต้องมี)
+            'initial_profit': 0,
+            'current_trailing_stop': 0,
+            'highest_profit_seen': 0,
+            'trail_distance': safe_trail_distance,
+            'trail_step': 1.0,
+            'last_update': datetime.now(),
+            
+            # ระบบใหม่ (เพิ่ม)
+            'entry_price': entry_price,
+            'order_type': order_type,
+            'lot_size': lot_size,
+            'profit_threshold': 2.0,  # เริ่ม trail เมื่อกำไร $2
+            'best_price': entry_price,
+            'trailing_active': False
+        }
+        if ticket not in self.portfolio_support_positions:
+            self.portfolio_support_positions[ticket] = {}
+    
+        self.portfolio_support_positions[ticket]['trailing_protected'] = True
+        print(f"🔒 Position #{ticket} PROTECTED from main profit system")
+        print(f"🎯 Unified trailing setup #{ticket}: trail ${safe_trail_distance:.2f}")
+
+    def update_position_trailing(self):
+        return
+        """อัพเดท trailing stops"""
+        for ticket, trail_data in list(self.support_trailing_data.items()):
+            try:
+                positions = mt5.positions_get(ticket=ticket)
+                if not positions:
+                    del self.support_trailing_data[ticket]
+                    continue
+                    
+                position = positions[0]
+                current_price = position.price_current
+                
+                # 🔧 แก้ไข: ใช้ข้อมูลจาก position ถ้าไม่มีใน trail_data
+                entry_price = trail_data.get('entry_price', position.price_open)
+                order_type = trail_data.get('order_type', position.type)
+                
+                # ถ้าไม่มี safe_trailing_distance ให้คำนวณใหม่
+                if 'safe_trailing_distance' not in trail_data:
+                    lot_size = position.volume
+                    if lot_size >= 0.1:
+                        base_trailing = 100
+                    elif lot_size >= 0.05:
+                        base_trailing = 80
+                    else:
+                        base_trailing = 60
+                    safe_distance = self.calculate_safe_distance(base_trailing, "trailing")
+                    trail_data['safe_trailing_distance'] = safe_distance
+                else:
+                    safe_distance = trail_data['safe_trailing_distance']
+                
+                symbol_info = mt5.symbol_info(self.gold_symbol)
+                if not symbol_info:
+                    continue
+                    
+                # คำนวณกำไร
+                if order_type == mt5.ORDER_TYPE_BUY or position.type == mt5.POSITION_TYPE_BUY:
+                    profit_points = (current_price - entry_price) / symbol_info.point
+                    if current_price > trail_data.get('best_price', entry_price):
+                        trail_data['best_price'] = current_price
+                else:  # SELL
+                    profit_points = (entry_price - current_price) / symbol_info.point
+                    if current_price < trail_data.get('best_price', entry_price):
+                        trail_data['best_price'] = current_price
+                
+                # อัพเดทข้อมูลที่อาจหายไป
+                trail_data['max_profit_seen'] = max(trail_data.get('max_profit_seen', 0), profit_points)
+                trail_data['profit_threshold'] = trail_data.get('profit_threshold', 40)
+                
+                # เริ่ม trailing
+                if profit_points >= trail_data['profit_threshold']:
+                    trail_data['trailing_active'] = True
+                    
+                    if order_type == mt5.ORDER_TYPE_BUY or position.type == mt5.POSITION_TYPE_BUY:
+                        new_sl = trail_data['best_price'] - (safe_distance * symbol_info.point)
+                        if new_sl > position.sl or position.sl == 0:
+                            self.modify_position_stop_loss(ticket, new_sl)
+                    else:  # SELL
+                        new_sl = trail_data['best_price'] + (safe_distance * symbol_info.point)
+                        if new_sl < position.sl or position.sl == 0:
+                            self.modify_position_stop_loss(ticket, new_sl)
+                
+            except Exception as e:
+                print(f"❌ Trailing error #{ticket}: {e}")
+                # ลบ trail_data ที่มีปัญหา
+                if ticket in self.support_trailing_data:
+                    del self.support_trailing_data[ticket]
+
+    def detect_existing_positions(self):
+        """ตรวจจับ position เก่าที่ยังไม่มี trailing data"""
+        try:
+            positions = mt5.positions_get(symbol=self.gold_symbol)
+            if not positions:
+                return
+                
+            for position in positions:
+                if position.magic == self.magic_number:
+                    ticket = position.ticket
+                    
+                    # ถ้ายังไม่มี trailing data ให้สร้างใหม่
+                    if ticket not in self.support_trailing_data:
+                        print(f"🔍 Detected existing position #{ticket} - setting up trailing")
+                        self.setup_position_trailing(
+                            ticket, 
+                            position.price_open,
+                            position.type,
+                            position.volume
+                        )
+                        
+        except Exception as e:
+            print(f"❌ Detect existing positions error: {e}")
+
+    def modify_position_stop_loss(self, ticket, new_sl):
+        """แก้ไข Stop Loss ของ position"""
+        try:
+            positions = mt5.positions_get(ticket=ticket)
+            if not positions:
+                return False
+                
+            position = positions[0]
+            
+            # ตรวจสอบว่า SL ใหม่ต่างจากเดิมมากพอหรือไม่
+            if position.sl != 0:
+                symbol_info = mt5.symbol_info(position.symbol)
+                price_diff = abs(new_sl - position.sl) / symbol_info.point
+                if price_diff < 10:  # ต่างน้อยกว่า 1 pip ไม่ต้องแก้
+                    return True
+            
+            request = {
+                "action": mt5.TRADE_ACTION_SLTP,
+                "symbol": position.symbol,
+                "position": ticket,
+                "sl": round(new_sl, 5),
+                "tp": position.tp,
+                "magic": self.magic_number,
+                "comment": "AI_Trail_SL"
+            }
+            
+            result = mt5.order_send(request)
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"✅ SL updated #{ticket}: {new_sl:.5f}")
+                return True
+            else:
+                print(f"❌ SL update failed #{ticket}: {result.comment}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ SL modify error #{ticket}: {e}")
+            return False
+        
+    def is_position_trailing_protected(self, ticket):
+        """เช็คว่าไม้นี้ถูกป้องกันด้วย trailing หรือไม่"""
+        trail_data = self.support_trailing_data.get(ticket)
+        if not trail_data:
+            return False
+        
+        # ถ้า trailing active แล้ว = ป้องกัน
+        trailing_active = trail_data.get('trailing_active', False)
+        
+        # หรือถ้ากำไรใกล้ threshold = เตรียมป้องกัน
+        if not trailing_active:
+            positions = mt5.positions_get(ticket=ticket)
+            if positions:
+                position = positions[0]
+                entry_price = trail_data.get('entry_price', position.price_open)
+                current_price = position.price_current
+                
+                if position.type == mt5.POSITION_TYPE_BUY:
+                    profit_points = (current_price - entry_price) / mt5.symbol_info(self.gold_symbol).point
+                else:
+                    profit_points = (entry_price - current_price) / mt5.symbol_info(self.gold_symbol).point
+                
+                profit_threshold = trail_data.get('profit_threshold', 40)
+                # ป้องกันถ้าใกล้ threshold แล้ว (80% ของ threshold)
+                if profit_points >= profit_threshold * 0.8:
+                    return True
+        
+        return trailing_active
