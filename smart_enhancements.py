@@ -164,13 +164,15 @@ class CrisisDetector:
         }
     
     def analyze_portfolio_crisis(self, positions: List[Dict], account_info: Dict) -> CrisisAnalysis:
-        """วิเคราะห์ crisis level ของ portfolio"""
+        """วิเคราะห์ crisis level ของ portfolio - แก้ไขให้ liberal กว่าเดิม"""
         try:
             # Extract account info
             balance = account_info.get('balance', 1000)
             equity = account_info.get('equity', balance)
             margin_level = account_info.get('margin_level', 1000)
             floating_pnl = equity - balance
+            
+            print(f"🔍 Crisis Analysis: margin: {margin_level:.1f}%, P&L: ${floating_pnl:.2f}")
             
             # Analyze positions
             buy_positions = [p for p in positions if p.get('direction') == 'BUY']
@@ -185,28 +187,28 @@ class CrisisDetector:
             losing_positions = [p for p in positions if p.get('profit', 0) < -10]
             massive_losses = [p for p in positions if p.get('profit', 0) < -50]
             
-            # Determine crisis level
+            # ⭐ แก้ไข crisis level ให้ liberal กว่าเดิม
             crisis_level = CrisisLevel.NORMAL
             recommended_actions = []
             emergency_hedge_size = 0
             
-            # Check emergency conditions
-            if (margin_level < 200 or 
-                floating_pnl < -500 or 
-                len(massive_losses) > 5):
+            # ⭐ เงื่อนไข emergency (เข้มงวดขึ้น)
+            if (margin_level < 100 or           # เดิม: 200 → ใหม่: 100
+                floating_pnl < -1000 or         # เดิม: -500 → ใหม่: -1000  
+                len(massive_losses) > 8):       # เดิม: 5 → ใหม่: 8
                 crisis_level = CrisisLevel.EMERGENCY
                 recommended_actions.extend([
                     "IMMEDIATE_HEDGE_REQUIRED",
-                    "EMERGENCY_POSITION_CLOSURE",
+                    "EMERGENCY_POSITION_CLOSURE", 
                     "STOP_NEW_POSITIONS"
                 ])
                 emergency_hedge_size = self._calculate_emergency_hedge(positions)
             
-            # Check critical conditions  
-            elif (margin_level < 300 or 
-                  floating_pnl < -300 or
-                  imbalance_ratio > 5 or
-                  len(losing_positions) > 10):
+            # ⭐ เงื่อนไข critical (ผ่อนคลายมาก)
+            elif (margin_level < 200 or         # เดิม: 300 → ใหม่: 200
+                floating_pnl < -600 or        # เดิม: -300 → ใหม่: -600
+                imbalance_ratio > 8 or        # เดิม: 5 → ใหม่: 8
+                len(losing_positions) > 15):  # เดิม: 10 → ใหม่: 15
                 crisis_level = CrisisLevel.CRITICAL
                 recommended_actions.extend([
                     "HEDGE_PROTECTION_NEEDED",
@@ -215,10 +217,10 @@ class CrisisDetector:
                 ])
                 emergency_hedge_size = self._calculate_protection_hedge(positions)
             
-            # Check warning conditions
-            elif (margin_level < 500 or
-                  floating_pnl < -100 or
-                  imbalance_ratio > 3):
+            # ⭐ เงื่อนไข warning (ผ่อนคลายมาก)
+            elif (margin_level < 500 or         # เดิม: 500 (เหมือนเดิม)
+                floating_pnl < -300 or        # เดิม: -100 → ใหม่: -300
+                imbalance_ratio > 6):         # เดิม: 3 → ใหม่: 6
                 crisis_level = CrisisLevel.WARNING
                 recommended_actions.extend([
                     "MONITOR_CLOSELY",
@@ -226,18 +228,28 @@ class CrisisDetector:
                     "LIMIT_NEW_POSITIONS"
                 ])
             
-            # Check caution conditions
-            elif (floating_pnl < -50 or imbalance_ratio > 2):
+            # ⭐ เงื่อนไข caution (ผ่อนคลายมาก)
+            elif (floating_pnl < -150 or        # เดิม: -50 → ใหม่: -150
+                imbalance_ratio > 4):         # เดิม: 2 → ใหม่: 4
                 crisis_level = CrisisLevel.CAUTION
                 recommended_actions.append("INCREASED_MONITORING")
             
-            # Find priority positions to close
+            # ⭐ เพิ่มเงื่อนไข margin สูงมาก = force NORMAL
+            if margin_level > 5000:  # เกิน 5,000% = ปลอดภัยมาก
+                crisis_level = CrisisLevel.NORMAL
+                recommended_actions = ["CONTINUE_NORMAL_OPERATIONS"]
+                print(f"   🎯 Excellent margin level - forcing NORMAL status")
+            
+            # Find priority positions to close (ใช้ method เดิม)
             priority_positions = self._identify_priority_positions(positions, crisis_level)
             
+            print(f"   📊 Crisis Level: {crisis_level.value} (margin: {margin_level:.1f}%)")
+            
+            # ⭐ ใช้ constructor เดิม (ไม่เพิ่ม margin_level parameter)
             return CrisisAnalysis(
                 level=crisis_level,
                 imbalance_ratio=imbalance_ratio,
-                margin_health=margin_level,
+                margin_health=margin_level,      # ใช้ margin_health แทน margin_level
                 floating_pnl=floating_pnl,
                 recommended_actions=recommended_actions,
                 emergency_hedge_size=emergency_hedge_size,
@@ -246,12 +258,13 @@ class CrisisDetector:
             
         except Exception as e:
             print(f"❌ Crisis analysis error: {e}")
+            # Return safe fallback ใช้ constructor เดิม
             return CrisisAnalysis(
                 level=CrisisLevel.NORMAL,
                 imbalance_ratio=1.0,
                 margin_health=1000,
                 floating_pnl=0,
-                recommended_actions=[],
+                recommended_actions=["MONITOR_CLOSELY"],
                 emergency_hedge_size=0,
                 priority_positions=[]
             )
@@ -307,7 +320,7 @@ class RecoveryEngine:
             'max_lot_size': 0.05,
             'target_profit': 5,
             'max_risk': 10,
-            'distance_points': 8
+            'distance_points': 100
         }
     
     def generate_scalping_plan(self, target_profit: float, current_price: float) -> List[Dict]:
