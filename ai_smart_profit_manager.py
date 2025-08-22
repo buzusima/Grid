@@ -156,11 +156,9 @@ class AISmartProfitManager:
             'enabled': config.get('smart_enhancement_enabled', True)
         })  
 
-        print(f"✅ Initialized for {self.gold_symbol}")
-        print(f"💰 Base Lot: {self.base_lot}")
-        print(f"🛡️ Survivability: {self.survivability:,} points")
-        print(f"📏 Dynamic Spacing: {self.grid_config['min_spacing']}-{self.grid_config['max_spacing']} points")
-        print("🚀 Ready for enhanced grid trading!")
+        self.crisis_mode = False
+        self.last_crisis_check = time.time()
+        self.crisis_check_interval = 30 
 
     def start_ai_trading(self) -> bool:
         """Start enhanced AI trading system"""
@@ -376,80 +374,129 @@ class AISmartProfitManager:
             print(f"❌ Dynamic spacing calculation error: {e}")
             return self.grid_config['normal_spacing']
 
-    def level_exists_enhanced(self, price: float, direction: str, tolerance: float) -> bool:
-        """Enhanced level existence check"""
+    def level_exists_enhanced(self, target_price: float, direction: str, tolerance: float = 3.0) -> bool:
+        """🔍 แก้ไข Level check - ไม่ loop ไม่ spam"""
         try:
-            # Check active positions
-            for pos in self.active_positions.values():
-                if pos.get('direction') == direction:
-                    existing_price = pos.get('price_open', 0)
-                    if abs(existing_price - price) <= tolerance:
-                        return True
+            # เก็บ cache เพื่อไม่ให้เช็คซ้ำ
+            cache_key = f"{target_price:.1f}_{direction}"
+            current_time = time.time()
             
-            # Check pending orders
-            for order in self.pending_orders.values():
-                if order.get('direction') == direction:
-                    existing_price = order.get('price', 0)
-                    if abs(existing_price - price) <= tolerance:
-                        return True
+            if hasattr(self, '_level_check_cache'):
+                if cache_key in self._level_check_cache:
+                    cache_time, cache_result = self._level_check_cache[cache_key]
+                    if current_time - cache_time < 5:  # cache 5 วินาที
+                        return cache_result
+            else:
+                self._level_check_cache = {}
             
-            return False
+            # เช็คแค่ pending orders (ไม่เช็ค positions)
+            exists = False
+            if hasattr(self, 'pending_orders'):
+                for order_info in self.pending_orders.values():
+                    order_price = order_info.get('price', 0)
+                    order_direction = order_info.get('direction', '')
+                    
+                    if (direction == order_direction and 
+                        abs(target_price - order_price) <= tolerance):
+                        exists = True
+                        break
+            
+            # เก็บ cache
+            self._level_check_cache[cache_key] = (current_time, exists)
+            
+            # ทำความสะอาด cache เก่า
+            if len(self._level_check_cache) > 20:
+                old_keys = [k for k, (t, _) in self._level_check_cache.items() 
+                        if current_time - t > 30]
+                for k in old_keys:
+                    del self._level_check_cache[k]
+            
+            return exists
             
         except Exception as e:
-            print(f"❌ Level exists check error: {e}")
-            return True  # Safe mode
-
-    def place_enhanced_order(self, price: float, direction: str, order_type: str) -> bool:
-        """Enhanced order placement with detailed comments"""
+            # ไม่ print error เพื่อไม่ spam
+            return False
+        
+    def place_enhanced_order(self, price: float, direction: str, source: str, custom_lot: float = None) -> bool:
+        """🎯 แก้ไข Enhanced order - ลด log spam"""
         try:
-            print(f"🔍 Analyzing {direction} order @${price:.2f}...")
+            # Crisis mode check (แค่บรรทัดเดียว)
+            if getattr(self, 'crisis_mode', False) and source not in ['EMERGENCY_HEDGE', 'SCALPING_RECOVERY']:
+                return False
             
-            # 🧠 Smart Enhancement Analysis
-            enhancement = self.smart_enhancer.enhance_grid_order({
-                'price': price,
-                'direction': direction,
-                'base_lot': self.base_lot,
-                'market_condition': self.get_current_market_condition()
-            })
-            
-            # Display analysis results
-            print(f"   📊 Technical Analysis Complete:")
-            print(f"      Confidence: {enhancement.confidence:.1f}%")
-            print(f"      Tier: {enhancement.tier.value}")
-            print(f"      Lot Size: {enhancement.lot_size} (vs base {self.base_lot})")
-            
-            if enhancement.should_place:
-                # 🏷️ Generate detailed comment
-                comment = OrderCommentManager.generate_comment(
-                    source_function="ENHANCED_GRID",
-                    enhancement_data={
-                        'tier': enhancement.tier.value,
-                        'confidence': enhancement.confidence
-                    },
-                    extra_info=direction
-                )
-                
-                # 📍 Place order with enhanced parameters
-                success = self.execute_enhanced_order_with_comment(
-                    price, direction, enhancement, comment
-                )
-                
-                if success:
-                    print(f"   ✅ Enhanced {direction} Order Placed!")
-                    print(f"   🏷️ Comment: {comment}")
-                    return True
-                else:
-                    print(f"   ❌ Order placement failed")
-                    return False
+            # ทำความสะอาด lot size
+            if custom_lot is not None:
+                base_lot = float(custom_lot)
             else:
-                print(f"   ⏭️ Order SKIPPED - Low Quality Signal")
+                base_lot = float(getattr(self, 'base_lot', 0.01))
+            
+            # Validate
+            if base_lot <= 0 or base_lot > 1.0:
+                base_lot = 0.01
+            
+            enhanced_lot = round(base_lot, 3)
+            
+            # เช็ค level (แค่สำหรับ INITIAL_GRID)
+            if source == 'INITIAL_GRID':
+                if self.level_exists_enhanced(price, direction, 5.0):
+                    return False
+            
+            # ปรับราคาถ้าใกล้เกินไป
+            current_price = self.get_current_price()
+            if current_price and source not in ['EMERGENCY_HEDGE']:
+                price_diff = abs(price - current_price)
+                if price_diff < 3.0:
+                    if direction == 'BUY':
+                        price = current_price - 3.0
+                    else:
+                        price = current_price + 3.0
+            
+            # สร้าง order request
+            if source == 'EMERGENCY_HEDGE':
+                order_type = mt5.ORDER_TYPE_BUY if direction == 'BUY' else mt5.ORDER_TYPE_SELL
+                action = mt5.TRADE_ACTION_DEAL
+            else:
+                order_type = mt5.ORDER_TYPE_BUY_LIMIT if direction == 'BUY' else mt5.ORDER_TYPE_SELL_LIMIT
+                action = mt5.TRADE_ACTION_PENDING
+            
+            order_request = {
+                "action": action,
+                "symbol": self.gold_symbol,
+                "volume": enhanced_lot,
+                "type": order_type,
+                "price": round(price, 2),
+                "magic": getattr(self, 'magic_number', 123456),
+                "comment": source[:15]
+            }
+            
+            if source == 'EMERGENCY_HEDGE':
+                order_request["deviation"] = 50
+            
+            # ส่ง order
+            result = mt5.order_send(order_request)
+            
+            if result is None:
+                return False
+            
+            if result.retcode == 10009:  # Success
+                # อัพเดต tracking (ไม่ print)
+                if source != 'EMERGENCY_HEDGE' and hasattr(self, 'pending_orders'):
+                    self.pending_orders[result.order] = {
+                        'price': price,
+                        'direction': direction,
+                        'volume': enhanced_lot,
+                        'source': source,
+                        'timestamp': datetime.now()
+                    }
+                return True
+            else:
+                # ไม่ print error detail
                 return False
                 
         except Exception as e:
-            print(f"❌ Enhanced order placement error: {e}")
-            # Fallback with comment
-            return self.fallback_order_with_comment(price, direction, "FALLBACK_ERROR")
-
+            # ไม่ print error
+            return False
+    
     def execute_enhanced_order_with_comment(self, price: float, direction: str, 
                                         enhancement, comment: str) -> bool:
         """Execute order with enhanced parameters and custom comment"""
@@ -618,85 +665,417 @@ class AISmartProfitManager:
             print("👁️ Enhanced AI Monitoring Loop: STARTED")
 
     def ai_enhanced_main_loop(self):
-        """Enhanced main AI decision loop with Trailing Support Detection"""
-        print("🧠 AI ENHANCED MAIN LOOP: Starting intelligent grid management...")
+        """🧠 Enhanced main AI loop with Crisis Management + Recovery System"""
+        print("🧠 AI ENHANCED MAIN LOOP: Starting with AI Pro crisis management...")
         
         while self.ai_active:
             try:
-                # Update market analysis
-                if hasattr(self, 'smart_enhancer'):
+                # 🚨 Step 1: Crisis Detection & Management
+                if hasattr(self, 'check_and_handle_crisis'):
                     try:
-                        # Update market analysis with enhancement
-                        pass
+                        self.check_and_handle_crisis()
                     except Exception as e:
-                        print(f"⚠️ Enhancement market analysis error: {e}")
+                        print(f"⚠️ Crisis check error: {e}")
                 
-                # Update positions from MT5
-                self.ai_update_positions_from_mt5()
-                
-                self.update_position_trailing()
-                self.detect_existing_positions()
-                time.sleep(3)
-                
-                # Calculate portfolio health
-                health_score = self.ai_calculate_portfolio_health()
-                self.ai_health_score = health_score
-                
-                # 🛡️ NEW: Detect and Manage Support Positions
+                # 📊 Step 2: Update Positions from MT5
                 try:
-                    self._detect_and_manage_support_positions()
+                    self.ai_update_positions_from_mt5()
+                    self.update_position_trailing()
+                    self.detect_existing_positions()
                 except Exception as e:
-                    print(f"⚠️ Support detection error: {e}")
+                    print(f"⚠️ Position update error: {e}")
                 
-                # 🔄 NEW: Update Trailing Stops
+                # 🧠 Step 3: Calculate AI Health Score
                 try:
-                    self._update_all_trailing_stops()
+                    health_score = self.ai_calculate_portfolio_health()
+                    self.ai_health_score = health_score
+                    
+                    if health_score < 30:
+                        print(f"⚠️ Low AI Health Score: {health_score:.1f}/100")
+                        self.crisis_mode = True
+                    elif health_score > 70:
+                        if hasattr(self, 'crisis_mode'):
+                            self.crisis_mode = False
+                            
                 except Exception as e:
-                    print(f"⚠️ Trailing update error: {e}")
+                    print(f"⚠️ Health score error: {e}")
                 
-                # 🚨 NEW: Check Trailing Hits
+                # 🔄 Step 4: Enhanced Profit Taking with AI Pro
                 try:
-                    self._check_trailing_stop_hits()
+                    print("💰 Enhanced Profit Taking Analysis...")
+                    opportunities = self.find_balanced_profit_opportunities()
+                    
+                    if opportunities:
+                        print(f"📋 Found {len(opportunities)} AI Pro opportunities")
+                        
+                        executed_count = 0
+                        for opportunity in opportunities[:3]:  # จำกัด 3 opportunities
+                            try:
+                                # เช็คความสำคัญ
+                                urgency = opportunity.get('urgency', 5)
+                                is_emergency = opportunity.get('emergency', False)
+                                strategy = opportunity.get('strategy', 'UNKNOWN')
+                                
+                                if is_emergency:
+                                    print(f"🚨 EMERGENCY OPPORTUNITY: {strategy} (Urgency: {urgency})")
+                                else:
+                                    print(f"💡 Opportunity: {strategy} (Urgency: {urgency})")
+                                
+                                # Execute opportunity
+                                success = self.execute_profit_opportunity(opportunity)
+                                
+                                if success:
+                                    executed_count += 1
+                                    expected_profit = opportunity.get('expected_profit', 0)
+                                    print(f"✅ Opportunity executed: {strategy} (${expected_profit:.1f})")
+                                    
+                                    # If it was emergency, check if crisis resolved
+                                    if is_emergency and hasattr(self, 'crisis_mode'):
+                                        print("🔄 Emergency opportunity executed - rechecking crisis status")
+                                else:
+                                    print(f"❌ Opportunity execution failed: {strategy}")
+                                
+                                time.sleep(0.5)  # Brief pause between executions
+                                
+                            except Exception as e:
+                                print(f"❌ Individual opportunity error: {e}")
+                                continue
+                        
+                        if executed_count > 0:
+                            print(f"🎉 Successfully executed {executed_count} AI Pro opportunities")
+                    else:
+                        print(f"📊 No AI Pro opportunities found at this time")
+                        
                 except Exception as e:
-                    print(f"⚠️ Trailing check error: {e}")
-                
-                # Enhanced Grid Management
-                if hasattr(self, 'smart_enhancer') and self.smart_enhancer.enabled:
+                    print(f"❌ Enhanced profit taking error: {e}")
+                    # Fallback to original method
                     try:
-                        self.manage_enhanced_grid()
+                        self.execute_original_profit_taking()
+                    except Exception as e2:
+                        print(f"❌ Original profit taking fallback error: {e2}")
+                
+                # 🎯 Step 5: Enhanced Grid Management
+                crisis_mode = getattr(self, 'crisis_mode', False)
+                
+                if not crisis_mode:
+                    try:
+                        print("🕸️ Enhanced Grid Management...")
+                        if hasattr(self, 'smart_enhancer') and self.smart_enhancer.enabled:
+                            self.manage_enhanced_grid()
+                        else:
+                            self.manage_original_grid()
                     except Exception as e:
                         print(f"⚠️ Enhanced grid management error: {e}")
-                        self.manage_original_grid()
+                        # Fallback to original
+                        try:
+                            self.manage_original_grid()
+                        except Exception as e2:
+                            print(f"❌ Original grid fallback error: {e2}")
                 else:
-                    self.manage_original_grid()
+                    print(f"🚫 Grid management suspended - Crisis mode active")
                 
-                # Enhanced Profit Taking
+                # 🔄 Step 6: Recovery Plan Execution (if needed)
+                if crisis_mode and hasattr(self, 'smart_enhancer'):
+                    try:
+                        current_price = self.get_current_price()
+                        if current_price:
+                            positions = list(self.active_positions.values())
+                            account_info = self.mt5_connector.get_account_info() if self.mt5_connector else {}
+                            
+                            if positions and account_info:
+                                crisis_analysis = self.smart_enhancer.check_crisis_situations(positions, account_info)
+                                
+                                if crisis_analysis.level.value in ['CRITICAL', 'EMERGENCY']:
+                                    recovery_plan = self.smart_enhancer.generate_recovery_plan(crisis_analysis, current_price)
+                                    if recovery_plan:
+                                        print(f"🔄 Executing recovery plan for {crisis_analysis.level.value} situation")
+                                        self.execute_recovery_plan(recovery_plan)
+                                        
+                    except Exception as e:
+                        print(f"⚠️ Recovery plan error: {e}")
+                
+                # 📊 Step 7: Status Reporting
                 try:
-                    self.execute_enhanced_profit_taking()
+                    total_positions = len(getattr(self, 'active_positions', {}))
+                    total_pending = len(getattr(self, 'pending_orders', {}))
+                    
+                    if total_positions > 0 or total_pending > 0:
+                        print(f"📊 Portfolio: {total_positions} positions, {total_pending} pending orders")
+                        
+                        if hasattr(self, 'crisis_mode') and self.crisis_mode:
+                            print(f"🚨 Status: CRISIS MODE ACTIVE")
+                        else:
+                            print(f"✅ Status: NORMAL OPERATIONS")
+                            
                 except Exception as e:
-                    print(f"⚠️ Enhanced profit taking error: {e}")
-                    self.execute_original_profit_taking()
+                    print(f"⚠️ Status reporting error: {e}")
                 
-                # Gap Detection and Filling
-                try:
-                    self.detect_and_fill_gaps()
-                except Exception as e:
-                    print(f"⚠️ Gap detection error: {e}")
-                
-                # Portfolio Rebalancing
-                try:
-                    self.rebalance_portfolio()
-                except Exception as e:
-                    print(f"⚠️ Portfolio rebalancing error: {e}")
-                
-                time.sleep(3)
+                # 😴 Sleep interval
+                sleep_time = 5 if crisis_mode else 3
+                time.sleep(sleep_time)
                 
             except Exception as e:
-                print(f"❌ Enhanced AI Main Loop error: {e}")
-                time.sleep(5)
+                print(f"❌ Enhanced AI Main Loop critical error: {e}")
+                import traceback
+                traceback.print_exc()
+                time.sleep(10)  # Longer sleep on critical error
         
         print("🛑 Enhanced AI Main Loop: Stopped")
 
+    def execute_recovery_plan(self, recovery_plan: Dict):
+        """🔄 Execute AI Pro recovery plan with comprehensive error handling"""
+        try:
+            crisis_level = recovery_plan.get('crisis_level', 'UNKNOWN')
+            print(f"🔄 EXECUTING RECOVERY PLAN: {crisis_level}")
+            print("=" * 50)
+            
+            recovery_success = False
+            
+            # Step 1: Execute Immediate Actions
+            immediate_actions = recovery_plan.get('immediate_actions', [])
+            if immediate_actions:
+                print(f"⚡ Executing {len(immediate_actions)} immediate actions...")
+                
+                for action in immediate_actions:
+                    try:
+                        print(f"   ⚡ Action: {action}")
+                        
+                        if action == "STOP_ALL_NEW_ORDERS":
+                            self.crisis_mode = True
+                            print(f"   ✅ Crisis mode activated")
+                            
+                        elif action == "ACTIVATE_EMERGENCY_HEDGE":
+                            hedge_recs = recovery_plan.get('hedge_recommendations', [])
+                            for hedge_rec in hedge_recs:
+                                if hedge_rec.get('action') == 'EMERGENCY_HEDGE':
+                                    hedge_size = hedge_rec.get('size', 0.1)
+                                    if hasattr(self, 'execute_emergency_hedge'):
+                                        success = self.execute_emergency_hedge(hedge_size)
+                                        if success:
+                                            print(f"   ✅ Emergency hedge executed: {hedge_size} lot")
+                                            recovery_success = True
+                                        else:
+                                            print(f"   ❌ Emergency hedge failed")
+                                            
+                        elif action == "CLOSE_PRIORITY_POSITIONS":
+                            priority_positions = recovery_plan.get('priority_positions', [])
+                            if priority_positions and hasattr(self, 'close_priority_positions'):
+                                self.close_priority_positions(priority_positions[:3])
+                                recovery_success = True
+                                
+                        elif action == "LIMIT_NEW_ORDERS":
+                            self.crisis_mode = True
+                            print(f"   ✅ New order limitations activated")
+                            
+                        elif action == "MONITOR_MARGIN_CLOSELY":
+                            print(f"   ✅ Enhanced margin monitoring activated")
+                            # Set flag for enhanced monitoring
+                            self.enhanced_margin_monitoring = True
+                            
+                    except Exception as e:
+                        print(f"   ❌ Action execution error: {e}")
+                        continue
+            
+            # Step 2: Execute Scalping Recovery Plan
+            scalping_plan = recovery_plan.get('scalping_plan', [])
+            if scalping_plan and len(scalping_plan) > 0:
+                print(f"\n⚡ Executing scalping recovery: {len(scalping_plan)} micro orders")
+                
+                scalping_success = 0
+                scalping_limit = min(len(scalping_plan), 8)  # จำกัดไม่เกิน 8 orders
+                
+                for i, scalp_order in enumerate(scalping_plan[:scalping_limit]):
+                    try:
+                        print(f"   ⚡ Scalping {i+1}/{scalping_limit}: {scalp_order.get('type', 'UNKNOWN')}")
+                        
+                        if hasattr(self, 'execute_scalping_order'):
+                            success = self.execute_scalping_order(scalp_order)
+                            if success:
+                                scalping_success += 1
+                                print(f"   ✅ Scalping order {i+1} placed")
+                            else:
+                                print(f"   ❌ Scalping order {i+1} failed")
+                        
+                        time.sleep(1)  # 1 second between scalping orders
+                        
+                    except Exception as e:
+                        print(f"   ❌ Scalping order {i+1} error: {e}")
+                        continue
+                
+                if scalping_success > 0:
+                    print(f"   🎯 Scalping recovery: {scalping_success}/{scalping_limit} orders placed")
+                    recovery_success = True
+                else:
+                    print(f"   ⚠️ No scalping orders were successful")
+            
+            # Step 3: Execute Hedge Recommendations
+            hedge_recommendations = recovery_plan.get('hedge_recommendations', [])
+            if hedge_recommendations:
+                print(f"\n🛡️ Processing {len(hedge_recommendations)} hedge recommendations...")
+                
+                for hedge_rec in hedge_recommendations:
+                    try:
+                        action = hedge_rec.get('action', 'UNKNOWN')
+                        size = hedge_rec.get('size', 0)
+                        reasoning = hedge_rec.get('reasoning', 'No reason provided')
+                        
+                        print(f"   🛡️ Hedge: {action} - Size: {size} - {reasoning}")
+                        
+                        if action == 'EMERGENCY_HEDGE' and size > 0:
+                            if hasattr(self, 'execute_emergency_hedge'):
+                                success = self.execute_emergency_hedge(size)
+                                if success:
+                                    print(f"   ✅ Emergency hedge executed successfully")
+                                    recovery_success = True
+                                    
+                    except Exception as e:
+                        print(f"   ❌ Hedge execution error: {e}")
+                        continue
+            
+            # Step 4: Portfolio Rebalancing
+            rebalance_suggestions = recovery_plan.get('rebalance_suggestions', [])
+            if rebalance_suggestions:
+                print(f"\n⚖️ Processing {len(rebalance_suggestions)} rebalancing actions...")
+                
+                for suggestion in rebalance_suggestions[:3]:  # จำกัด 3 actions
+                    try:
+                        print(f"   ⚖️ Rebalance action: {suggestion}")
+                        
+                        # Process specific rebalancing actions
+                        if suggestion == "REDUCE_BUY_EXPOSURE":
+                            # Find and close some BUY positions
+                            buy_positions = [p for p in self.active_positions.values() if p.get('direction') == 'BUY']
+                            if buy_positions:
+                                # Sort by profit (close least losing first)
+                                buy_positions.sort(key=lambda x: x.get('profit', 0), reverse=True)
+                                close_tickets = [p.get('ticket') for p in buy_positions[:2]]
+                                if hasattr(self, 'close_priority_positions'):
+                                    self.close_priority_positions(close_tickets)
+                                    recovery_success = True
+                                    
+                        elif suggestion == "REDUCE_SELL_EXPOSURE":
+                            # Find and close some SELL positions
+                            sell_positions = [p for p in self.active_positions.values() if p.get('direction') == 'SELL']
+                            if sell_positions:
+                                sell_positions.sort(key=lambda x: x.get('profit', 0), reverse=True)
+                                close_tickets = [p.get('ticket') for p in sell_positions[:2]]
+                                if hasattr(self, 'close_priority_positions'):
+                                    self.close_priority_positions(close_tickets)
+                                    recovery_success = True
+                                    
+                    except Exception as e:
+                        print(f"   ❌ Rebalancing error: {e}")
+                        continue
+            
+            # Step 5: Recovery Summary
+            print(f"\n📊 RECOVERY PLAN SUMMARY:")
+            print(f"   Crisis Level: {crisis_level}")
+            print(f"   Actions Attempted: {len(immediate_actions)}")
+            print(f"   Scalping Orders: {len(scalping_plan)} planned")
+            print(f"   Hedge Recommendations: {len(hedge_recommendations)}")
+            print(f"   Overall Success: {'✅ YES' if recovery_success else '❌ PARTIAL'}")
+            
+            if recovery_success:
+                print(f"🎉 Recovery plan execution completed successfully")
+                # Optionally reset crisis mode after successful recovery
+                if crisis_level in ['WARNING', 'CAUTION']:
+                    self.crisis_mode = False
+                    print(f"✅ Crisis mode deactivated after successful recovery")
+            else:
+                print(f"⚠️ Recovery plan had limited success - maintaining crisis mode")
+            
+            print("=" * 50)
+            return recovery_success
+            
+        except Exception as e:
+            print(f"❌ Recovery plan execution error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def execute_scalping_order(self, scalp_order: Dict):
+        """⚡ แก้ไข Scalping order execution"""
+        try:
+            order_type = scalp_order['type']  # SCALP_BUY or SCALP_SELL
+            price = scalp_order['price']
+            lot_size = scalp_order['lot_size']
+            
+            direction = 'BUY' if 'BUY' in order_type else 'SELL'
+            
+            print(f"⚡ Scalping: {direction} {lot_size} lot at ${price:.2f}")
+            
+            # ตรวจสอบว่าราคาใกล้ market เกินไปไหม
+            current_price = self.get_current_price()
+            if current_price:
+                price_diff = abs(price - current_price)
+                
+                # ถ้าใกล้เกินไป ปรับเป็น market order
+                if price_diff < 3.0:
+                    print(f"   💡 Price too close to market (${price_diff:.2f}) - using market order")
+                    
+                    # ใช้ market order แทน
+                    order_type_mt5 = mt5.ORDER_TYPE_BUY if direction == 'BUY' else mt5.ORDER_TYPE_SELL
+                    
+                    order_request = {
+                        "action": mt5.TRADE_ACTION_DEAL,
+                        "symbol": self.gold_symbol,
+                        "volume": lot_size,
+                        "type": order_type_mt5,
+                        "deviation": 20,
+                        "magic": self.magic_number,
+                        "comment": "SCALP_MARKET"
+                    }
+                else:
+                    # ใช้ pending order
+                    order_type_mt5 = mt5.ORDER_TYPE_BUY_LIMIT if direction == 'BUY' else mt5.ORDER_TYPE_SELL_LIMIT
+                    
+                    order_request = {
+                        "action": mt5.TRADE_ACTION_PENDING,
+                        "symbol": self.gold_symbol,
+                        "volume": lot_size,
+                        "type": order_type_mt5,
+                        "price": round(price, 2),
+                        "magic": self.magic_number,
+                        "comment": "SCALP_PENDING"
+                    }
+            else:
+                print(f"⚠️ Cannot get current price - using original price")
+                # Fallback to pending order
+                order_type_mt5 = mt5.ORDER_TYPE_BUY_LIMIT if direction == 'BUY' else mt5.ORDER_TYPE_SELL_LIMIT
+                
+                order_request = {
+                    "action": mt5.TRADE_ACTION_PENDING,
+                    "symbol": self.gold_symbol,
+                    "volume": lot_size,
+                    "type": order_type_mt5,
+                    "price": round(price, 2),
+                    "magic": self.magic_number,
+                    "comment": "SCALP_FALLBACK"
+                }
+            
+            print(f"   📤 Scalping request: {order_request}")
+            
+            # Execute scalping order
+            result = mt5.order_send(order_request)
+            
+            if result is None:
+                print(f"   ❌ Scalping: order_send returned None")
+                return False
+            
+            print(f"   📥 Scalping result: {result.retcode}")
+            
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                print(f"   ✅ Scalping order placed: {direction} {lot_size} lot")
+                return True
+            else:
+                error_msg = self.get_error_description(result.retcode) if hasattr(self, 'get_error_description') else f"Error {result.retcode}"
+                print(f"   ❌ Scalping failed: {error_msg}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Scalping order error: {e}")
+            return False
+    
     def manage_original_grid(self):
         """Original grid management (fallback)"""
         try:
@@ -2255,7 +2634,7 @@ class AISmartProfitManager:
     def execute_profit_opportunity(self, opportunity: Dict) -> bool:
         """
         ⚡ ปิดไม้ตาม opportunity - เพิ่ม Balance Protection Double-check
-        แก้ไขจาก method เดิม เพิ่ม safety check
+        แก้ไขจาก method เดิม เพิ่ม safety check + แก้ปัญหาการปิดไม้
         """
         try:
             # ⭐ เพิ่ม Balance Protection Double-check
@@ -2282,7 +2661,7 @@ class AISmartProfitManager:
                             print(f"    Alternative: {final_safety_check['alternative_action']}")
                             return False  # ไม่ปิด
             
-            # 📊 Original execution logic (ไม่แก้)
+            # 📊 Original execution logic (แก้ไขการปิดไม้)
             strategy = opportunity.get('strategy', 'UNKNOWN')
             positions_to_close = opportunity.get('positions', [])
             expected_profit = opportunity.get('expected_profit', 0)
@@ -2303,13 +2682,16 @@ class AISmartProfitManager:
                     
                     comment = f"{strategy}|${position.get('profit', 0):.1f}{balance_comment}"
                     
-                    # ปิด position (logic เดิม)
-                    if self.close_position(ticket, comment):
+                    print(f"   🎯 Attempting to close position #{ticket} - {comment}")
+                    
+                    # ✅ แก้ไข: ใช้ close_position_by_ticket แทน close_position
+                    if self.close_position_by_ticket(ticket):
                         success_count += 1
-                        total_profit += position.get('profit', 0)
-                        print(f"     ✅ Closed #{ticket}: ${position.get('profit', 0):.2f}")
+                        profit = position.get('profit', 0)
+                        total_profit += profit
+                        print(f"     ✅ Closed #{ticket}: ${profit:.2f} - {comment}")
                     else:
-                        print(f"     ❌ Failed to close #{ticket}")
+                        print(f"     ❌ Failed to close #{ticket} - {comment}")
                     
                     time.sleep(0.1)
             
@@ -2323,9 +2705,11 @@ class AISmartProfitManager:
                 return False
                 
         except Exception as e:
-            #print(f"❌ Execute profit opportunity error: {e}")
+            print(f"❌ Execute profit opportunity error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-
+    
     def debug_opportunity_structure(self, opportunity):
         """Debug helper to understand opportunity structure"""
         try:
@@ -2347,50 +2731,135 @@ class AISmartProfitManager:
             print(f"   Debug error: {e}")
 
     def close_position_by_ticket(self, ticket: int) -> bool:
-        """Close position by ticket number"""
+        """Close position by ticket number - แก้ปัญหาการปิดไม้"""
         try:
-            # Get position info
-            position = mt5.positions_get(ticket=ticket)
-            if not position:
+            # 1. ดึงข้อมูล position ปัจจุบัน
+            positions = mt5.positions_get(ticket=ticket)
+            if not positions:
+                print(f"❌ Position {ticket} not found")
                 return False
             
-            pos = position[0]
+            position = positions[0]
+            print(f"🔍 Closing position {ticket}: {position.symbol} {position.type} {position.volume}")
             
-            # Determine close parameters
-            if pos.type == mt5.POSITION_TYPE_BUY:
+            # 2. ดึงราคาปัจจุบันแบบ fresh
+            tick = mt5.symbol_info_tick(position.symbol)
+            if not tick:
+                print(f"❌ Cannot get tick data for {position.symbol}")
+                return False
+            
+            # 3. กำหนดทิศทางการปิดและราคา
+            if position.type == mt5.POSITION_TYPE_BUY:
+                # ปิด BUY ด้วย SELL ที่ราคา BID
                 order_type = mt5.ORDER_TYPE_SELL
-                price = mt5.symbol_info_tick(pos.symbol).bid
+                price = tick.bid
+                print(f"   📉 Closing BUY position at BID: ${price:.2f}")
             else:
+                # ปิด SELL ด้วย BUY ที่ราคา ASK  
                 order_type = mt5.ORDER_TYPE_BUY
-                price = mt5.symbol_info_tick(pos.symbol).ask
+                price = tick.ask
+                print(f"   📈 Closing SELL position at ASK: ${price:.2f}")
             
-            # Create close request
-            request = {
+            # 4. สร้าง request ที่ถูกต้อง
+            close_request = {
                 "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": pos.symbol,
-                "volume": pos.volume,
+                "symbol": position.symbol,
+                "volume": position.volume,
                 "type": order_type,
-                "position": ticket,
+                "position": ticket,  # ใช้ ticket ของ position
                 "price": price,
-                "magic": self.magic_number,
-                "comment": "AI_PROFIT_CLOSE"
+                "magic": position.magic,  # ใช้ magic เดียวกับ position
+                "comment": "AI_SMART_CLOSE",
+                "deviation": 20  # เพิ่ม deviation เผื่อราคาเปลี่ยน
             }
             
-            # Execute close
-            result = mt5.order_send(request)
+            print(f"   📤 Close request: {close_request}")
             
-            if result and result.retcode == 10009:
-                # Remove from tracking
-                if ticket in self.active_positions:
+            # 5. ส่ง order ปิด
+            result = mt5.order_send(close_request)
+            
+            if result is None:
+                print(f"   ❌ order_send returned None for ticket {ticket}")
+                return False
+            
+            print(f"   📥 Result code: {result.retcode}")
+            
+            # 6. ตรวจสอบผลลัพธ์
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                # สำเร็จ
+                profit = getattr(result, 'profit', 0.0)
+                print(f"   ✅ Position {ticket} CLOSED successfully! Profit: ${profit:.2f}")
+                
+                # ลบออกจาก tracking
+                if hasattr(self, 'active_positions') and ticket in self.active_positions:
                     del self.active_positions[ticket]
+                
                 return True
-            else:
+                
+            elif result.retcode == mt5.TRADE_RETCODE_REQUOTE:
+                # ราคาเปลี่ยน ลองใหม่ 1 ครั้ง
+                print(f"   ⚠️ Requote detected, retrying...")
+                time.sleep(0.5)
+                
+                # ดึงราคาใหม่
+                new_tick = mt5.symbol_info_tick(position.symbol)
+                if new_tick:
+                    new_price = new_tick.bid if position.type == mt5.POSITION_TYPE_BUY else new_tick.ask
+                    close_request["price"] = new_price
+                    
+                    retry_result = mt5.order_send(close_request)
+                    if retry_result and retry_result.retcode == mt5.TRADE_RETCODE_DONE:
+                        print(f"   ✅ Position {ticket} CLOSED on retry!")
+                        return True
+                    else:
+                        print(f"   ❌ Retry failed: {retry_result.retcode if retry_result else 'None'}")
+                
                 return False
                 
+            else:
+                # ล้มเหลว
+                error_msg = self.get_error_description(result.retcode)
+                print(f"   ❌ Close failed: {error_msg}")
+                return False
+            
         except Exception as e:
-            print(f"❌ Position close error: {e}")
+            print(f"❌ Close position error: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
+    def get_error_description(self, error_code):
+        """Get human readable error description"""
+        error_codes = {
+            10004: "Requote - ราคาเปลี่ยน",
+            10006: "Request rejected - คำขอถูกปฏิเสธ", 
+            10007: "Request canceled - คำขอถูกยกเลิก",
+            10008: "Order placed - Order ถูกวาง",
+            10009: "Request completed - สำเร็จ",
+            10010: "Partial fill only - Fill บางส่วน",
+            10011: "Request processing error - ข้อผิดพลาดการประมวลผล",
+            10012: "Request timeout - หมดเวลา",
+            10013: "Invalid request - คำขอไม่ถูกต้อง",
+            10014: "Invalid volume - Volume ไม่ถูกต้อง",
+            10015: "Invalid price - ราคาไม่ถูกต้อง",
+            10016: "Invalid stops - Stop ไม่ถูกต้อง",
+            10017: "Trade disabled - การเทรดถูกปิด",
+            10018: "Market closed - ตลาดปิด",
+            10019: "Not enough money - เงินไม่พอ",
+            10020: "Price changed - ราคาเปลี่ยน",
+            10021: "Off quotes - ไม่มีราคา",
+            10022: "Invalid expiration - วันหมดอายุไม่ถูกต้อง",
+            10023: "Order state changed - สถานะ Order เปลี่ยน",
+            10024: "Too many requests - คำขอมากเกินไป",
+            10025: "No changes - ไม่มีการเปลี่ยนแปลง",
+            10026: "Autotrading disabled - Auto trading ปิด",
+            10027: "Market closed - ตลาดปิด",
+            10028: "Invalid price in request - ราคาในคำขอไม่ถูกต้อง",
+            10029: "Invalid stops in request - Stop ในคำขอไม่ถูกต้อง",
+            10030: "Invalid volume in request - Volume ในคำขอไม่ถูกต้อง"
+        }
+        return error_codes.get(error_code, f"Unknown error: {error_code}")
+        
     def cleanup_stale_orders(self):
         """Remove old or stale pending orders"""
         try:
@@ -2831,47 +3300,165 @@ class AISmartProfitManager:
             print(f"❌ Stop AI trading error: {e}")
 
     def get_ai_status(self) -> Dict:
-        """Get comprehensive AI status with Support System"""
+        """📊 Get comprehensive AI status with Pro features + Crisis info"""
         try:
-            current_price = self.get_current_price()
+            # Basic account information
+            account_info = self.mt5_connector.get_account_info() if self.mt5_connector else {}
+            balance = account_info.get('balance', 0)
+            equity = account_info.get('equity', balance)
+            margin_level = account_info.get('margin_level', 1000)
             
-            # 🛡️ NEW: Support System Status
-            support_positions_count = len(self.portfolio_support_positions)
-            trailing_positions_count = len(self.support_trailing_data)
+            # Position and order counts
+            total_positions = len(getattr(self, 'active_positions', {}))
+            total_pending = len(getattr(self, 'pending_orders', {}))
             
-            # คำนวณ total support value
-            total_support_value = 0
-            for ticket, support_data in self.portfolio_support_positions.items():
-                if ticket in self.active_positions:
-                    current_profit = self.active_positions[ticket].get('profit', 0)
-                    total_support_value += current_profit
+            # Calculate floating P&L
+            floating_pnl = equity - balance if balance > 0 else 0
             
-            base_status = {
-                'ai_active': self.ai_active,
-                'ai_health_score': self.ai_health_score,
-                'current_price': current_price,
-                'active_positions': len(self.active_positions),
-                'pending_orders': len(self.pending_orders),
-                'total_profit': sum(p.get('profit', 0) for p in self.active_positions.values()),
-                'dynamic_spacing': self.calculate_dynamic_spacing(),
-                'market_condition': self.market_analysis.condition.value if self.market_analysis else 'UNKNOWN',
-                'survivability_usage': self.get_current_drawdown_points() / self.survivability if self.survivability > 0 else 0,
+            # Calculate total profit from active positions
+            total_profit = 0
+            profitable_positions = 0
+            losing_positions = 0
+            
+            if hasattr(self, 'active_positions'):
+                for position in self.active_positions.values():
+                    profit = position.get('profit', 0)
+                    total_profit += profit
+                    if profit > 0:
+                        profitable_positions += 1
+                    elif profit < 0:
+                        losing_positions += 1
+            
+            # Calculate AI health score
+            ai_health = getattr(self, 'ai_health_score', 50)
+            if hasattr(self, 'ai_calculate_portfolio_health'):
+                try:
+                    ai_health = self.ai_calculate_portfolio_health()
+                except:
+                    pass
+            
+            # Calculate survivability usage
+            survivability_used = 0
+            if hasattr(self, 'survivability') and self.survivability > 0:
+                if floating_pnl < 0:
+                    survivability_used = abs(floating_pnl) / (self.survivability * 0.1)  # Approximate
+            
+            # Basic status
+            status = {
+                # Account information
+                'account_balance': balance,
+                'account_equity': equity,
+                'floating_pnl': floating_pnl,
+                'margin_level': margin_level,
                 
-                # 🛡️ NEW: Support System Status
-                'support_positions': support_positions_count,
-                'trailing_positions': trailing_positions_count,
-                'total_support_value': round(total_support_value, 2),
-                'support_system_active': support_positions_count > 0,
+                # Trading information
+                'total_positions': total_positions,
+                'total_pending_orders': total_pending,
+                'total_profit': total_profit,
+                'profitable_positions': profitable_positions,
+                'losing_positions': losing_positions,
                 
-                'last_update': datetime.now().isoformat()
+                # AI information
+                'ai_active': getattr(self, 'ai_active', False),
+                'ai_health_score': ai_health,
+                'survivability_usage': survivability_used,
+                
+                # System status
+                'gold_symbol': getattr(self, 'gold_symbol', 'XAUUSD'),
+                'base_lot': getattr(self, 'base_lot', 0.01),
+                'last_update': datetime.now().isoformat(),
             }
             
-            return base_status
+            # 🆕 AI Pro features
+            status.update({
+                'crisis_mode': getattr(self, 'crisis_mode', False),
+                'smart_enhancement_enabled': hasattr(self, 'smart_enhancer') and getattr(self.smart_enhancer, 'enabled', False),
+                'last_crisis_check': getattr(self, 'last_crisis_check', 0),
+                'enhanced_margin_monitoring': getattr(self, 'enhanced_margin_monitoring', False),
+            })
+            
+            # SmartEnhancements V2 status
+            if hasattr(self, 'smart_enhancer') and self.smart_enhancer.enabled:
+                try:
+                    enhancement_status = self.smart_enhancer.get_enhancement_status()
+                    status.update({
+                        # Market analysis
+                        'current_session': enhancement_status.get('current_session', 'UNKNOWN'),
+                        'volatility_forecast': enhancement_status.get('volatility_forecast', 0),
+                        'is_peak_time': enhancement_status.get('is_peak_time', False),
+                        'optimal_strategy': enhancement_status.get('optimal_strategy', 'CONSERVATIVE'),
+                        
+                        # Enhancement performance
+                        'daily_rebate': enhancement_status.get('daily_rebate', 0),
+                        'daily_volume': enhancement_status.get('daily_volume', 0),
+                        'volume_efficiency': enhancement_status.get('volume_efficiency', 0),
+                        'rebate_target': enhancement_status.get('rebate_target', 50),
+                        
+                        # System status
+                        'enhancement_last_update': enhancement_status.get('last_update', ''),
+                    })
+                    
+                except Exception as e:
+                    print(f"⚠️ Enhancement status error: {e}")
+                    status['enhancement_error'] = str(e)
+            
+            # Crisis analysis (if available)
+            if hasattr(self, 'smart_enhancer') and total_positions > 0:
+                try:
+                    positions = list(self.active_positions.values())
+                    crisis_analysis = self.smart_enhancer.check_crisis_situations(positions, account_info)
+                    
+                    status.update({
+                        'crisis_level': crisis_analysis.level.value,
+                        'imbalance_ratio': crisis_analysis.imbalance_ratio,
+                        'emergency_hedge_size': crisis_analysis.emergency_hedge_size,
+                        'priority_positions_count': len(crisis_analysis.priority_positions),
+                        'recommended_actions_count': len(crisis_analysis.recommended_actions),
+                    })
+                    
+                except Exception as e:
+                    print(f"⚠️ Crisis analysis error: {e}")
+                    status['crisis_analysis_error'] = str(e)
+            
+            # Portfolio balance analysis
+            if total_positions > 0:
+                buy_positions = [p for p in self.active_positions.values() if p.get('direction') == 'BUY']
+                sell_positions = [p for p in self.active_positions.values() if p.get('direction') == 'SELL']
+                
+                status.update({
+                    'buy_positions_count': len(buy_positions),
+                    'sell_positions_count': len(sell_positions),
+                    'portfolio_balance_ratio': len(buy_positions) / max(len(sell_positions), 1),
+                    'buy_total_profit': sum([p.get('profit', 0) for p in buy_positions]),
+                    'sell_total_profit': sum([p.get('profit', 0) for p in sell_positions]),
+                })
+            
+            # Performance metrics
+            if hasattr(self, 'performance_history'):
+                try:
+                    recent_performance = getattr(self, 'performance_history', [])[-10:]  # Last 10 records
+                    if recent_performance:
+                        avg_profit = sum([p.get('profit', 0) for p in recent_performance]) / len(recent_performance)
+                        status['recent_avg_profit'] = avg_profit
+                except:
+                    pass
+            
+            return status
             
         except Exception as e:
-            print(f"❌ Status retrieval error: {e}")
-            return {'error': str(e)}
+            print(f"❌ AI Status error: {e}")
+            import traceback
+            traceback.print_exc()
             
+            # Return minimal status on error
+            return {
+                'error': str(e),
+                'ai_active': getattr(self, 'ai_active', False),
+                'crisis_mode': getattr(self, 'crisis_mode', False),
+                'total_positions': len(getattr(self, 'active_positions', {})),
+                'last_update': datetime.now().isoformat(),
+            }
+                
     def _strategy_margin_optimization(self, positions, analysis) -> List[Dict]:
         """Strategy 3: Margin Optimization - เพิ่มประสิทธิภาพ margin"""
         opportunities = []
@@ -4028,175 +4615,323 @@ class AISmartProfitManager:
 
     def find_balanced_profit_opportunities(self) -> List[Dict]:
         """
-        🎯 ปรับปรุง: ลดความเข้มงวดของ Balance Protection
+        🧠 AI PRO TRADER SYSTEM - ระบบแก้ไม้ระดับเทพ
+        แก้จาก method เดิม เพิ่มความฉลาดแบบนักเทรดมืออาชีพ
+        คำนึงถึง: Margin, Floating P&L, Critical Situations, Smart Recovery
         """
         try:
+            print("🧠 AI PRO TRADER SYSTEM - Professional Recovery & Management")
+            print("=" * 70)
+            
+            # ===================== ACCOUNT ANALYSIS =====================
+            account_info = mt5.account_info()
+            if account_info:
+                balance = account_info.balance
+                equity = account_info.equity
+                margin = account_info.margin
+                free_margin = account_info.margin_free
+                floating_pnl = equity - balance
+                margin_level = account_info.margin_level if account_info.margin_level else 0
+                
+                # 🚨 Critical Status Detection
+                is_margin_critical = margin_level < 300
+                is_floating_critical = floating_pnl < -200
+                is_emergency = is_margin_critical or floating_pnl < -500
+                
+                print(f"📊 ACCOUNT STATUS:")
+                print(f"   💵 Balance: ${balance:.2f} | 💎 Equity: ${equity:.2f}")
+                print(f"   📈 Floating P&L: ${floating_pnl:.2f}")
+                print(f"   🔒 Margin: ${margin:.2f} | 🆓 Free: ${free_margin:.2f}")
+                print(f"   📊 Margin Level: {margin_level:.1f}%")
+                print(f"   🚨 Status: {'EMERGENCY' if is_emergency else 'CRITICAL' if (is_margin_critical or is_floating_critical) else 'NORMAL'}")
+            else:
+                print("⚠️ Cannot get account info - using simulation mode")
+                balance = equity = margin = free_margin = floating_pnl = margin_level = 0
+                is_emergency = is_margin_critical = is_floating_critical = False
+            
             positions = list(self.active_positions.values())
-            if len(positions) < 1:
+            if len(positions) == 0:
                 return []
             
-            # เช็ค portfolio balance
-            balance_info = self.check_portfolio_balance_ratio()
-            print(f"🎯 PAIR WAITING SYSTEM: {balance_info['details']}")
+            # ===================== POSITION ANALYSIS =====================
+            current_price = self.get_current_price()
+            if not current_price:
+                current_price = 2650.0  # fallback
             
-            opportunities = []
-            
-            # แยก positions ตามทิศทางและกำไร
             buy_positions = [p for p in positions if p.get('direction') == 'BUY']
             sell_positions = [p for p in positions if p.get('direction') == 'SELL']
             
-            profitable_buys = [p for p in buy_positions if p.get('profit', 0) > 2.0]
-            profitable_sells = [p for p in sell_positions if p.get('profit', 0) > 2.0]
+            profitable_buys = [p for p in buy_positions if p.get('profit', 0) > 1]
+            profitable_sells = [p for p in sell_positions if p.get('profit', 0) > 1]
+            losing_buys = [p for p in buy_positions if p.get('profit', 0) < -1]
+            losing_sells = [p for p in sell_positions if p.get('profit', 0) < -1]
             
-            total_positions = len(positions)
+            # 🔍 Critical Situation Detection
+            total_buy_volume = sum([p.get('volume', 0.01) for p in buy_positions])
+            total_sell_volume = sum([p.get('volume', 0.01) for p in sell_positions])
+            total_buy_loss = sum([p.get('profit', 0) for p in losing_buys if p.get('profit', 0) < 0])
+            total_sell_loss = sum([p.get('profit', 0) for p in losing_sells if p.get('profit', 0) < 0])
             
-            print(f"📊 Profitable Analysis:")
-            print(f"   💰 BUY profitable: {len(profitable_buys)}")
-            print(f"   💰 SELL profitable: {len(profitable_sells)}")
-            print(f"   ⚖️ Portfolio: BUY:{len(buy_positions)} vs SELL:{len(sell_positions)}")
-            print(f"   📈 Total positions: {total_positions}")
+            # 🚨 CRITICAL IMBALANCE DETECTION (แบบในภาพคุณ)
+            is_buy_heavy = len(buy_positions) >= 15 and len(sell_positions) <= 3
+            is_sell_heavy = len(sell_positions) >= 15 and len(buy_positions) <= 3
+            is_massive_loss = total_buy_loss < -300 or total_sell_loss < -300
             
-            # 🚨 เพิ่ม Emergency Relief - ถ้าไม้เยอะเกิน 40 ตัว
-            if total_positions > 40:
-                print("🚨 EMERGENCY RELIEF: Too many positions (>40)")
-                # ปิดไม้กำไรได้ ไม่ว่าจะเป็นฝั่งไหน
-                all_profitable = profitable_buys + profitable_sells
-                all_profitable.sort(key=lambda x: x.get('profit', 0), reverse=True)  # เรียงตามกำไร
+            print(f"📊 POSITION ANALYSIS:")
+            print(f"   📈 BUY: {len(buy_positions)} positions ({len(profitable_buys)} profit, {len(losing_buys)} loss)")
+            print(f"   📉 SELL: {len(sell_positions)} positions ({len(profitable_sells)} profit, {len(losing_sells)} loss)")
+            print(f"   💰 BUY P&L: ${sum([p.get('profit', 0) for p in buy_positions]):.1f}")
+            print(f"   💰 SELL P&L: ${sum([p.get('profit', 0) for p in sell_positions]):.1f}")
+            print(f"   🚨 Critical: Buy Heavy={is_buy_heavy}, Sell Heavy={is_sell_heavy}, Massive Loss={is_massive_loss}")
+            
+            opportunities = []
+            
+            # ===================== EMERGENCY PROTOCOLS =====================
+            
+            if is_emergency or (is_buy_heavy and is_massive_loss):
+                print(f"\n🚨 EMERGENCY PROTOCOL ACTIVATED")
                 
-                for pos in all_profitable[:5]:  # ปิด 5 ตัวแรกที่กำไรสูงสุด
-                    profit = pos.get('profit', 0)
-                    if profit > 1.5:  # เกณฑ์ต่ำ
+                # 🛡️ Emergency Hedge Strategy
+                if is_buy_heavy and total_buy_loss < -200:
+                    hedge_size = min(total_buy_volume * 0.6, 1.0)  # Max 1.0 lot hedge
+                    expected_protection = abs(total_buy_loss) * 0.7  # คาดว่าป้องกันได้ 70%
+                    
+                    opportunities.append({
+                        'strategy': 'EMERGENCY_HEDGE',
+                        'type': 'CRITICAL_PROTECTION',
+                        'action': 'PLACE_SELL_HEDGE',
+                        'hedge_size': hedge_size,
+                        'current_price': current_price,
+                        'expected_profit': expected_protection,
+                        'margin_impact': -(hedge_size * 1000),  # เพิ่ม margin requirement
+                        'confidence': 95,
+                        'reasoning': f'Emergency SELL hedge {hedge_size:.2f} lot to protect ${abs(total_buy_loss):.0f} BUY losses',
+                        'urgency': 10,
+                        'emergency': True
+                    })
+                    print(f"   🛡️ EMERGENCY HEDGE: SELL {hedge_size:.2f} lot at ${current_price:.2f}")
+                
+                elif is_sell_heavy and total_sell_loss < -200:
+                    hedge_size = min(total_sell_volume * 0.6, 1.0)
+                    expected_protection = abs(total_sell_loss) * 0.7
+                    
+                    opportunities.append({
+                        'strategy': 'EMERGENCY_HEDGE',
+                        'type': 'CRITICAL_PROTECTION',
+                        'action': 'PLACE_BUY_HEDGE',
+                        'hedge_size': hedge_size,
+                        'current_price': current_price,
+                        'expected_profit': expected_protection,
+                        'margin_impact': -(hedge_size * 1000),
+                        'confidence': 95,
+                        'reasoning': f'Emergency BUY hedge {hedge_size:.2f} lot to protect ${abs(total_sell_loss):.0f} SELL losses',
+                        'urgency': 10,
+                        'emergency': True
+                    })
+                    print(f"   🛡️ EMERGENCY HEDGE: BUY {hedge_size:.2f} lot at ${current_price:.2f}")
+            
+            # ===================== PRO TRADER STRATEGIES =====================
+            
+            # 🎯 Strategy 1: Margin Relief (สำคัญที่สุดเมื่อ margin ต่ำ)
+            if is_margin_critical:
+                print(f"\n🆘 MARGIN RELIEF PROTOCOL (Level: {margin_level:.1f}%)")
+                
+                # หาไม้ที่คืน margin เยอะ + ขาดทุนน้อย
+                all_positions_with_margin = []
+                for p in positions:
+                    volume = p.get('volume', 0.01)
+                    profit = p.get('profit', 0)
+                    margin_return = volume * 1000  # ประมาณการ margin ที่จะคืน
+                    priority_score = margin_return - abs(profit) if profit < 0 else margin_return + profit
+                    
+                    all_positions_with_margin.append({
+                        'ticket': p.get('ticket'),
+                        'direction': p.get('direction'),
+                        'profit': profit,
+                        'margin_return': margin_return,
+                        'priority_score': priority_score,
+                        'original': p
+                    })
+                
+                # เรียงตาม priority score (คืน margin เยอะ + ขาดทุนน้อย)
+                all_positions_with_margin.sort(key=lambda x: x['priority_score'], reverse=True)
+                
+                for pos in all_positions_with_margin[:5]:  # เอา 5 ไม้แรก
+                    if pos['profit'] > -30:  # ขาดทุนไม่เกิน $30
                         opportunities.append({
-                            'strategy': 'EMERGENCY_RELIEF',
-                            'type': 'TOO_MANY_POSITIONS',
+                            'strategy': 'MARGIN_RELIEF',
+                            'type': 'EMERGENCY_MARGIN_RECOVERY',
+                            'positions': [pos['ticket']],
+                            'expected_profit': pos['profit'],
+                            'margin_return': pos['margin_return'],
+                            'confidence': 90,
+                            'reasoning': f"Margin relief: Free ${pos['margin_return']:.0f} margin (${pos['profit']:.1f} P&L)",
+                            'urgency': 9,
+                            'emergency': True
+                        })
+                        print(f"   🆘 Close #{pos['ticket']}: Free M${pos['margin_return']:.0f} (P&L: ${pos['profit']:.1f})")
+            
+            # 🎯 Strategy 2: Smart Scalping Recovery
+            if floating_pnl < -100:
+                print(f"\n⚡ SCALPING RECOVERY PROTOCOL (Floating: ${floating_pnl:.2f})")
+                
+                # สร้าง scalping orders เล็กๆ
+                scalp_size = 0.01
+                scalp_distance = 10  # 10 points
+                
+                # ทั้ง 2 ทิศทาง
+                for direction in ['BUY', 'SELL']:
+                    price_offset = scalp_distance if direction == 'SELL' else -scalp_distance
+                    scalp_price = current_price + price_offset
+                    
+                    opportunities.append({
+                        'strategy': 'SCALPING_RECOVERY',
+                        'type': 'MICRO_PROFIT_HUNT',
+                        'action': f'PLACE_{direction}',
+                        'lot_size': scalp_size,
+                        'price': scalp_price,
+                        'expected_profit': 5,  # เป้า $5 ต่อรอบ
+                        'margin_impact': -(scalp_size * 1000),
+                        'confidence': 75,
+                        'reasoning': f'Scalp {direction} {scalp_size} lot for quick ${5} profit',
+                        'urgency': 5
+                    })
+                    print(f"   ⚡ Scalp {direction}: {scalp_size} lot @ ${scalp_price:.2f} → Target $5")
+            
+            # 🎯 Strategy 3: Professional Hedge Pairs (แบบนักเทรดมืออาชีพ)
+            if len(profitable_buys) > 0 and len(losing_sells) > 0:
+                print(f"\n🤝 PRO HEDGE PAIRS - BUY Profit + SELL Loss")
+                
+                for buy_pos in profitable_buys[:3]:
+                    for sell_pos in losing_sells[:3]:
+                        buy_profit = buy_pos.get('profit', 0)
+                        sell_loss = sell_pos.get('profit', 0)
+                        net_profit = buy_profit + sell_loss
+                        
+                        # คำนวณ margin impact
+                        buy_volume = buy_pos.get('volume', 0.01)
+                        sell_volume = sell_pos.get('volume', 0.01)
+                        margin_freed = (buy_volume + sell_volume) * 1000
+                        
+                        if net_profit > 2:  # กำไรสุทธิ $2+
+                            opportunities.append({
+                                'strategy': 'PRO_HEDGE_PAIR',
+                                'type': 'BALANCED_CLOSING',
+                                'positions': [buy_pos['ticket'], sell_pos['ticket']],
+                                'expected_profit': net_profit,
+                                'margin_return': margin_freed,
+                                'confidence': 85,
+                                'reasoning': f'Pro pair: BUY +${buy_profit:.1f} + SELL ${sell_loss:.1f} = ${net_profit:.1f} +M${margin_freed:.0f}',
+                                'urgency': 3,
+                                'pair_waiting_approved': True
+                            })
+                            print(f"   🤝 Pair: BUY #{buy_pos['ticket']} +${buy_profit:.1f} + SELL #{sell_pos['ticket']} ${sell_loss:.1f}")
+            
+            # 🎯 Strategy 4: Time-Based Recovery (ตามเวลาเทรด)
+            current_hour = datetime.now().hour
+            is_peak_time = current_hour in [8, 9, 13, 14, 21, 22]  # London, NY open
+            
+            if is_peak_time and floating_pnl < -50:
+                print(f"\n⏰ PEAK TIME RECOVERY (Hour: {current_hour})")
+                
+                # ใช้ volatility สูงช่วง peak time
+                for pos in positions:
+                    profit = pos.get('profit', 0)
+                    if -20 < profit < -5:  # ขาดทุนปานกลาง
+                        opportunities.append({
+                            'strategy': 'PEAK_TIME_RECOVERY',
+                            'type': 'VOLATILITY_RECOVERY',
                             'positions': [pos['ticket']],
                             'expected_profit': profit,
-                            'confidence': 85,
-                            'reasoning': f'Emergency relief: {total_positions} positions, ${profit:.2f} profit',
-                            'urgency': 1,
-                            'pair_waiting_approved': True
+                            'confidence': 70,
+                            'reasoning': f'Peak time recovery: ${profit:.1f} during high volatility',
+                            'urgency': 4
                         })
-                        
-                        print(f"   🚨 Emergency Relief: #{pos['ticket']} ${profit:.2f}")
-                
-                if opportunities:
-                    return opportunities  # ปิดฉุกเฉินก่อน
+                        print(f"   ⏰ Peak recovery: #{pos['ticket']} ${profit:.1f}")
             
-            # 🎯 Priority 1: Perfect Pairs (เหมือนเดิม)
-            if len(profitable_buys) > 0 and len(profitable_sells) > 0:
-                print("✅ PERFECT PAIRS AVAILABLE - Closing pairs")
+            # 🎯 Strategy 5: Portfolio Rebalancing (ปรับสมดุลแบบเทพ)
+            portfolio_imbalance = abs(len(buy_positions) - len(sell_positions))
+            if portfolio_imbalance >= 10:  # ไม่สมดุลมาก
+                print(f"\n⚖️ PORTFOLIO REBALANCING (Imbalance: {portfolio_imbalance})")
                 
+                majority_side = 'BUY' if len(buy_positions) > len(sell_positions) else 'SELL'
+                majority_positions = buy_positions if majority_side == 'BUY' else sell_positions
+                
+                # หาไม้ที่ขาดทุนน้อยที่สุดในฝั่งที่เยอะ
+                majority_positions.sort(key=lambda x: x.get('profit', 0), reverse=True)
+                
+                for pos in majority_positions[:3]:
+                    profit = pos.get('profit', 0)
+                    if profit > -25:  # ขาดทุนไม่เกิน $25
+                        opportunities.append({
+                            'strategy': 'PORTFOLIO_REBALANCE',
+                            'type': 'IMBALANCE_CORRECTION',
+                            'positions': [pos['ticket']],
+                            'expected_profit': profit,
+                            'confidence': 80,
+                            'reasoning': f'Rebalance: Reduce {majority_side} excess (${profit:.1f})',
+                            'urgency': 6
+                        })
+                        print(f"   ⚖️ Rebalance: Close {majority_side} #{pos['ticket']} ${profit:.1f}")
+            
+            # 🎯 Strategy 6: Smart Profit Taking (กำไรแบบฉลาด)
+            if len(profitable_buys) > 0 and len(profitable_sells) > 0:
+                print(f"\n💎 SMART PROFIT TAKING")
+                
+                # Perfect pairs (กำไรทั้งคู่)
                 for buy_pos in profitable_buys[:2]:
                     for sell_pos in profitable_sells[:2]:
                         total_profit = buy_pos.get('profit', 0) + sell_pos.get('profit', 0)
                         
-                        if total_profit > 3.0:
+                        if total_profit > 8:  # กำไรรวม $8+
+                            buy_volume = buy_pos.get('volume', 0.01)
+                            sell_volume = sell_pos.get('volume', 0.01)
+                            margin_freed = (buy_volume + sell_volume) * 1000
+                            
                             opportunities.append({
-                                'strategy': 'PERFECT_PAIR',
-                                'type': 'BALANCED_PAIR_CLOSE',
+                                'strategy': 'PERFECT_PROFIT_PAIR',
+                                'type': 'SMART_PROFIT_TAKING',
                                 'positions': [buy_pos['ticket'], sell_pos['ticket']],
                                 'expected_profit': total_profit,
+                                'margin_return': margin_freed,
                                 'confidence': 95,
-                                'reasoning': f'Perfect pair: BUY ${buy_pos.get("profit", 0):.2f} + SELL ${sell_pos.get("profit", 0):.2f}',
+                                'reasoning': f'Perfect pair: ${total_profit:.1f} profit +M${margin_freed:.0f}',
                                 'urgency': 1,
                                 'pair_waiting_approved': True
                             })
-                
-                if opportunities:
-                    return opportunities
+                            print(f"   💎 Perfect: BUY #{buy_pos['ticket']} + SELL #{sell_pos['ticket']} = ${total_profit:.1f}")
             
-            # 🎯 Priority 2: ปรับเกณฑ์ Imbalance ให้หลวมขึ้น
-            if balance_info['status'] in ['SEVERE_IMBALANCE', 'CRITICAL_IMBALANCE']:  # เอา MODERATE ออก
-                majority_direction = 'BUY' if balance_info['total_buy'] > balance_info['total_sell'] else 'SELL'
-                
-                print(f"⚖️ SEVERE IMBALANCE DETECTED: {majority_direction} heavy")
-                
-                # ปิดได้แค่ฝั่งที่เยอะเกิน
-                if majority_direction == 'BUY' and len(profitable_buys) > 0:
-                    for buy_pos in profitable_buys[:3]:  # เพิ่มจาก 2 เป็น 3
-                        profit = buy_pos.get('profit', 0)
-                        if profit > 1.5:  # ลดเกณฑ์จาก 2.0 เป็น 1.5
-                            opportunities.append({
-                                'strategy': 'MAJORITY_RELIEF',
-                                'type': 'IMBALANCE_REDUCTION',
-                                'positions': [buy_pos['ticket']],
-                                'expected_profit': profit,
-                                'confidence': 80,
-                                'reasoning': f'Reduce BUY imbalance: ${profit:.2f} profit',
-                                'urgency': 3,
-                                'pair_waiting_approved': True
-                            })
-                
-                elif majority_direction == 'SELL' and len(profitable_sells) > 0:
-                    for sell_pos in profitable_sells[:3]:  # เพิ่มจาก 2 เป็น 3
-                        profit = sell_pos.get('profit', 0)
-                        if profit > 1.5:  # ลดเกณฑ์จาก 2.0 เป็น 1.5
-                            opportunities.append({
-                                'strategy': 'MAJORITY_RELIEF',
-                                'type': 'IMBALANCE_REDUCTION',
-                                'positions': [sell_pos['ticket']],
-                                'expected_profit': profit,
-                                'confidence': 80,
-                                'reasoning': f'Reduce SELL imbalance: ${profit:.2f} profit',
-                                'urgency': 3,
-                                'pair_waiting_approved': True
-                            })
+            # ===================== PRIORITIZE & FILTER =====================
             
-            # 🎯 Priority 3: ลดเกณฑ์ High Profit Override
-            elif len(profitable_buys) > 0 or len(profitable_sells) > 0:
-                print("🎯 CHECKING HIGH PROFIT OVERRIDE (>$5)")  # ลดจาก $10 เป็น $5
-                
-                all_profitable = profitable_buys + profitable_sells
-                for pos in all_profitable:
-                    profit = pos.get('profit', 0)
-                    direction = pos.get('direction')
-                    
-                    if profit > 5.0:  # ลดจาก 10.0 เป็น 5.0
-                        opportunities.append({
-                            'strategy': 'HIGH_PROFIT_OVERRIDE',
-                            'type': 'EMERGENCY_HIGH_PROFIT',
-                            'positions': [pos['ticket']],
-                            'expected_profit': profit,
-                            'confidence': 90,
-                            'reasoning': f'High profit override: ${profit:.2f} > $5 threshold',
-                            'urgency': 2,
-                            'pair_waiting_approved': True
-                        })
-                        
-                        print(f"   💰 High Profit Override: {direction} #{pos['ticket']} ${profit:.2f}")
-                    else:
-                        print(f"   ⏳ {direction} #{pos['ticket']} ${profit:.2f} - waiting for pair")
+            # เรียงตามความสำคัญ (Emergency > Margin > Profit)
+            opportunities.sort(key=lambda x: (
+                x.get('emergency', False),           # Emergency ก่อน
+                -x.get('urgency', 5),               # Urgency สูงก่อน
+                -x.get('expected_profit', 0),       # กำไรสูงก่อน
+                x.get('margin_return', 0)           # คืน margin เยอะก่อน
+            ), reverse=True)
             
-            # 🎯 Priority 4: เพิ่ม Moderate Profit Release (ใหม่)
-            else:
-                print("🎯 MODERATE PROFIT RELEASE - ปิดกำไรปานกลาง")
-                all_profitable = profitable_buys + profitable_sells
-                all_profitable.sort(key=lambda x: x.get('profit', 0), reverse=True)
-                
-                for pos in all_profitable[:2]:  # ปิด 2 ตัวที่กำไรสูงสุด
-                    profit = pos.get('profit', 0)
-                    if profit > 2.5:  # เกณฑ์ปานกลาง
-                        opportunities.append({
-                            'strategy': 'MODERATE_PROFIT',
-                            'type': 'MODERATE_PROFIT_TAKING',
-                            'positions': [pos['ticket']],
-                            'expected_profit': profit,
-                            'confidence': 70,
-                            'reasoning': f'Moderate profit release: ${profit:.2f}',
-                            'urgency': 5,
-                            'pair_waiting_approved': True
-                        })
+            # Filter ตามสถานการณ์
+            if is_emergency:
+                opportunities = [o for o in opportunities if o.get('emergency', False) or o.get('urgency', 0) >= 8]
+            elif is_margin_critical:
+                opportunities = [o for o in opportunities if o.get('urgency', 0) >= 6]
             
-            print(f"\n🏆 BALANCED RESULTS: {len(opportunities)} opportunities")
-            for opp in opportunities:
-                print(f"   {opp['strategy']}: ${opp['expected_profit']:.2f} ({opp['reasoning']})")
+            print(f"\n🧠 AI PRO RESULTS: {len(opportunities)} opportunities")
+            for i, opp in enumerate(opportunities[:8]):
+                margin_text = f" +M${opp.get('margin_return', 0):.0f}" if opp.get('margin_return', 0) > 0 else ""
+                emergency_text = " 🚨" if opp.get('emergency', False) else ""
+                print(f"   {i+1}. {opp['strategy']}: ${opp.get('expected_profit', 0):.1f}{margin_text} (U:{opp.get('urgency', 0)}){emergency_text}")
+                print(f"      └─ {opp['reasoning']}")
             
-            return opportunities
+            return opportunities[:10]  # คืน 10 โอกาสดีที่สุด
             
         except Exception as e:
-            print(f"❌ Balanced profit opportunities error: {e}")
+            print(f"❌ AI Pro Trader error: {e}")
+            import traceback
+            traceback.print_exc()
             return []
-           
+               
     def _find_emergency_balance_opportunities(self, balance_info: Dict) -> List[Dict]:
         """
         🚨 หา emergency opportunities เพื่อปรับสมดุล portfolio
@@ -4240,3 +4975,120 @@ class AISmartProfitManager:
         except Exception as e:
             print(f"❌ Emergency balance opportunities error: {e}")
             return []
+
+    def check_and_handle_crisis(self):
+        """🚨 แก้ไข Crisis check - ไม่เช็คบ่อยเกินไป"""
+        try:
+            current_time = time.time()
+            
+            # เช็คทุก 60 วินาที (ไม่บ่อย)
+            if hasattr(self, 'last_crisis_check'):
+                if current_time - self.last_crisis_check < 60:
+                    return
+            
+            self.last_crisis_check = current_time
+            
+            # เช็คแค่พื้นฐาน
+            positions = list(self.active_positions.values()) if hasattr(self, 'active_positions') else []
+            
+            if len(positions) == 0:
+                self.crisis_mode = False
+                return
+            
+            # นับ BUY/SELL
+            buy_count = len([p for p in positions if p.get('direction') == 'BUY'])
+            sell_count = len([p for p in positions if p.get('direction') == 'SELL'])
+            
+            # เช็คแค่ imbalance รุนแรง
+            imbalance_ratio = max(buy_count, sell_count) / max(min(buy_count, sell_count), 1)
+            
+            if imbalance_ratio > 5:  # มากเกิน 5 เท่า
+                print(f"🚨 Portfolio imbalance: {buy_count} BUY, {sell_count} SELL")
+                self.crisis_mode = True
+                
+                # ทำ emergency hedge แค่ครั้งเดียว
+                if not hasattr(self, '_emergency_hedge_done'):
+                    hedge_size = 0.1  # ขนาดคงที่
+                    success = self.execute_emergency_hedge(hedge_size)
+                    if success:
+                        self._emergency_hedge_done = True
+            else:
+                self.crisis_mode = False
+                # รีเซ็ต flag
+                if hasattr(self, '_emergency_hedge_done'):
+                    delattr(self, '_emergency_hedge_done')
+            
+        except Exception as e:
+            # ไม่ print error
+            pass
+
+    def execute_emergency_hedge(self, hedge_size: float):
+        """🛡️ แก้ไข Emergency hedge - หยุด recursion และ log spam"""
+        try:
+            # ป้องกัน recursion
+            if hasattr(self, '_emergency_hedge_running'):
+                print("🚫 Emergency hedge already running")
+                return False
+            
+            self._emergency_hedge_running = True
+            
+            try:
+                current_price = self.get_current_price()
+                if not current_price:
+                    print("❌ Cannot get current price")
+                    return False
+                
+                # Validate hedge size (ไม่ spam log)
+                if hedge_size < 0.01 or hedge_size > 1.0:
+                    print(f"❌ Invalid hedge size: {hedge_size}")
+                    return False
+                
+                # ตรวจสอบ portfolio direction
+                buy_count = len([p for p in self.active_positions.values() if p.get('direction') == 'BUY'])
+                sell_count = len([p for p in self.active_positions.values() if p.get('direction') == 'SELL'])
+                
+                if buy_count > sell_count:
+                    hedge_direction = 'SELL'
+                else:
+                    hedge_direction = 'BUY'
+                
+                print(f"🛡️ Emergency hedge: {hedge_direction} {hedge_size}")
+                
+                # ใช้ place_enhanced_order (ไม่เรียกตัวเอง)
+                success = self.place_enhanced_order(current_price, hedge_direction, 'EMERGENCY_HEDGE', hedge_size)
+                
+                if success:
+                    print(f"✅ Emergency hedge completed")
+                else:
+                    print(f"❌ Emergency hedge failed")
+                
+                return success
+                
+            finally:
+                # ปล่อย lock
+                if hasattr(self, '_emergency_hedge_running'):
+                    delattr(self, '_emergency_hedge_running')
+                
+        except Exception as e:
+            print(f"❌ Emergency hedge error: {e}")
+            if hasattr(self, '_emergency_hedge_running'):
+                delattr(self, '_emergency_hedge_running')
+            return False
+
+    def close_priority_positions(self, priority_tickets: List[int]):
+        """🎯 ปิดไม้ priority ในสถานการณ์วิกฤต"""
+        try:
+            print(f"🎯 Closing {len(priority_tickets)} priority positions for crisis management")
+            
+            for ticket in priority_tickets:
+                if ticket in self.active_positions:
+                    print(f"   🎯 Closing priority position #{ticket}")
+                    success = self.close_position_by_ticket(ticket)
+                    if success:
+                        print(f"   ✅ Priority position #{ticket} closed")
+                    else:
+                        print(f"   ❌ Failed to close priority position #{ticket}")
+                    time.sleep(0.2)
+                    
+        except Exception as e:
+            print(f"❌ Priority close error: {e}")
