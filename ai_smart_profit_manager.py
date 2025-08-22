@@ -3773,91 +3773,229 @@ class AISmartProfitManager:
 
     def can_close_position_safely(self, position: Dict, close_reason: str = "PROFIT") -> Dict:
         """
-        🧠 Smart Position Close Check - ฉลาดกว่าเดิม
+        🧠 Ultra Smart Safety Check - ปิดได้ทุกสถานการณ์ แต่ฉลาด + คุ้มค่า
         """
         try:
             ticket = position.get('ticket', 0)
             direction = position.get('direction', 'UNKNOWN')
             profit = position.get('profit', 0)
+            lot_size = position.get('lot_size', 0)
             
-            # ⭐ Smart Check 1: ขาดทุนรวมเยอะ → ปิดได้ทุกไม้
-            total_pnl = sum(p.get('profit', 0) for p in self.active_positions.values())
-            if total_pnl < -150:
-                return {
-                    'can_close': True,
-                    'reason': f'Emergency loss recovery: Total P&L ${total_pnl:.2f}',
-                    'urgency': 'EMERGENCY_LOSS',
-                    'alternative_action': None
-                }
-            
-            # ⭐ Smart Check 2: กำไรสูง → ปิดได้
-            if profit > 8.0:
-                return {
-                    'can_close': True,
-                    'reason': f'High profit override: ${profit:.2f}',
-                    'urgency': 'HIGH_PROFIT',
-                    'alternative_action': None
-                }
-            
-            # ⭐ Smart Check 3: ไม้เยอะมาก → ปิดได้
+            # 📊 ข้อมูลภาพรวม Portfolio
             total_positions = len(self.active_positions)
-            if total_positions > 45:
-                return {
-                    'can_close': True,
-                    'reason': f'Too many positions: {total_positions} > 45',
-                    'urgency': 'POSITION_OVERLOAD',
-                    'alternative_action': None
-                }
+            total_pnl = sum(p.get('profit', 0) for p in self.active_positions.values())
+            profitable_positions = len([p for p in self.active_positions.values() if p.get('profit', 0) > 1.0])
+            losing_positions = len([p for p in self.active_positions.values() if p.get('profit', 0) < -1.0])
             
-            # เช็ค portfolio balance
-            balance_info = self.check_portfolio_balance_ratio()
-            
-            # ⭐ Smart Check 4: เฉพาะ CRITICAL ถึงจะ block
-            if balance_info['status'] != 'CRITICAL_IMBALANCE':
-                return {
-                    'can_close': True,
-                    'reason': f'Portfolio not critical: {balance_info["status"]}',
-                    'urgency': 'NORMAL',
-                    'alternative_action': None
-                }
-            
-            # ถึงจุดนี้ = CRITICAL_IMBALANCE
-            majority_direction = 'BUY' if balance_info['total_buy'] > balance_info['total_sell'] else 'SELL'
-            
-            if direction == majority_direction:
-                # ปิดฝั่งที่เยอะ = ดี
-                return {
-                    'can_close': True,
-                    'reason': f'Reduces {majority_direction} dominance',
-                    'urgency': 'BALANCE_IMPROVEMENT',
-                    'alternative_action': None
-                }
-            else:
-                # ปิดฝั่งที่น้อย = ต้องระวัง
-                if profit > 15.0:  # กำไรสูงมาก
+            # 🔥 Priority 1: เก็บกำไรเสมอ (ไม่ว่าจะเป็นสถานการณ์ไหน)
+            if profit > 0.5:  # กำไรทุกจำนวน
+                
+                # เช็ค Balance แบบฉลาด
+                balance_info = self.check_portfolio_balance_ratio()
+                
+                # กำไรสูง → ปิดได้ทันที ไม่สน balance
+                if profit > 8.0:
                     return {
                         'can_close': True,
-                        'reason': f'Very high profit ${profit:.2f} overrides balance',
-                        'urgency': 'VERY_HIGH_PROFIT',
+                        'reason': f'High profit override: ${profit:.2f}',
+                        'urgency': 'HIGH_PROFIT',
                         'alternative_action': None
                     }
-                else:
+                
+                # กำไรปานกลาง → เช็ค balance แบบหลวม
+                if balance_info['status'] in ['BALANCED', 'MINOR_IMBALANCE', 'MODERATE_IMBALANCE']:
                     return {
-                        'can_close': False,
-                        'reason': f'Would worsen critical {majority_direction} dominance',
-                        'urgency': 'BLOCKED',
-                        'alternative_action': f'Wait for {majority_direction} profit pair or higher profit'
+                        'can_close': True,
+                        'reason': f'Good profit + balanced portfolio: ${profit:.2f}',
+                        'urgency': 'PROFIT_BALANCED',
+                        'alternative_action': None
+                    }
+                
+                # SEVERE/CRITICAL Imbalance → พิจารณาอย่างฉลาด
+                if balance_info['status'] in ['SEVERE_IMBALANCE', 'CRITICAL_IMBALANCE']:
+                    majority_direction = 'BUY' if balance_info['total_buy'] > balance_info['total_sell'] else 'SELL'
+                    
+                    # ปิดฝั่งที่เยอะ → ดีเสมอ
+                    if direction == majority_direction:
+                        return {
+                            'can_close': True,
+                            'reason': f'Profit + reduces {majority_direction} excess: ${profit:.2f}',
+                            'urgency': 'PROFIT_BALANCE_HELP',
+                            'alternative_action': None
+                        }
+                    
+                    # ปิดฝั่งที่น้อย → ต้องมีคู่หรือกำไรดี
+                    else:
+                        # หาคู่กำไรฝั่งตรงข้าม
+                        opposite_profitable = [p for p in self.active_positions.values() 
+                                            if p.get('direction') == majority_direction and p.get('profit', 0) > 1.0]
+                        
+                        if len(opposite_profitable) > 0 and profit > 2.0:
+                            # มีคู่และกำไรดี → ปิดแบบคู่
+                            return {
+                                'can_close': True,
+                                'reason': f'Profit with available pairs: ${profit:.2f}',
+                                'urgency': 'PROFIT_WITH_PAIR',
+                                'alternative_action': f'Consider closing {majority_direction} pair too'
+                            }
+                        elif profit > 5.0:
+                            # กำไรดีมาก → ปิดได้
+                            return {
+                                'can_close': True,
+                                'reason': f'Good profit overrides imbalance: ${profit:.2f}',
+                                'urgency': 'GOOD_PROFIT_OVERRIDE',
+                                'alternative_action': None
+                            }
+                        else:
+                            # รอคู่กำไรก่อน
+                            return {
+                                'can_close': False,
+                                'reason': f'Wait for {majority_direction} profit pair (Current: ${profit:.2f})',
+                                'urgency': 'WAIT_PROFIT_PAIR',
+                                'alternative_action': f'Find profitable {majority_direction} to close together'
+                            }
+                
+                # Default สำหรับกำไร → ปิดได้
+                return {
+                    'can_close': True,
+                    'reason': f'Profit is always good: ${profit:.2f}',
+                    'urgency': 'DEFAULT_PROFIT',
+                    'alternative_action': None
+                }
+            
+            # 🎯 Priority 2: Position Overload Management
+            if total_positions > 45:
+                # ไม้เยอะเกินไป → ปิดแม้ขาดทุนเล็กน้อย
+                if profit > -3.0:  # ขาดทุนไม่เกิน $3
+                    return {
+                        'can_close': True,
+                        'reason': f'Position overload cleanup: {total_positions} positions, ${profit:.2f} loss acceptable',
+                        'urgency': 'OVERLOAD_CLEANUP',
+                        'alternative_action': None
                     }
             
-        except Exception as e:
-            print(f"❌ Smart safety check error: {e}")
+            # 💪 Priority 3: Margin Optimization
+            margin_used = lot_size * 2000  # ประมาณการ margin
+            if margin_used > 1000 and profit > -2.0:  # ไม้ใหญ่ + ขาดทุนไม่เกิน $2
+                return {
+                    'can_close': True,
+                    'reason': f'Free up margin: ${margin_used:.0f} margin, ${profit:.2f} minor loss',
+                    'urgency': 'MARGIN_OPTIMIZATION',
+                    'alternative_action': None
+                }
+            
+            # 🔄 Priority 4: Smart Loss Management
+            if profit < 0:  # ขาดทุน
+                
+                # ไม่ปิดขาดทุนใหญ่ (เว้นแต่จำเป็น)
+                if profit < -5.0:
+                    # เฉพาะกรณีฉุกเฉินถึงจะปิดขาดทุนใหญ่
+                    if total_positions > 60:  # ไม้เยอะมากจริงๆ
+                        return {
+                            'can_close': True,
+                            'reason': f'Emergency: {total_positions} positions, cut large loss ${profit:.2f}',
+                            'urgency': 'EMERGENCY_CUT_LOSS',
+                            'alternative_action': None
+                        }
+                    else:
+                        return {
+                            'can_close': False,
+                            'reason': f'Keep large loss for recovery: ${profit:.2f}',
+                            'urgency': 'HOLD_FOR_RECOVERY',
+                            'alternative_action': 'Wait for market reversal or hedge'
+                        }
+                
+                # ขาดทุนเล็ก → พิจารณาตาม portfolio
+                else:  # ขาดทุน $0-5
+                    balance_info = self.check_portfolio_balance_ratio()
+                    
+                    # ถ้าปิดแล้วช่วย balance → อนุญาต
+                    if balance_info['status'] in ['SEVERE_IMBALANCE', 'CRITICAL_IMBALANCE']:
+                        majority_direction = 'BUY' if balance_info['total_buy'] > balance_info['total_sell'] else 'SELL'
+                        
+                        if direction == majority_direction:
+                            return {
+                                'can_close': True,
+                                'reason': f'Minor loss but helps balance: ${profit:.2f}',
+                                'urgency': 'LOSS_FOR_BALANCE',
+                                'alternative_action': None
+                            }
+                    
+                    # Portfolio มีกำไรรวมดี → ยอมขาดทุนเล็ก
+                    if total_pnl > 50 and profit > -2.0:
+                        return {
+                            'can_close': True,
+                            'reason': f'Portfolio profitable (${total_pnl:.2f}), minor loss OK: ${profit:.2f}',
+                            'urgency': 'PORTFOLIO_BUFFER',
+                            'alternative_action': None
+                        }
+                    
+                    # มีไม้กำไรเยอะ → ยอมขาดทุนเล็ก
+                    if profitable_positions > losing_positions and profit > -1.5:
+                        return {
+                            'can_close': True,
+                            'reason': f'More profitable positions ({profitable_positions}), tiny loss OK: ${profit:.2f}',
+                            'urgency': 'PROFIT_MAJORITY',
+                            'alternative_action': None
+                        }
+                    
+                    # Default สำหรับขาดทุนเล็ก → รอก่อน
+                    return {
+                        'can_close': False,
+                        'reason': f'Hold small loss for recovery: ${profit:.2f}',
+                        'urgency': 'HOLD_SMALL_LOSS',
+                        'alternative_action': 'Wait for reversal or pair with profit'
+                    }
+            
+            # 🕒 Priority 5: Time-based Flexibility
+            position_age = self._calculate_position_age_minutes(position)
+            if position_age > 180:  # อยู่เกิน 3 ชั่วโมง
+                if profit > -1.0:  # ขาดทุนไม่เกิน $3
+                    return {
+                        'can_close': True,
+                        'reason': f'Aged position ({position_age:.0f} min), acceptable loss: ${profit:.2f}',
+                        'urgency': 'TIME_BASED_CLEANUP',
+                        'alternative_action': None
+                    }
+            
+            # 🎯 Final Decision: Default Hold
             return {
-                'can_close': True,  # Error = ให้ปิดได้
-                'reason': f'Error fallback: {e}',
-                'urgency': 'ERROR_FALLBACK',
+                'can_close': False,
+                'reason': f'Hold for better opportunity: ${profit:.2f}',
+                'urgency': 'STRATEGIC_HOLD',
+                'alternative_action': 'Wait for profit or better market conditions'
+            }
+            
+        except Exception as e:
+            # Error case → อนุญาตปิดเพื่อความปลอดภัย
+            return {
+                'can_close': True,
+                'reason': f'Error safety fallback: {e}',
+                'urgency': 'ERROR_SAFETY',
                 'alternative_action': None
             }
 
+    def _calculate_position_age_minutes(self, position: Dict) -> float:
+        """คำนวณอายุของ position เป็นนาที"""
+        try:
+            # ลองดึง entry time จาก position
+            entry_time = position.get('entry_time')
+            if not entry_time:
+                # ถ้าไม่มี ใช้ current time (assume ใหม่)
+                return 0
+            
+            if isinstance(entry_time, str):
+                from datetime import datetime
+                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+            
+            from datetime import datetime
+            age_seconds = (datetime.now() - entry_time).total_seconds()
+            return age_seconds / 60
+            
+        except Exception as e:
+            # ถ้า error ถือว่าไม้ใหม่
+            return 0
+    
     def _get_smart_balance_recommendation(self, status: str, imbalance_type: str, buy_count: int, sell_count: int, total_pnl: float) -> List[str]:
         """💡 Smart recommendations"""
         recommendations = []
