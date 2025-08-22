@@ -103,7 +103,7 @@ class AISmartProfitManager:
         # 🛡️ NEW: Portfolio Support System
         self.portfolio_support_positions = {}  # เก็บไม้ที่อยู่ใน support mode
         self.support_trailing_data = {}        # เก็บข้อมูล trailing ของแต่ละไม้
-        
+        self.ignore_trailing_protection = True
         # AI State
         self.ai_active = False
         self.ai_health_score = 50.0
@@ -116,6 +116,12 @@ class AISmartProfitManager:
         self.market_memory = []
         self.decision_history = []
         
+        # ⭐ เพิ่มส่วนนี้ - Portfolio Balance Protection Settings
+        self.portfolio_balance_protection = config.get('portfolio_balance_protection', True)
+        self.balance_protection_mode = config.get('balance_protection_mode', 'STANDARD')  # DISABLED, STANDARD, STRICT
+        self.max_imbalance_ratio = config.get('max_imbalance_ratio', 2.3)  # 70:30
+        self.critical_imbalance_ratio = config.get('critical_imbalance_ratio', 3.0)  # 75:25
+
         # Performance tracking
         self.performance_metrics = {
             'total_decisions': 0,
@@ -728,12 +734,32 @@ class AISmartProfitManager:
             pending_orders = len(self.pending_orders)
             total_exposure = current_positions + pending_orders
             
-            # Check if we need more orders
-            if total_exposure < 6:  # Minimum 6 total orders
-                print("📊 Grid Coverage Low - Adding orders...")
+            print(f"📊 Grid Status: Positions:{current_positions}, Orders:{pending_orders}, Total:{total_exposure}")
+            
+            # ⭐ แก้ไขตรงนี้ - เช็ค pending orders แยกจาก positions
+            if pending_orders < 8:  # เปลี่ยนจาก total_exposure < 6
+                print("📊 Pending Orders Low - Adding orders...")
                 self.add_strategic_orders()
             
-            # Check for expired or stale orders
+            # ⭐ แก้ไขตรงนี้ - เช็คว่าไม่มี orders ใกล้ตลาดเลย
+            current_price = self.get_current_price()
+            if current_price:
+                nearby_orders = 0
+                nearby_range = 10.0  # 10 จุด
+                
+                for order in self.pending_orders.values():
+                    order_price = order.get('price', 0)
+                    if abs(order_price - current_price) <= nearby_range:
+                        nearby_orders += 1
+                
+                print(f"📍 Orders near market (±{nearby_range} points): {nearby_orders}")
+                
+                # ถ้าไม่มี orders ใกล้ตลาด → สร้างฉุกเฉิน
+                if nearby_orders < 4:
+                    print("🚨 No orders near market - Emergency add!")
+                    self.add_strategic_orders()
+            
+            # ⭐ แก้ไขตรงนี้ - ย้าย cleanup มาหลัง (ไม่ลบ orders ที่เพิ่งสร้าง)
             self.cleanup_stale_orders()
             
         except Exception as e:
@@ -1098,32 +1124,49 @@ class AISmartProfitManager:
     def find_enhanced_profit_opportunities(self) -> List[Dict]:
         """
         RESCUE ONLY SYSTEM - หักลบกัน ไม่คัทไม้ทิ้ง
+        ⭐ เพิ่ม Portfolio Balance Protection
         """
         try:
-            print("🛡️ RESCUE ONLY PROFIT SYSTEM - NO CUTTING LOSSES")
+            # ⭐ เพิ่มส่วนนี้ - Portfolio Balance Protection Control
+            enable_balance_protection = getattr(self, 'portfolio_balance_protection', True)
+            
+            if enable_balance_protection:
+                print("🛡️ RESCUE ONLY SYSTEM + PORTFOLIO BALANCE PROTECTION")
+                # เช็ค portfolio balance ก่อน
+                balance_info = self.check_portfolio_balance_ratio()
+                print(f"📊 Portfolio Status: {balance_info['status']} - {balance_info['details']}")
+                
+                # ถ้า imbalance รุนแรง ใช้ balanced approach
+                if balance_info['status'] in ['CRITICAL_IMBALANCE', 'SEVERE_IMBALANCE']:
+                    print("🚨 Critical imbalance detected - using balanced approach")
+                    return self.find_balanced_profit_opportunities()
+            else:
+                print("🛡️ RESCUE ONLY PROFIT SYSTEM - NO CUTTING LOSSES")
+            
             print("=" * 60)
             
             positions = list(self.active_positions.values())
             if len(positions) < 1:
                 return []
             
-            # 🔒 Filter out trailing-protected positions
-            filtered_positions = []
-            for pos in positions:
-                ticket = pos.get('ticket')
-                if self.is_position_trailing_protected(ticket):
-                    print(f"🔒 SKIP #{ticket} - has trailing protection")
-                    continue
-                filtered_positions.append(pos)
+            # ⭐ ลบส่วนนี้ออก หรือ comment
+            # filtered_positions = []
+            # for pos in positions:
+            #     ticket = pos.get('ticket')
+            #     if self.is_position_trailing_protected(ticket):
+            #         print(f"🔒 SKIP #{ticket} - has trailing protection")
+            #         continue
+            #     filtered_positions.append(pos)
             
-            print(f"📊 Analyzing {len(filtered_positions)}/{len(positions)} positions (excluding trailing-protected)")
-            
+            # ⭐ ใช้ positions ตรงๆ
+            filtered_positions = positions  # ไม่ filter trailing
+
             # 📊 Step 1: Portfolio Analysis
             portfolio_analysis = self._analyze_portfolio_comprehensive(filtered_positions)
             
             # 🧠 Step 2: RESCUE STRATEGIES ONLY
             all_strategies = [
-                self._strategy_high_profit_only(filtered_positions, portfolio_analysis),    # เก็บกำไรสูงเท่านั้น
+                self._strategy_high_profit_only(filtered_positions, portfolio_analysis),    # เก็บกําไรสูงเท่านั้น
                 self._strategy_rescue_operations(filtered_positions, portfolio_analysis),   # หักลบช่วยเหลือ
                 self._strategy_smart_rescue_combinations(filtered_positions, portfolio_analysis)  # รวมหักลบ
             ]
@@ -1133,6 +1176,39 @@ class AISmartProfitManager:
             for strategy_results in all_strategies:
                 merged_opportunities.extend(strategy_results)
             
+            # ⭐ Step 3.5: Apply Balance Filter (ใหม่)
+            if enable_balance_protection and merged_opportunities:
+                print("🛡️ Applying balance filter to rescue opportunities...")
+                filtered_opportunities = []
+                blocked_count = 0
+                
+                for opportunity in merged_opportunities:
+                    positions_to_check = opportunity.get('positions', [])
+                    can_execute = True
+                    
+                    # เช็คแต่ละ position ใน opportunity
+                    for pos_ticket in positions_to_check:
+                        position = None
+                        for pos in filtered_positions:
+                            if pos.get('ticket') == pos_ticket:
+                                position = pos
+                                break
+                        
+                        if position:
+                            safety_check = self.can_close_position_safely(position, opportunity.get('strategy', 'RESCUE'))
+                            if not safety_check['can_close']:
+                                can_execute = False
+                                break
+                    
+                    if can_execute:
+                        opportunity['balance_approved'] = True
+                        filtered_opportunities.append(opportunity)
+                    else:
+                        blocked_count += 1
+                
+                print(f"📊 Balance Filter: {len(filtered_opportunities)} approved, {blocked_count} blocked")
+                merged_opportunities = filtered_opportunities
+            
             # 🎯 Step 4: Score & Sort
             final_opportunities = self._apply_rescue_scoring(merged_opportunities, portfolio_analysis)
             final_opportunities = self._final_rescue_optimization(final_opportunities, portfolio_analysis)
@@ -1141,6 +1217,12 @@ class AISmartProfitManager:
             print(f"   High Profit: {len([o for o in final_opportunities if o['strategy'] == 'HIGH_PROFIT'])}")
             print(f"   Rescue Pairs: {len([o for o in final_opportunities if o['strategy'] == 'RESCUE_OPERATIONS'])}")
             print(f"   Smart Combos: {len([o for o in final_opportunities if o['strategy'] == 'SMART_RESCUE'])}")
+            
+            # ⭐ เพิ่ม balance info ใน opportunities
+            if enable_balance_protection:
+                for opp in final_opportunities:
+                    opp['balance_protected'] = True
+                    opp['balance_status'] = getattr(self, '_current_balance_info', {}).get('status', 'UNKNOWN')
             
             return final_opportunities
             
@@ -2170,98 +2252,78 @@ class AISmartProfitManager:
             print(f"❌ Original profit opportunities error: {e}")
             return []
 
-    def execute_profit_opportunity(self, opportunity) -> bool:
-        """Execute a profit opportunity - Fixed for Enhanced System"""
+    def execute_profit_opportunity(self, opportunity: Dict) -> bool:
+        """
+        ⚡ ปิดไม้ตาม opportunity - เพิ่ม Balance Protection Double-check
+        แก้ไขจาก method เดิม เพิ่ม safety check
+        """
         try:
-            # 🔧 Fixed: Handle both old and new data structures
-            if hasattr(opportunity, 'positions'):
-                # New Enhanced system (object with attributes)
-                position_tickets = opportunity.positions
-                expected_profit = getattr(opportunity, 'expected_profit', 0)
-                opportunity_type = getattr(opportunity, 'tier', 'UNKNOWN')
-                confidence = getattr(opportunity, 'confidence', 0)
-                reasoning = getattr(opportunity, 'reasoning', 'Enhanced opportunity')
-            else:
-                # Old system (dictionary)
-                position_tickets = opportunity.get('positions', [])
-                expected_profit = opportunity.get('expected_profit', 0)
-                opportunity_type = opportunity.get('type', 'UNKNOWN')
-                confidence = opportunity.get('confidence', 0) * 100 if opportunity.get('confidence', 0) <= 1 else opportunity.get('confidence', 0)
-                reasoning = opportunity.get('description', 'Original opportunity')
+            # ⭐ เพิ่ม Balance Protection Double-check
+            enable_balance_protection = getattr(self, 'portfolio_balance_protection', True)
             
-            print(f"💰 Executing {opportunity_type}: ${expected_profit:.2f} (Confidence: {confidence:.0f}%)")
-            print(f"   📋 Positions to close: {position_tickets}")
-            print(f"   💡 Reasoning: {reasoning}")
-            
-            # Validate positions
-            if not position_tickets or len(position_tickets) == 0:
-                print(f"   ❌ No positions to close")
-                return False
-            
-            # Close all positions in the opportunity
-            success_count = 0
-            total_actual_profit = 0
-            
-            for ticket in position_tickets:
-                try:
-                    # Get position info before closing
-                    position_info = None
+            if enable_balance_protection and not opportunity.get('balance_emergency', False):
+                # Double-check ก่อนปิดจริง
+                positions_to_close = opportunity.get('positions', [])
+                
+                for pos_ticket in positions_to_close:
+                    # หา position data
+                    position = None
                     for pos in self.active_positions.values():
-                        if pos.get('ticket') == ticket:
-                            position_info = pos
+                        if pos.get('ticket') == pos_ticket:
+                            position = pos
                             break
                     
-                    if position_info:
-                        current_profit = position_info.get('profit', 0)
-                        print(f"   🎯 Closing position {ticket}: ${current_profit:.2f} profit")
+                    if position:
+                        final_safety_check = self.can_close_position_safely(position, 'FINAL_CHECK')
                         
-                        if self.close_position_by_ticket(ticket):
-                            success_count += 1
-                            total_actual_profit += current_profit
-                            print(f"   ✅ Position {ticket} closed successfully")
-                        else:
-                            print(f"   ❌ Failed to close position {ticket}")
-                    else:
-                        print(f"   ⚠️ Position {ticket} not found in active positions")
-                    
-                    time.sleep(0.5)  # Wait between closes
-                    
-                except Exception as e:
-                    print(f"   ❌ Error closing position {ticket}: {e}")
-                    continue
+                        if not final_safety_check['can_close']:
+                            print(f"🚫 Final safety check BLOCKED position #{pos_ticket}")
+                            print(f"    Reason: {final_safety_check['reason']}")
+                            print(f"    Alternative: {final_safety_check['alternative_action']}")
+                            return False  # ไม่ปิด
             
-            # Evaluate success
-            if success_count == len(position_tickets):
-                print(f"   🎉 SUCCESS: Closed {success_count}/{len(position_tickets)} positions")
-                print(f"   💰 Total Profit Realized: ${total_actual_profit:.2f}")
-                
-                # Track enhanced performance if applicable
-                if hasattr(opportunity, 'rebate_bonus'):
-                    rebate_bonus = getattr(opportunity, 'rebate_bonus', 0)
-                    print(f"   🎁 Rebate Bonus: ${rebate_bonus:.2f}")
-                    total_value = total_actual_profit + rebate_bonus
-                    print(f"   💎 Total Value (Profit + Rebate): ${total_value:.2f}")
+            # 📊 Original execution logic (ไม่แก้)
+            strategy = opportunity.get('strategy', 'UNKNOWN')
+            positions_to_close = opportunity.get('positions', [])
+            expected_profit = opportunity.get('expected_profit', 0)
+            
+            print(f"⚡ Executing {strategy}: {len(positions_to_close)} positions, ${expected_profit:.2f}")
+            
+            success_count = 0
+            total_profit = 0
+            
+            for ticket in positions_to_close:
+                if ticket in self.active_positions:
+                    position = self.active_positions[ticket]
                     
-                    # Update rebate tracking
-                    if hasattr(self, 'smart_enhancer'):
-                        estimated_volume = len(position_tickets) * 0.01  # Estimate
-                        self.smart_enhancer.update_daily_stats(estimated_volume, rebate_bonus)
-                
+                    # 🎯 เพิ่มส่วนนี้ - Balance-aware comment
+                    balance_comment = ""
+                    if enable_balance_protection and opportunity.get('balance_filtered'):
+                        balance_comment = f"|BAL:{opportunity.get('balance_status', 'UNK')}"
+                    
+                    comment = f"{strategy}|${position.get('profit', 0):.1f}{balance_comment}"
+                    
+                    # ปิด position (logic เดิม)
+                    if self.close_position(ticket, comment):
+                        success_count += 1
+                        total_profit += position.get('profit', 0)
+                        print(f"     ✅ Closed #{ticket}: ${position.get('profit', 0):.2f}")
+                    else:
+                        print(f"     ❌ Failed to close #{ticket}")
+                    
+                    time.sleep(0.1)
+            
+            # รายงานผล (เดิม)
+            if success_count > 0:
+                print(f"🎉 {strategy} completed: {success_count}/{len(positions_to_close)} closed, "
+                    f"${total_profit:.2f} profit")
                 return True
-                
-            elif success_count > 0:
-                print(f"   ⚠️ PARTIAL SUCCESS: Closed {success_count}/{len(position_tickets)} positions")
-                print(f"   💰 Partial Profit: ${total_actual_profit:.2f}")
-                return True
-                
             else:
-                print(f"   ❌ FAILED: Could not close any positions")
+                print(f"❌ {strategy} failed: No positions closed")
                 return False
                 
         except Exception as e:
-            print(f"❌ Profit opportunity execution error (FIXED): {e}")
-            print(f"   🔍 Opportunity type: {type(opportunity)}")
-            print(f"   📊 Opportunity data: {opportunity}")
+            #print(f"❌ Execute profit opportunity error: {e}")
             return False
 
     def debug_opportunity_structure(self, opportunity):
@@ -3328,9 +3390,9 @@ class AISmartProfitManager:
                 
                 # เช็คว่าโดน trailing stop หรือไม่
                 if current_profit <= trailing_stop and trailing_stop > 0:
-                    print(f"🚨 TRAILING HIT: Position {position_ticket}")
-                    print(f"   💰 Current Profit: ${current_profit:.2f}")
-                    print(f"   🎯 Trailing Stop: ${trailing_stop:.2f}")
+                   # print(f"🚨 TRAILING HIT: Position {position_ticket}")
+                   # print(f"   💰 Current Profit: ${current_profit:.2f}")
+                    # print(f"   🎯 Trailing Stop: ${trailing_stop:.2f}")
                     
                     # เพิ่มเข้า list ปิด
                     trailing_hits.append({
@@ -3557,6 +3619,11 @@ class AISmartProfitManager:
         
     def is_position_trailing_protected(self, ticket):
         """เช็คว่าไม้นี้ถูกป้องกันด้วย trailing หรือไม่"""
+        
+        # ⭐ เพิ่มการเช็ค override flag ก่อน
+        if getattr(self, 'ignore_trailing_protection', False):
+            return False  # ข้าม trailing protection
+        
         trail_data = self.support_trailing_data.get(ticket)
         if not trail_data:
             return False
@@ -3583,3 +3650,455 @@ class AISmartProfitManager:
                     return True
         
         return trailing_active
+    
+    def check_portfolio_balance_ratio(self) -> Dict:
+        """
+        🧠 Smart Balance Logic - ฉลาดกว่าเดิม
+        ไม่เข้มงวดเกินไป แต่ยังป้องกันได้
+        """
+        try:
+            # นับ positions แยกตามทิศทาง
+            buy_positions = len([p for p in self.active_positions.values() if p.get('direction') == 'BUY'])
+            sell_positions = len([p for p in self.active_positions.values() if p.get('direction') == 'SELL'])
+            
+            total_positions = buy_positions + sell_positions
+            
+            # ⭐ Smart Logic 1: ถ้าไม้น้อย ไม่ต้องเข้มงวด
+            if total_positions <= 20:
+                return {
+                    'status': 'BALANCED',
+                    'total_buy': buy_positions,
+                    'total_sell': sell_positions,
+                    'ratio': 1.0,
+                    'details': f'Small portfolio ({total_positions} positions) - Allow any close',
+                    'action_required': False,
+                    'severity': 'BALANCED'
+                }
+            
+            # ⭐ Smart Logic 2: ถ้าขาดทุนรวมเยอะ ไม่ต้องเข้มงวด
+            total_pnl = sum(p.get('profit', 0) for p in self.active_positions.values())
+            if total_pnl < -150:  # ขาดทุนเกิน $150
+                return {
+                    'status': 'BALANCED',
+                    'total_buy': buy_positions,
+                    'total_sell': sell_positions,
+                    'ratio': 1.0,
+                    'details': f'High loss (${total_pnl:.2f}) - Emergency profit taking allowed',
+                    'action_required': False,
+                    'severity': 'EMERGENCY_LOSS'
+                }
+            
+            # ⭐ Smart Logic 3: คำนวณ ratio แบบยืดหยุ่น
+            if buy_positions == 0 and sell_positions == 0:
+                ratio = 1.0
+                imbalance_type = 'NO_POSITIONS'
+            elif sell_positions == 0:
+                ratio = float('inf')
+                imbalance_type = 'BUY_ONLY'
+            elif buy_positions == 0:
+                ratio = float('inf')
+                imbalance_type = 'SELL_ONLY'
+            else:
+                ratio = max(buy_positions, sell_positions) / min(buy_positions, sell_positions)
+                imbalance_type = 'BUY_HEAVY' if buy_positions > sell_positions else 'SELL_HEAVY'
+            
+            # ⭐ Smart Logic 4: เกณฑ์ที่ยืดหยุ่นตามจำนวนไม้
+            if total_positions > 50:
+                # ไม้เยอะมาก → เข้มงวดน้อย
+                severe_threshold = 4.0    # 80:20
+                critical_threshold = 6.0  # 85:15
+            elif total_positions > 30:
+                # ไม้ปานกลาง → เข้มงวดปกติ
+                severe_threshold = 3.0    # 75:25
+                critical_threshold = 4.0  # 80:20
+            else:
+                # ไม้น้อย → เข้มงวดมาก
+                severe_threshold = 2.5    # 71:29
+                critical_threshold = 3.0  # 75:25
+            
+            # กำหนดระดับความรุนแรง
+            if ratio == float('inf'):
+                severity = 'CRITICAL'
+                status = 'CRITICAL_IMBALANCE'
+            elif ratio > critical_threshold:
+                severity = 'CRITICAL'
+                status = 'CRITICAL_IMBALANCE'
+            elif ratio > severe_threshold:
+                severity = 'SEVERE'
+                status = 'SEVERE_IMBALANCE'
+            elif ratio > 2.0:  # 67:33
+                severity = 'MODERATE'
+                status = 'MODERATE_IMBALANCE'
+            elif ratio > 1.5:  # 60:40
+                severity = 'MINOR'
+                status = 'MINOR_IMBALANCE'
+            else:
+                severity = 'BALANCED'
+                status = 'BALANCED'
+            
+            balance_info = {
+                'status': status,
+                'imbalance_type': imbalance_type,
+                'severity': severity,
+                'ratio': ratio if ratio != float('inf') else 999,
+                'total_buy': buy_positions,
+                'total_sell': sell_positions,
+                'total_positions': total_positions,
+                'total_pnl': total_pnl,
+                'action_required': severity in ['CRITICAL'],  # ⭐ เฉพาะ CRITICAL เท่านั้น
+                'recommended_action': self._get_smart_balance_recommendation(status, imbalance_type, buy_positions, sell_positions, total_pnl),
+                'details': f"{imbalance_type}: BUY:{buy_positions} vs SELL:{sell_positions} (Ratio: {ratio:.1f}, P&L: ${total_pnl:.2f})"
+            }
+            
+            # 📊 Log แบบฉลาด
+            if severity == 'CRITICAL':
+                print(f"🚨 CRITICAL Portfolio Imbalance: {balance_info['details']}")
+            elif severity == 'SEVERE':
+                print(f"⚠️ Severe imbalance (allowed): {balance_info['details']}")
+            elif total_pnl < -100:
+                print(f"💸 High loss portfolio: {balance_info['details']}")
+            else:
+                print(f"📊 Portfolio status: {balance_info['details']}")
+            
+            return balance_info
+            
+        except Exception as e:
+            print(f"❌ Smart balance check error: {e}")
+            return {
+                'status': 'BALANCED',  # Default ให้ปิดได้
+                'ratio': 1.0,
+                'action_required': False,
+                'details': f'Error - allow close: {e}'
+            }
+
+    def can_close_position_safely(self, position: Dict, close_reason: str = "PROFIT") -> Dict:
+        """
+        🧠 Smart Position Close Check - ฉลาดกว่าเดิม
+        """
+        try:
+            ticket = position.get('ticket', 0)
+            direction = position.get('direction', 'UNKNOWN')
+            profit = position.get('profit', 0)
+            
+            # ⭐ Smart Check 1: ขาดทุนรวมเยอะ → ปิดได้ทุกไม้
+            total_pnl = sum(p.get('profit', 0) for p in self.active_positions.values())
+            if total_pnl < -150:
+                return {
+                    'can_close': True,
+                    'reason': f'Emergency loss recovery: Total P&L ${total_pnl:.2f}',
+                    'urgency': 'EMERGENCY_LOSS',
+                    'alternative_action': None
+                }
+            
+            # ⭐ Smart Check 2: กำไรสูง → ปิดได้
+            if profit > 8.0:
+                return {
+                    'can_close': True,
+                    'reason': f'High profit override: ${profit:.2f}',
+                    'urgency': 'HIGH_PROFIT',
+                    'alternative_action': None
+                }
+            
+            # ⭐ Smart Check 3: ไม้เยอะมาก → ปิดได้
+            total_positions = len(self.active_positions)
+            if total_positions > 45:
+                return {
+                    'can_close': True,
+                    'reason': f'Too many positions: {total_positions} > 45',
+                    'urgency': 'POSITION_OVERLOAD',
+                    'alternative_action': None
+                }
+            
+            # เช็ค portfolio balance
+            balance_info = self.check_portfolio_balance_ratio()
+            
+            # ⭐ Smart Check 4: เฉพาะ CRITICAL ถึงจะ block
+            if balance_info['status'] != 'CRITICAL_IMBALANCE':
+                return {
+                    'can_close': True,
+                    'reason': f'Portfolio not critical: {balance_info["status"]}',
+                    'urgency': 'NORMAL',
+                    'alternative_action': None
+                }
+            
+            # ถึงจุดนี้ = CRITICAL_IMBALANCE
+            majority_direction = 'BUY' if balance_info['total_buy'] > balance_info['total_sell'] else 'SELL'
+            
+            if direction == majority_direction:
+                # ปิดฝั่งที่เยอะ = ดี
+                return {
+                    'can_close': True,
+                    'reason': f'Reduces {majority_direction} dominance',
+                    'urgency': 'BALANCE_IMPROVEMENT',
+                    'alternative_action': None
+                }
+            else:
+                # ปิดฝั่งที่น้อย = ต้องระวัง
+                if profit > 15.0:  # กำไรสูงมาก
+                    return {
+                        'can_close': True,
+                        'reason': f'Very high profit ${profit:.2f} overrides balance',
+                        'urgency': 'VERY_HIGH_PROFIT',
+                        'alternative_action': None
+                    }
+                else:
+                    return {
+                        'can_close': False,
+                        'reason': f'Would worsen critical {majority_direction} dominance',
+                        'urgency': 'BLOCKED',
+                        'alternative_action': f'Wait for {majority_direction} profit pair or higher profit'
+                    }
+            
+        except Exception as e:
+            print(f"❌ Smart safety check error: {e}")
+            return {
+                'can_close': True,  # Error = ให้ปิดได้
+                'reason': f'Error fallback: {e}',
+                'urgency': 'ERROR_FALLBACK',
+                'alternative_action': None
+            }
+
+    def _get_smart_balance_recommendation(self, status: str, imbalance_type: str, buy_count: int, sell_count: int, total_pnl: float) -> List[str]:
+        """💡 Smart recommendations"""
+        recommendations = []
+        
+        if status == 'CRITICAL_IMBALANCE':
+            if imbalance_type == 'BUY_ONLY':
+                recommendations.extend([
+                    "🚨 CRITICAL: Only BUY positions - high risk if gold rises",
+                    "💡 Solution: Take some BUY profits and create SELL positions"
+                ])
+            elif imbalance_type == 'SELL_ONLY':
+                recommendations.extend([
+                    "🚨 CRITICAL: Only SELL positions - high risk if gold falls", 
+                    "💡 Solution: Take some SELL profits and create BUY positions"
+                ])
+            else:
+                majority = 'BUY' if buy_count > sell_count else 'SELL'
+                recommendations.append(f"🚨 CRITICAL: Too much {majority} bias - reduce {majority} positions")
+        
+        elif total_pnl < -100:
+            recommendations.extend([
+                f"💸 High loss (${total_pnl:.2f}) - Focus on profit taking",
+                "💡 Consider emergency profit taking to reduce exposure"
+            ])
+        
+        else:
+            recommendations.append("✅ Portfolio manageable - normal profit taking allowed")
+        
+        return recommendations
+
+    def find_balanced_profit_opportunities(self) -> List[Dict]:
+        """
+        🎯 ปรับปรุง: ลดความเข้มงวดของ Balance Protection
+        """
+        try:
+            positions = list(self.active_positions.values())
+            if len(positions) < 1:
+                return []
+            
+            # เช็ค portfolio balance
+            balance_info = self.check_portfolio_balance_ratio()
+            print(f"🎯 PAIR WAITING SYSTEM: {balance_info['details']}")
+            
+            opportunities = []
+            
+            # แยก positions ตามทิศทางและกำไร
+            buy_positions = [p for p in positions if p.get('direction') == 'BUY']
+            sell_positions = [p for p in positions if p.get('direction') == 'SELL']
+            
+            profitable_buys = [p for p in buy_positions if p.get('profit', 0) > 2.0]
+            profitable_sells = [p for p in sell_positions if p.get('profit', 0) > 2.0]
+            
+            total_positions = len(positions)
+            
+            print(f"📊 Profitable Analysis:")
+            print(f"   💰 BUY profitable: {len(profitable_buys)}")
+            print(f"   💰 SELL profitable: {len(profitable_sells)}")
+            print(f"   ⚖️ Portfolio: BUY:{len(buy_positions)} vs SELL:{len(sell_positions)}")
+            print(f"   📈 Total positions: {total_positions}")
+            
+            # 🚨 เพิ่ม Emergency Relief - ถ้าไม้เยอะเกิน 40 ตัว
+            if total_positions > 40:
+                print("🚨 EMERGENCY RELIEF: Too many positions (>40)")
+                # ปิดไม้กำไรได้ ไม่ว่าจะเป็นฝั่งไหน
+                all_profitable = profitable_buys + profitable_sells
+                all_profitable.sort(key=lambda x: x.get('profit', 0), reverse=True)  # เรียงตามกำไร
+                
+                for pos in all_profitable[:5]:  # ปิด 5 ตัวแรกที่กำไรสูงสุด
+                    profit = pos.get('profit', 0)
+                    if profit > 1.5:  # เกณฑ์ต่ำ
+                        opportunities.append({
+                            'strategy': 'EMERGENCY_RELIEF',
+                            'type': 'TOO_MANY_POSITIONS',
+                            'positions': [pos['ticket']],
+                            'expected_profit': profit,
+                            'confidence': 85,
+                            'reasoning': f'Emergency relief: {total_positions} positions, ${profit:.2f} profit',
+                            'urgency': 1,
+                            'pair_waiting_approved': True
+                        })
+                        
+                        print(f"   🚨 Emergency Relief: #{pos['ticket']} ${profit:.2f}")
+                
+                if opportunities:
+                    return opportunities  # ปิดฉุกเฉินก่อน
+            
+            # 🎯 Priority 1: Perfect Pairs (เหมือนเดิม)
+            if len(profitable_buys) > 0 and len(profitable_sells) > 0:
+                print("✅ PERFECT PAIRS AVAILABLE - Closing pairs")
+                
+                for buy_pos in profitable_buys[:2]:
+                    for sell_pos in profitable_sells[:2]:
+                        total_profit = buy_pos.get('profit', 0) + sell_pos.get('profit', 0)
+                        
+                        if total_profit > 3.0:
+                            opportunities.append({
+                                'strategy': 'PERFECT_PAIR',
+                                'type': 'BALANCED_PAIR_CLOSE',
+                                'positions': [buy_pos['ticket'], sell_pos['ticket']],
+                                'expected_profit': total_profit,
+                                'confidence': 95,
+                                'reasoning': f'Perfect pair: BUY ${buy_pos.get("profit", 0):.2f} + SELL ${sell_pos.get("profit", 0):.2f}',
+                                'urgency': 1,
+                                'pair_waiting_approved': True
+                            })
+                
+                if opportunities:
+                    return opportunities
+            
+            # 🎯 Priority 2: ปรับเกณฑ์ Imbalance ให้หลวมขึ้น
+            if balance_info['status'] in ['SEVERE_IMBALANCE', 'CRITICAL_IMBALANCE']:  # เอา MODERATE ออก
+                majority_direction = 'BUY' if balance_info['total_buy'] > balance_info['total_sell'] else 'SELL'
+                
+                print(f"⚖️ SEVERE IMBALANCE DETECTED: {majority_direction} heavy")
+                
+                # ปิดได้แค่ฝั่งที่เยอะเกิน
+                if majority_direction == 'BUY' and len(profitable_buys) > 0:
+                    for buy_pos in profitable_buys[:3]:  # เพิ่มจาก 2 เป็น 3
+                        profit = buy_pos.get('profit', 0)
+                        if profit > 1.5:  # ลดเกณฑ์จาก 2.0 เป็น 1.5
+                            opportunities.append({
+                                'strategy': 'MAJORITY_RELIEF',
+                                'type': 'IMBALANCE_REDUCTION',
+                                'positions': [buy_pos['ticket']],
+                                'expected_profit': profit,
+                                'confidence': 80,
+                                'reasoning': f'Reduce BUY imbalance: ${profit:.2f} profit',
+                                'urgency': 3,
+                                'pair_waiting_approved': True
+                            })
+                
+                elif majority_direction == 'SELL' and len(profitable_sells) > 0:
+                    for sell_pos in profitable_sells[:3]:  # เพิ่มจาก 2 เป็น 3
+                        profit = sell_pos.get('profit', 0)
+                        if profit > 1.5:  # ลดเกณฑ์จาก 2.0 เป็น 1.5
+                            opportunities.append({
+                                'strategy': 'MAJORITY_RELIEF',
+                                'type': 'IMBALANCE_REDUCTION',
+                                'positions': [sell_pos['ticket']],
+                                'expected_profit': profit,
+                                'confidence': 80,
+                                'reasoning': f'Reduce SELL imbalance: ${profit:.2f} profit',
+                                'urgency': 3,
+                                'pair_waiting_approved': True
+                            })
+            
+            # 🎯 Priority 3: ลดเกณฑ์ High Profit Override
+            elif len(profitable_buys) > 0 or len(profitable_sells) > 0:
+                print("🎯 CHECKING HIGH PROFIT OVERRIDE (>$5)")  # ลดจาก $10 เป็น $5
+                
+                all_profitable = profitable_buys + profitable_sells
+                for pos in all_profitable:
+                    profit = pos.get('profit', 0)
+                    direction = pos.get('direction')
+                    
+                    if profit > 5.0:  # ลดจาก 10.0 เป็น 5.0
+                        opportunities.append({
+                            'strategy': 'HIGH_PROFIT_OVERRIDE',
+                            'type': 'EMERGENCY_HIGH_PROFIT',
+                            'positions': [pos['ticket']],
+                            'expected_profit': profit,
+                            'confidence': 90,
+                            'reasoning': f'High profit override: ${profit:.2f} > $5 threshold',
+                            'urgency': 2,
+                            'pair_waiting_approved': True
+                        })
+                        
+                        print(f"   💰 High Profit Override: {direction} #{pos['ticket']} ${profit:.2f}")
+                    else:
+                        print(f"   ⏳ {direction} #{pos['ticket']} ${profit:.2f} - waiting for pair")
+            
+            # 🎯 Priority 4: เพิ่ม Moderate Profit Release (ใหม่)
+            else:
+                print("🎯 MODERATE PROFIT RELEASE - ปิดกำไรปานกลาง")
+                all_profitable = profitable_buys + profitable_sells
+                all_profitable.sort(key=lambda x: x.get('profit', 0), reverse=True)
+                
+                for pos in all_profitable[:2]:  # ปิด 2 ตัวที่กำไรสูงสุด
+                    profit = pos.get('profit', 0)
+                    if profit > 2.5:  # เกณฑ์ปานกลาง
+                        opportunities.append({
+                            'strategy': 'MODERATE_PROFIT',
+                            'type': 'MODERATE_PROFIT_TAKING',
+                            'positions': [pos['ticket']],
+                            'expected_profit': profit,
+                            'confidence': 70,
+                            'reasoning': f'Moderate profit release: ${profit:.2f}',
+                            'urgency': 5,
+                            'pair_waiting_approved': True
+                        })
+            
+            print(f"\n🏆 BALANCED RESULTS: {len(opportunities)} opportunities")
+            for opp in opportunities:
+                print(f"   {opp['strategy']}: ${opp['expected_profit']:.2f} ({opp['reasoning']})")
+            
+            return opportunities
+            
+        except Exception as e:
+            print(f"❌ Balanced profit opportunities error: {e}")
+            return []
+           
+    def _find_emergency_balance_opportunities(self, balance_info: Dict) -> List[Dict]:
+        """
+        🚨 หา emergency opportunities เพื่อปรับสมดุล portfolio
+        """
+        try:
+            emergency_ops = []
+            
+            # หาฝั่งที่เยอะเกิน
+            if balance_info['total_buy'] > balance_info['total_sell']:
+                majority_direction = 'BUY'
+                target_positions = [p for p in self.active_positions.values() if p.get('direction') == 'BUY']
+            else:
+                majority_direction = 'SELL' 
+                target_positions = [p for p in self.active_positions.values() if p.get('direction') == 'SELL']
+            
+            # หา positions ที่ขาดทุนน้อยที่สุด (เพื่อปิดเพื่อสมดุล)
+            target_positions.sort(key=lambda x: x.get('profit', 0), reverse=True)  # เรียงจากกำไรมากสุด
+            
+            for pos in target_positions[:3]:  # เอาแค่ 3 ตัวแรก
+                profit = pos.get('profit', 0)
+                
+                # ยอมขาดทุนเล็กน้อยเพื่อสมดุล
+                if profit >= -5.0:  # ขาดทุนไม่เกิน $5
+                    emergency_ops.append({
+                        'strategy': 'EMERGENCY_BALANCE',
+                        'type': 'BALANCE_CORRECTION',
+                        'positions': [pos['ticket']],
+                        'expected_profit': profit,
+                        'confidence': 80,  # ความมั่นใจสูง เพราะเพื่อสมดุล
+                        'reasoning': f"Emergency {majority_direction} reduction for portfolio balance",
+                        'urgency': 8,  # ด่วนมาก
+                        'impact_score': 50,  # ผลกระทบสูง
+                        'balance_emergency': True
+                    })
+                    
+                    print(f"🚨 Emergency balance opportunity: Close {majority_direction} #{pos['ticket']} "
+                        f"(${profit:.2f}) for portfolio balance")
+            
+            return emergency_ops
+            
+        except Exception as e:
+            print(f"❌ Emergency balance opportunities error: {e}")
+            return []

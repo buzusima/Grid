@@ -337,6 +337,13 @@ class SimpleAITradingGUI:
                 'ai_smart_profit': {
                     'analysis_interval': 3,
                     'profit_only_mode': True
+                },
+                # ⭐ เพิ่มส่วนนี้ - Portfolio Balance Protection Config
+                'portfolio_balance_protection': {
+                    'enabled': True,
+                    'mode': 'STANDARD',
+                    'max_imbalance_ratio': 2.3,    # 70:30
+                    'critical_imbalance_ratio': 3.0  # 75:25
                 }
             }
             
@@ -345,6 +352,17 @@ class SimpleAITradingGUI:
                 self.calc_results,
                 config
             )
+            
+            # ⭐ เพิ่มส่วนนี้ - Setup Portfolio Balance Protection
+            self.ai_smart_trader.portfolio_balance_protection = config['portfolio_balance_protection']['enabled']
+            self.ai_smart_trader.balance_protection_mode = config['portfolio_balance_protection']['mode']
+            self.ai_smart_trader.max_imbalance_ratio = config['portfolio_balance_protection']['max_imbalance_ratio']
+            self.ai_smart_trader.critical_imbalance_ratio = config['portfolio_balance_protection']['critical_imbalance_ratio']
+            
+            # Log Portfolio Balance Protection settings
+            self.log("🛡️ Portfolio Balance Protection: ENABLED")
+            self.log(f"📊 Max Imbalance Ratio: {self.ai_smart_trader.max_imbalance_ratio:.1f}:1 (70:30)")
+            self.log(f"🚨 Critical Threshold: {self.ai_smart_trader.critical_imbalance_ratio:.1f}:1 (75:25)")
             
             # Start trading
             success = self.ai_smart_trader.start_ai_trading()
@@ -360,6 +378,7 @@ class SimpleAITradingGUI:
                 self.log("🧠 AI Engine: ACTIVE")
                 self.log("🎯 Grid Manager: OPERATIONAL")
                 self.log("💰 Profit System: MONITORING")
+                self.log("🛡️ Balance Protection: ACTIVE")  # ⭐ เพิ่มบรรทัดนี้
                 
                 # Start monitoring
                 self.start_monitoring()
@@ -371,7 +390,7 @@ class SimpleAITradingGUI:
         except Exception as e:
             self.log(f"❌ Trading start error: {e}")
             self.show_message("Error", f"Trading start error: {e}", "error")
-            
+
     def stop_trading(self):
         """Stop trading"""
         if not self.is_trading:
